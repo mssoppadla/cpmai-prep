@@ -1,0 +1,8 @@
+[
+  { "code": "BU", "name": "Business Understanding",       "order": 1 },
+  { "code": "DU", "name": "Data Understanding",           "order": 2 },
+  { "code": "DP", "name": "Data Preparation",             "order": 3 },
+  { "code": "MD", "name": "Modeling",                     "order": 4 },
+  { "code": "EV", "name": "Model Evaluation",             "order": 5 },
+  { "code": "DE", "name": "Model Operationalization",     "order": 6 }
+]
