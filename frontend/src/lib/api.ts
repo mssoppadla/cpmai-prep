@@ -4,9 +4,13 @@
  */
 import type {
   ApiErrorBody, AuthTokens, LoginIn, SignupIn, RefreshIn,
-  UserOut, ExamSetSummaryOut, ExamAttemptOut, AnswerIn,
-  SubmitAttemptOut, AssistantRequest, AssistantResponse,
-  LeadCreateIn, LeadCreateOut, ChatQuota,
+  UserOut, UserAdminOut, ExamSetSummaryOut, ExamSetAdminIn,
+  ExamAttemptOut, AnswerIn, SubmitAttemptOut,
+  AssistantRequest, AssistantResponse,
+  LeadCreateIn, LeadCreateOut, LeadAdminOut, ChatQuota,
+  QuestionAdminIn, QuestionAdminOut,
+  SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
+  PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
 } from "@/types/api";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -141,6 +145,12 @@ export const exams = {
     await request(`/exams/attempts/${id}/answer`,
       { method: "PATCH", json: payload, authed: true });
   },
+  async getResult(id: number): Promise<SubmitAttemptOut> {
+    const { data } = await request<SubmitAttemptOut>(
+      `/exams/attempts/${id}/result`, { authed: true }
+    );
+    return data;
+  },
   async submit(id: number): Promise<SubmitAttemptOut> {
     const { data } = await request<SubmitAttemptOut>(
       `/exams/attempts/${id}/submit`, { method: "POST", authed: true }
@@ -173,5 +183,183 @@ export const leads = {
     const { data } = await request<LeadCreateOut>("/leads",
       { method: "POST", json: payload });
     return data;
+  },
+};
+
+// ==========================================================================
+// Admin API surface — gated server-side by RBAC. Calling these as a regular
+// user will throw `ApiError` with code === "forbidden".
+// ==========================================================================
+function qs(params?: Record<string, unknown>): string {
+  if (!params) return "";
+  const u = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null) u.set(k, String(v));
+  }
+  const s = u.toString();
+  return s ? `?${s}` : "";
+}
+
+export const content = {
+  async topics(): Promise<Array<{id: number; code: string; name: string; order: number}>> {
+    const { data } = await request<Array<{id: number; code: string; name: string; order: number}>>(
+      "/content/topics");
+    return data;
+  },
+};
+
+export const admin = {
+  questions: {
+    async list(p?: { topic_id?: number; q?: string; limit?: number; offset?: number }) {
+      const { data } = await request<QuestionAdminOut[]>(
+        `/admin/questions${qs(p)}`, { authed: true });
+      return data;
+    },
+    async get(id: number) {
+      const { data } = await request<QuestionAdminOut>(
+        `/admin/questions/${id}`, { authed: true });
+      return data;
+    },
+    async create(payload: QuestionAdminIn) {
+      const { data } = await request<QuestionAdminOut>(
+        "/admin/questions", { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    async update(id: number, payload: QuestionAdminIn) {
+      const { data } = await request<QuestionAdminOut>(
+        `/admin/questions/${id}`, { method: "PATCH", json: payload, authed: true });
+      return data;
+    },
+    async delete(id: number) {
+      await request(`/admin/questions/${id}`, { method: "DELETE", authed: true });
+    },
+  },
+  examSets: {
+    async list() {
+      const { data } = await request<ExamSetSummaryOut[]>(
+        "/admin/exam-sets", { authed: true });
+      return data;
+    },
+    async create(p: ExamSetAdminIn) {
+      const { data } = await request<ExamSetSummaryOut>(
+        "/admin/exam-sets", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: ExamSetAdminIn) {
+      const { data } = await request<ExamSetSummaryOut>(
+        `/admin/exam-sets/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async addQuestions(id: number, qids: number[]) {
+      await request(`/admin/exam-sets/${id}/questions`,
+        { method: "POST", json: { question_ids: qids }, authed: true });
+    },
+    async removeQuestion(setId: number, qid: number) {
+      await request(`/admin/exam-sets/${setId}/questions/${qid}`,
+        { method: "DELETE", authed: true });
+    },
+    async delete(id: number) {
+      await request(`/admin/exam-sets/${id}`, { method: "DELETE", authed: true });
+    },
+  },
+  leads: {
+    async list(p?: { source?: string; q?: string; limit?: number; offset?: number }) {
+      const { data } = await request<LeadAdminOut[]>(
+        `/admin/leads${qs(p)}`, { authed: true });
+      return data;
+    },
+    async updateNotes(id: number, notes: string) {
+      const { data } = await request<LeadAdminOut>(
+        `/admin/leads/${id}/notes`,
+        { method: "PATCH", json: { notes }, authed: true });
+      return data;
+    },
+  },
+  settings: {
+    async list() {
+      const { data } = await request<SettingOut[]>(
+        "/admin/settings", { authed: true });
+      return data;
+    },
+    async update(key: string, value: unknown) {
+      const { data } = await request<SettingOut>(
+        `/admin/settings/${encodeURIComponent(key)}`,
+        { method: "PATCH", json: { value }, authed: true });
+      return data;
+    },
+  },
+  llmProviders: {
+    async list() {
+      const { data } = await request<LLMProviderOut[]>(
+        "/admin/llm-providers", { authed: true });
+      return data;
+    },
+    async create(p: LLMProviderCreate) {
+      const { data } = await request<LLMProviderOut>(
+        "/admin/llm-providers", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: LLMProviderUpdate) {
+      const { data } = await request<LLMProviderOut>(
+        `/admin/llm-providers/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async activate(id: number) {
+      const { data } = await request<LLMProviderOut>(
+        `/admin/llm-providers/${id}/activate`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    async test(id: number) {
+      const { data } = await request<{
+        ok: boolean; latency_ms?: number; preview?: string; error?: string;
+      }>(`/admin/llm-providers/${id}/test`, { method: "POST", authed: true });
+      return data;
+    },
+    async delete(id: number) {
+      await request(`/admin/llm-providers/${id}`,
+        { method: "DELETE", authed: true });
+    },
+  },
+  paymentProviders: {
+    async list() {
+      const { data } = await request<PaymentProviderOut[]>(
+        "/admin/payment-providers", { authed: true });
+      return data;
+    },
+    async create(p: PaymentProviderCreate) {
+      const { data } = await request<PaymentProviderOut>(
+        "/admin/payment-providers", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: PaymentProviderUpdate) {
+      const { data } = await request<PaymentProviderOut>(
+        `/admin/payment-providers/${id}`,
+        { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async activate(id: number) {
+      const { data } = await request<PaymentProviderOut>(
+        `/admin/payment-providers/${id}/activate`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    async test(id: number) {
+      const { data } = await request<{ ok: boolean; error?: string }>(
+        `/admin/payment-providers/${id}/test`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    async delete(id: number) {
+      await request(`/admin/payment-providers/${id}`,
+        { method: "DELETE", authed: true });
+    },
+  },
+  users: {
+    async list(p?: { q?: string; limit?: number; offset?: number }) {
+      const { data } = await request<UserAdminOut[]>(
+        `/admin/users${qs(p)}`, { authed: true });
+      return data;
+    },
   },
 };

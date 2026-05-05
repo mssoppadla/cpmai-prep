@@ -12,18 +12,21 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Re-submit is idempotent (server returns 409 if already submitted),
-    // so we fetch via a dedicated GET in production. For this scaffold,
-    // we cache on the attempt page; if a user lands here cold, fall back
-    // to error state and ask them to retake.
-    const cached = typeof window !== "undefined"
-      ? window.sessionStorage.getItem(`result:${id}`) : null;
-    if (cached) {
-      setResult(JSON.parse(cached) as SubmitAttemptOut);
-      return;
+    // Try session cache first (fast), then fall back to API (cold load).
+    if (typeof window !== "undefined") {
+      const cached = window.sessionStorage.getItem(`result:${id}`);
+      if (cached) {
+        try { setResult(JSON.parse(cached)); return; } catch {}
+      }
     }
-    // TODO: implement GET /exams/attempts/{id}/result for cold loads.
-    setError("Result not in session. Take the exam again to view results.");
+    examsApi.getResult(Number(id))
+      .then((r) => {
+        setResult(r);
+        try {
+          window.sessionStorage.setItem(`result:${id}`, JSON.stringify(r));
+        } catch {}
+      })
+      .catch((e: ApiError) => setError(e.body.message));
   }, [id]);
 
   if (error) {
@@ -47,7 +50,6 @@ export default function ResultsPage() {
 
   return (
     <main className="max-w-3xl mx-auto px-6 py-10">
-      {/* Score banner */}
       <div className={`rounded-2xl p-8 mb-8 text-white ${
         result.passed
           ? "bg-gradient-to-br from-emerald-500 to-emerald-700"
@@ -65,7 +67,6 @@ export default function ResultsPage() {
         </div>
       </div>
 
-      {/* Per-phase breakdown */}
       <section className="bg-white rounded-xl border border-slate-200 p-6 mb-8">
         <h2 className="font-semibold text-slate-900 mb-4">Performance by CPMAI Phase</h2>
         <div className="space-y-3">
@@ -91,14 +92,13 @@ export default function ResultsPage() {
         </div>
       </section>
 
-      {/* Per-question review with reasoning */}
       <section>
         <h2 className="font-semibold text-slate-900 mb-4 text-lg">
           Question-by-question review
         </h2>
         <p className="text-sm text-slate-600 mb-5">
-          For each question: the correct answer, why it's correct, and (if you chose
-          differently) why your choice was wrong.
+          For each question: the correct answer, why it's correct, and (if you
+          chose differently) why your choice was wrong.
         </p>
         <div className="space-y-5">
           {result.questions.map((q, i) => (

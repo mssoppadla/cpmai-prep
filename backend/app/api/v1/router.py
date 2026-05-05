@@ -1,7 +1,7 @@
 """Aggregate API router."""
 from fastapi import APIRouter
 from app.api.v1.endpoints import (
-    auth, users, payments, exam_sets, exams, leads, assistant,
+    auth, users, payments, exam_sets, exams, leads, assistant, content,
 )
 from app.api.v1.endpoints.admin.router import admin_router
 
@@ -13,4 +13,5 @@ api_router.include_router(exam_sets.router, prefix="/exam-sets", tags=["exam-set
 api_router.include_router(exams.router,     prefix="/exams",     tags=["exams"])
 api_router.include_router(leads.router,     prefix="/leads",     tags=["leads"])
 api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])
+api_router.include_router(content.router,   prefix="/content",   tags=["content"])
 api_router.include_router(admin_router,     prefix="/admin")

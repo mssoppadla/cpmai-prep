@@ -23,6 +23,8 @@ EDITABLE: dict[str, Callable] = {
     "llm.active_provider_id":            lambda v: v is None or isinstance(v, int),
     "llm.fallback_provider_id":          lambda v: v is None or isinstance(v, int),
     "llm.cache_ttl_seconds":             lambda v: isinstance(v, int) and v >= 1,
+    "payment.active_provider_id":        lambda v: v is None or isinstance(v, int),
+    "payment.cache_ttl_seconds":         lambda v: isinstance(v, int) and v >= 1,
 }
 
 

@@ -238,3 +238,72 @@ class ExamService:
             status=session.status, questions=questions,
             user_answers=user_answers,
         )
+
+    # ---------------------------------------------------------------- result
+    def get_result(self, user, attempt_id: int) -> SubmitAttemptOut:
+        """Cold-load a submitted attempt's result. Reconstructs reasoning view."""
+        session = self._load_session(user, attempt_id)
+        if session.status != "submitted":
+            raise ConflictError(f"Attempt is {session.status}, not submitted.")
+
+        es = self.db.get(ExamSet, session.exam_set_id)
+        question_map = {q.id: q for q in es.questions}
+
+        correct = 0; incorrect = 0; unanswered = 0
+        results: list[QuestionResultView] = []
+        phase_counts: dict[int, dict] = {}
+
+        for ans in session.answers:
+            q = question_map.get(ans.question_id)
+            if not q: continue
+            user_letter = ans.selected_letter
+            if user_letter is None:
+                unanswered += 1
+            elif ans.is_correct:
+                correct += 1
+            else:
+                incorrect += 1
+
+            slot = phase_counts.setdefault(q.topic_id, {"correct": 0, "total": 0})
+            slot["total"] += 1
+            if ans.is_correct:
+                slot["correct"] += 1
+
+            results.append(QuestionResultView(
+                id=q.id, stem=q.stem, topic_id=q.topic_id,
+                domain=q.domain, task=q.task,
+                enablers=q.enablers or [], remarks=q.remarks,
+                difficulty=q.difficulty, explanation=q.explanation,
+                is_user_correct=bool(ans.is_correct),
+                options=[
+                    QuestionOptionResultOut(
+                        option_letter=o.option_letter, text=o.text,
+                        is_correct=o.is_correct, reasoning=o.reasoning,
+                        selected_by_user=(o.option_letter == user_letter),
+                    )
+                    for o in q.options
+                ],
+            ))
+
+        topics = {t.id: t for t in self.db.query(Topic).all()}
+        by_phase = []
+        for tid, v in phase_counts.items():
+            t = topics.get(tid)
+            by_phase.append(PhaseBreakdown(
+                topic_code=t.code if t else "?",
+                topic_name=t.name if t else "Unknown",
+                correct=v["correct"], total=v["total"],
+                percent=round((v["correct"] / v["total"]) * 100) if v["total"] else 0,
+            ))
+        by_phase.sort(key=lambda p: topics.get(
+            next((tid for tid, t in topics.items() if t.code == p.topic_code), 0)
+        ).order if any(t.code == p.topic_code for t in topics.values()) else 99)
+
+        return SubmitAttemptOut(
+            id=session.id, score=session.score or 0,
+            passed=bool(session.passed),
+            correct_count=correct, incorrect_count=incorrect,
+            unanswered_count=unanswered,
+            time_taken_seconds=session.time_taken_seconds or 0,
+            questions=results, by_phase=by_phase,
+        )

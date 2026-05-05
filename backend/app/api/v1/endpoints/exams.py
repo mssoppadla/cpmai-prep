@@ -26,3 +26,11 @@ def save_answer(attempt_id: int, payload: AnswerIn,
 def submit_attempt(attempt_id: int, db: Session = Depends(get_db),
                    user: User = Depends(get_current_user)):
     return ExamService(db).submit(user, attempt_id)
+
+
+@router.get("/attempts/{attempt_id}/result", response_model=SubmitAttemptOut)
+def get_attempt_result(attempt_id: int, db: Session = Depends(get_db),
+                       user: User = Depends(get_current_user)):
+    """Cold-load a submitted attempt's full result (with per-option reasoning)."""
+    return ExamService(db).get_result(user, attempt_id)
+

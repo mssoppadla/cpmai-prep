@@ -1,13 +1,67 @@
 [
-  { "key": "chat.daily_limit.anonymous",        "value": 5,     "description": "Per-anon-id daily AI chat limit" },
-  { "key": "chat.daily_limit.authenticated",    "value": 25,    "description": "Per-user daily AI chat limit" },
-  { "key": "chat.max_input_chars",              "value": 4000,  "description": "Max user message length" },
-  { "key": "chat.max_output_chars",             "value": 4000,  "description": "Max model response length" },
-  { "key": "chat.tokens_per_day_authenticated", "value": 50000, "description": "Hard token budget per user/day" },
-  { "key": "chat.cooldown_seconds",             "value": 2,     "description": "Min seconds between messages from same actor" },
-  { "key": "auth.lockout_threshold",            "value": 5,     "description": "Failed logins before lockout" },
-  { "key": "auth.lockout_minutes",              "value": 15,    "description": "Lockout duration" },
-  { "key": "llm.active_provider_id",            "value": null,  "description": "ID of the currently active llm_providers row" },
-  { "key": "llm.fallback_provider_id",          "value": null,  "description": "Fallback provider when active fails" },
-  { "key": "llm.cache_ttl_seconds",             "value": 30,    "description": "Provider config cache TTL" }
+  {
+    "key": "chat.daily_limit.anonymous",
+    "value": 5,
+    "description": "Per-anon-id daily AI chat limit"
+  },
+  {
+    "key": "chat.daily_limit.authenticated",
+    "value": 25,
+    "description": "Per-user daily AI chat limit"
+  },
+  {
+    "key": "chat.max_input_chars",
+    "value": 4000,
+    "description": "Max user message length"
+  },
+  {
+    "key": "chat.max_output_chars",
+    "value": 4000,
+    "description": "Max model response length"
+  },
+  {
+    "key": "chat.tokens_per_day_authenticated",
+    "value": 50000,
+    "description": "Hard token budget per user/day"
+  },
+  {
+    "key": "chat.cooldown_seconds",
+    "value": 2,
+    "description": "Min seconds between messages from same actor"
+  },
+  {
+    "key": "auth.lockout_threshold",
+    "value": 5,
+    "description": "Failed logins before lockout"
+  },
+  {
+    "key": "auth.lockout_minutes",
+    "value": 15,
+    "description": "Lockout duration"
+  },
+  {
+    "key": "llm.active_provider_id",
+    "value": null,
+    "description": "ID of the currently active llm_providers row"
+  },
+  {
+    "key": "llm.fallback_provider_id",
+    "value": null,
+    "description": "Fallback provider when active fails"
+  },
+  {
+    "key": "llm.cache_ttl_seconds",
+    "value": 30,
+    "description": "Provider config cache TTL"
+  },
+  {
+    "key": "payment.active_provider_id",
+    "value": null,
+    "description": "Active payment_providers row ID"
+  },
+  {
+    "key": "payment.cache_ttl_seconds",
+    "value": 30,
+    "description": "Payment provider config cache TTL"
+  }
 ]

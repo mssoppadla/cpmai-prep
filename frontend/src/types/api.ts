@@ -287,3 +287,45 @@ export interface LLMProviderUpdate {
   is_enabled?: boolean | null;
   priority?: number | null;
 }
+
+// ---------- Payment providers --------------------------------------------
+export type PaymentProviderType = "razorpay" | "stripe";
+export type PaymentMode = "test" | "live";
+
+export interface PaymentProviderOut {
+  id: number;
+  name: string;
+  provider_type: PaymentProviderType;
+  mode: PaymentMode;
+  display_name: string | null;
+  public_key: string | null;
+  config: Record<string, unknown>;
+  is_enabled: boolean;
+  priority: number;
+  is_active: boolean;
+  has_api_secret: boolean;
+  has_webhook_secret: boolean;
+}
+export interface PaymentProviderCreate {
+  name: string;
+  provider_type?: PaymentProviderType;
+  mode?: PaymentMode;
+  display_name?: string | null;
+  public_key: string;
+  api_secret: string;
+  webhook_secret?: string | null;
+  config?: Record<string, unknown> | null;
+  is_enabled?: boolean;
+  priority?: number;
+}
+export interface PaymentProviderUpdate {
+  name?: string | null;
+  mode?: PaymentMode | null;
+  display_name?: string | null;
+  public_key?: string | null;
+  api_secret?: string | null;
+  webhook_secret?: string | null;
+  config?: Record<string, unknown> | null;
+  is_enabled?: boolean | null;
+  priority?: number | null;
+}
