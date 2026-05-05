@@ -1,3 +1,67 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    /* Dynamic viewport accounts for collapsing mobile chrome */
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* Cleaner taps on iOS/Android — keep accessible focus rings via :focus-visible */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Prevent iOS Safari from zooming the page on input focus.
+     16px is the minimum that disables auto-zoom. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  /* On tablet/desktop, allow smaller text where zoom isn't an issue */
+  @media (min-width: 640px) {
+    input,
+    textarea,
+    select {
+      font-size: 0.875rem;
+    }
+  }
+
+  /* Better focus ring for keyboard users */
+  :focus-visible {
+    outline: 2px solid #4f46e5;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Long-form text is more readable with these */
+  p, dd, li {
+    text-wrap: pretty;
+  }
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+}
+
+@layer utilities {
+  /* iPhone notch / home-indicator safe areas — apply to fixed/sticky elements */
+  .safe-top    { padding-top: max(0px, env(safe-area-inset-top)); }
+  .safe-bottom { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
+  .safe-x      {
+    padding-left:  max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+  /* Helpful for tap-friendly minimum sizes */
+  .min-tap { min-height: 44px; min-width: 44px; }
+}

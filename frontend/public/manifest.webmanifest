@@ -1,0 +1,27 @@
+{
+  "name": "CPMAI Prep — CPMAI Certification Preparation",
+  "short_name": "CPMAI Prep",
+  "description": "Prepare for the CPMAI certification with realistic mock exams, AI-powered coaching, and detailed answer reasoning across all 6 phases.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "lang": "en-IN",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "maskable"
+    }
+  ]
+}
