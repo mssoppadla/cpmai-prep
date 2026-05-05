@@ -130,9 +130,8 @@ def reorder_questions(set_id: int, payload: ReorderIn,
     rows = {r.question_id: r for r in
             db.query(ExamSetQuestion).filter_by(exam_set_id=set_id).all()}
     for item in payload.items:
-        qid = item.get("question_id"); pos = item.get("position")
-        if qid in rows and isinstance(pos, int):
-            rows[qid].position = pos
+        if item.question_id in rows:
+            rows[item.question_id].position = item.position
     db.commit()
     audit_log(db, admin.id, "exam_set.questions_reordered",
               {"set_id": set_id, "count": len(payload.items)})

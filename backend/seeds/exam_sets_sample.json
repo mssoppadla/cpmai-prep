@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Set 1 — Foundations",
+    "slug": "set-1-foundations",
+    "description": "First-attempt-friendly mix covering all 6 CPMAI phases at medium difficulty.",
+    "difficulty": "medium",
+    "time_limit_minutes": 60,
+    "passing_score": 70,
+    "is_active": true,
+    "is_premium": false,
+    "display_order": 10,
+    "question_count": 5
+  },
+  {
+    "name": "Set 2 — Advanced",
+    "slug": "set-2-advanced",
+    "description": "Hardest 60 questions across all phases. Premium plan required.",
+    "difficulty": "hard",
+    "time_limit_minutes": 90,
+    "passing_score": 70,
+    "is_active": true,
+    "is_premium": true,
+    "display_order": 20,
+    "question_count": 5
+  },
+  {
+    "name": "Set 3 — Phase Drill: Modeling",
+    "slug": "set-3-phase-modeling",
+    "description": "Deep dive on CPMAI Phase 4 (Modeling) only. Targeted practice.",
+    "difficulty": "medium",
+    "time_limit_minutes": 30,
+    "passing_score": 75,
+    "is_active": true,
+    "is_premium": false,
+    "display_order": 30,
+    "question_count": 5
+  }
+]

@@ -1,0 +1,110 @@
+[
+  {
+    "stem": "In CPMAI Phase 2 (Data Understanding), you discover 18% of records have missing values in a key feature. What is the MOST APPROPRIATE immediate action?",
+    "phase_code": "DU",
+    "domain": "Data Understanding > Data Quality Assessment",
+    "task": "Identify and document data gaps",
+    "enablers": ["Data profiling", "Quality metrics", "Stakeholder communication"],
+    "remarks": "Tests understanding that Phase 2 is about assessment, not treatment.",
+    "difficulty": "medium",
+    "explanation": "CPMAI deliberately separates Data Understanding (assessing the data) from Data Preparation (treating it). Phase 2's job is to surface and document issues so the right treatment decision can be made in Phase 3 with full business context.",
+    "options": [
+      { "option_letter": "A",
+        "text": "Drop all rows with missing values and proceed to modeling.",
+        "is_correct": false,
+        "reasoning": "Skips Phase 2's documentation and impact analysis, and prematurely commits to a treatment without understanding the business consequence." },
+      { "option_letter": "B",
+        "text": "Document the gap, assess impact on the business goal, and decide on a treatment strategy in Phase 3.",
+        "is_correct": true,
+        "reasoning": "Correctly preserves the CPMAI separation: Phase 2 documents and assesses; Phase 3 acts. Treatment decisions made with stakeholder context produce better outcomes." },
+      { "option_letter": "C",
+        "text": "Impute the missing values with the column mean immediately.",
+        "is_correct": false,
+        "reasoning": "Imputation is a Phase 3 (Data Preparation) activity. Mean imputation may also be the wrong technique depending on the variable distribution and the business goal." },
+      { "option_letter": "D",
+        "text": "Re-collect the data from the source system before continuing.",
+        "is_correct": false,
+        "reasoning": "Re-collection is occasionally appropriate but cannot be the immediate action — it requires business sponsor approval and an impact assessment first." }
+    ]
+  },
+  {
+    "stem": "Which CPMAI phase explicitly produces the formal business goal and success criteria for the AI initiative?",
+    "phase_code": "BU",
+    "domain": "Business Understanding > Goal Definition",
+    "task": "Articulate measurable success criteria",
+    "enablers": ["Stakeholder workshops", "KPI definition"],
+    "remarks": "Foundational — almost always tested.",
+    "difficulty": "easy",
+    "explanation": "Phase 1 (Business Understanding) is where the AI initiative's purpose is anchored to a measurable business outcome. Skipping or rushing this phase is the most common cause of AI project failure.",
+    "options": [
+      { "option_letter": "A", "text": "Phase 1 — Business Understanding", "is_correct": true,
+        "reasoning": "Correct. Phase 1 produces the business goal, KPIs, and success criteria that all later phases are accountable to." },
+      { "option_letter": "B", "text": "Phase 2 — Data Understanding", "is_correct": false,
+        "reasoning": "Phase 2 assesses whether the data CAN support the goal — but the goal itself is set in Phase 1." },
+      { "option_letter": "C", "text": "Phase 4 — Modeling", "is_correct": false,
+        "reasoning": "Modeling is about technique selection and training, not goal definition." },
+      { "option_letter": "D", "text": "Phase 6 — Model Operationalization", "is_correct": false,
+        "reasoning": "Operationalization is about deployment and monitoring, performed long after the goal is defined." }
+    ]
+  },
+  {
+    "stem": "Which evaluation metric is generally MOST appropriate for a binary classifier on a heavily imbalanced dataset where false negatives are very costly?",
+    "phase_code": "EV",
+    "domain": "Model Evaluation > Metric Selection",
+    "task": "Choose evaluation metric aligned to business cost",
+    "enablers": ["Confusion matrix", "Cost-sensitive analysis"],
+    "remarks": "Common trap: candidates default to accuracy.",
+    "difficulty": "medium",
+    "explanation": "On imbalanced data, accuracy is misleading. When false negatives are costly, recall (sensitivity) — or a metric like F2 that weights recall higher than precision — is preferred over precision-heavy metrics.",
+    "options": [
+      { "option_letter": "A", "text": "Accuracy", "is_correct": false,
+        "reasoning": "On imbalanced data, accuracy can be high even when the minority class is missed entirely — the exact failure mode here." },
+      { "option_letter": "B", "text": "Recall (Sensitivity)", "is_correct": true,
+        "reasoning": "Correct. Recall measures the fraction of actual positives identified, directly minimizing the costly false negatives." },
+      { "option_letter": "C", "text": "Precision", "is_correct": false,
+        "reasoning": "Precision optimizes against false positives, the opposite of what's needed here." },
+      { "option_letter": "D", "text": "Mean Squared Error", "is_correct": false,
+        "reasoning": "MSE is a regression metric, not applicable to a binary classification problem." }
+    ]
+  },
+  {
+    "stem": "A model performs well in offline evaluation but degrades in production. According to CPMAI Phase 6, what is the FIRST thing to investigate?",
+    "phase_code": "DE",
+    "domain": "Model Operationalization > Production Monitoring",
+    "task": "Diagnose production degradation",
+    "enablers": ["Data drift detection", "Distribution monitoring"],
+    "remarks": "Tests Phase 6 monitoring fundamentals.",
+    "difficulty": "medium",
+    "explanation": "Production degradation usually traces to a mismatch between training-time and production-time data distributions (data drift) or label drift. CPMAI Phase 6 mandates monitoring for these as the first line of defense.",
+    "options": [
+      { "option_letter": "A", "text": "Retrain the model on more data immediately.", "is_correct": false,
+        "reasoning": "Retraining without diagnosis may waste effort or reintroduce the same problem if the cause is upstream." },
+      { "option_letter": "B", "text": "Compare production input distributions to training-time distributions to check for data drift.", "is_correct": true,
+        "reasoning": "Correct. Diagnose first; data drift is the most common cause of production degradation and is the diagnostic Phase 6 explicitly calls for." },
+      { "option_letter": "C", "text": "Increase the model's complexity (more layers, more features).", "is_correct": false,
+        "reasoning": "Adding complexity is a modeling change, not a diagnostic step, and is unlikely to address a distribution-shift root cause." },
+      { "option_letter": "D", "text": "Roll back to the previous model version permanently.", "is_correct": false,
+        "reasoning": "Rollback is a valid SHORT-TERM mitigation but is not the FIRST diagnostic step — and it doesn't fix the underlying drift." }
+    ]
+  },
+  {
+    "stem": "When preparing data in CPMAI Phase 3, you encounter a categorical feature with 1,200 distinct values. Which technique is MOST APPROPRIATE before passing it to a tree-based model?",
+    "phase_code": "DP",
+    "domain": "Data Preparation > Feature Engineering",
+    "task": "Encode high-cardinality categorical features",
+    "enablers": ["Target encoding", "Frequency encoding", "Embedding"],
+    "remarks": "High-cardinality features are a frequent CPMAI exam topic.",
+    "difficulty": "hard",
+    "explanation": "One-hot encoding 1,200 categories explodes feature dimensionality. Tree-based models can use target or frequency encoding directly without dimensionality blowup.",
+    "options": [
+      { "option_letter": "A", "text": "One-hot encode all 1,200 values.", "is_correct": false,
+        "reasoning": "Creates 1,200 sparse columns, hurting tree split quality and bloating memory. Inappropriate for high-cardinality categoricals." },
+      { "option_letter": "B", "text": "Target encoding with appropriate cross-validation to prevent leakage.", "is_correct": true,
+        "reasoning": "Correct. Encodes high-cardinality categoricals into a single numeric feature without dimensionality blowup, while CV prevents target leakage." },
+      { "option_letter": "C", "text": "Drop the feature entirely without analysis.", "is_correct": false,
+        "reasoning": "Discards potentially valuable signal; CPMAI requires evidence-based decisions, not blanket removal." },
+      { "option_letter": "D", "text": "Treat the categorical as a continuous integer and feed it as-is.", "is_correct": false,
+        "reasoning": "Imposes a false ordinal relationship between unrelated categories, biasing tree splits." }
+    ]
+  }
+]
