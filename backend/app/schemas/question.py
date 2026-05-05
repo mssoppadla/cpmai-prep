@@ -7,6 +7,7 @@ class QuestionOptionIn(BaseModel):
     text: str
     is_correct: bool = False
     reasoning: str | None = None
+    class Config: from_attributes = True
 
 
 class QuestionOptionOut(BaseModel):

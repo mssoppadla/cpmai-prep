@@ -187,7 +187,7 @@ export const leads = {
 };
 
 // ==========================================================================
-// Admin API surface — gated server-side by RBAC. Calling these as a regular
+// Admin API surface â€” gated server-side by RBAC. Calling these as a regular
 // user will throw `ApiError` with code === "forbidden".
 // ==========================================================================
 function qs(params?: Record<string, unknown>): string {

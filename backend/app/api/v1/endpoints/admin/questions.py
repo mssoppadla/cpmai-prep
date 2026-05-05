@@ -27,7 +27,7 @@ def list_questions(db: Session = Depends(get_db),
                    topic_id: int | None = None,
                    domain: str | None = None,
                    q: str | None = None,
-                   limit: int = Query(50, le=200),
+                   limit: int = Query(50, le=1000),
                    offset: int = 0):
     query = db.query(Question)
     if topic_id: query = query.filter(Question.topic_id == topic_id)
