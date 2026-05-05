@@ -22,3 +22,7 @@ email-validator==2.2.0
 ulid-py==1.1.0
 cryptography==43.0.1
 pyotp==2.9.0
+
+# Optional: real LLM provider SDKs (uncomment to install)
+# openai==1.51.0
+# anthropic==0.34.2
