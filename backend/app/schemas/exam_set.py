@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from app.models.question import Difficulty
+from app.schemas.question import QuestionAdminOut
 
 
 class ExamSetSummaryOut(BaseModel):
@@ -36,6 +37,16 @@ class AddQuestionsIn(BaseModel):
     question_ids: list[int] = Field(min_length=1)
 
 
+class ReorderItem(BaseModel):
+    question_id: int
+    position: int
+
+
 class ReorderIn(BaseModel):
-    """Each item: {question_id: <int>, position: <int>}"""
-    items: list[dict]
+    items: list[ReorderItem]
+
+
+class ExamSetLinkedQuestion(BaseModel):
+    """A question linked to an exam set, with its position. Admin view."""
+    position: int
+    question: QuestionAdminOut

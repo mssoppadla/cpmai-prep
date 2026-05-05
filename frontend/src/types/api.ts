@@ -329,3 +329,9 @@ export interface PaymentProviderUpdate {
   is_enabled?: boolean | null;
   priority?: number | null;
 }
+
+// ---------- Exam-set linked questions (admin view) -----------------------
+export interface ExamSetLinkedQuestion {
+  position: number;
+  question: QuestionAdminOut;
+}

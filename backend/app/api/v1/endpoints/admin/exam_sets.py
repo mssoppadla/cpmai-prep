@@ -9,7 +9,10 @@ from app.models.exam_set import ExamSet, ExamSetQuestion
 from app.models.user import User
 from app.schemas.exam_set import (
     ExamSetSummaryOut, ExamSetAdminIn, AddQuestionsIn, ReorderIn,
+    ExamSetLinkedQuestion,
 )
+from app.models.question import Question
+from app.schemas.question import QuestionAdminOut
 
 router = APIRouter()
 
@@ -60,6 +63,29 @@ def update_set(set_id: int, payload: ExamSetAdminIn,
     db.commit(); db.refresh(es)
     audit_log(db, admin.id, "exam_set.updated", {"id": es.id})
     return _to_summary(es)
+
+
+
+@router.get("/{set_id}/questions", response_model=list[ExamSetLinkedQuestion])
+def list_linked_questions(set_id: int,
+                          db: Session = Depends(get_db),
+                          admin: User = Depends(get_admin_user)):
+    """Return questions in this set ordered by position, with full admin data."""
+    es = db.get(ExamSet, set_id)
+    if not es: raise NotFoundError()
+    links = (db.query(ExamSetQuestion)
+             .filter_by(exam_set_id=set_id)
+             .order_by(ExamSetQuestion.position).all())
+    out: list[ExamSetLinkedQuestion] = []
+    for link in links:
+        q = db.get(Question, link.question_id)
+        if q is None:
+            continue
+        out.append(ExamSetLinkedQuestion(
+            position=link.position,
+            question=QuestionAdminOut.model_validate(q),
+        ))
+    return out
 
 
 @router.post("/{set_id}/questions", status_code=204)

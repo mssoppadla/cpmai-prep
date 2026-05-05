@@ -8,7 +8,7 @@ import type {
   ExamAttemptOut, AnswerIn, SubmitAttemptOut,
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ChatQuota,
-  QuestionAdminIn, QuestionAdminOut,
+  QuestionAdminIn, QuestionAdminOut, ExamSetLinkedQuestion,
   SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
 } from "@/types/api";
@@ -253,6 +253,18 @@ export const admin = {
     async addQuestions(id: number, qids: number[]) {
       await request(`/admin/exam-sets/${id}/questions`,
         { method: "POST", json: { question_ids: qids }, authed: true });
+    },
+    async listLinkedQuestions(id: number) {
+      const { data } = await request<ExamSetLinkedQuestion[]>(
+        `/admin/exam-sets/${id}/questions`, { authed: true });
+      return data;
+    },
+    async reorderQuestions(
+      id: number,
+      items: Array<{ question_id: number; position: number }>,
+    ) {
+      await request(`/admin/exam-sets/${id}/questions/reorder`,
+        { method: "PATCH", json: { items }, authed: true });
     },
     async removeQuestion(setId: number, qid: number) {
       await request(`/admin/exam-sets/${setId}/questions/${qid}`,
