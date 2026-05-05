@@ -5,9 +5,8 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.exceptions import RequestValidationError
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -16,11 +15,10 @@ from app.core.settings_store import start_invalidation_listener
 from app.core.middleware.correlation import CorrelationMiddleware
 from app.core.middleware.security_headers import SecurityHeadersMiddleware
 from app.core.middleware.logging_mw import RequestLoggingMiddleware
+from app.core.limiter import limiter
 from app.api.v1.router import api_router
 
 configure_logging()
-
-limiter = Limiter(key_func=get_remote_address, storage_uri=settings.REDIS_URL)
 
 app = FastAPI(
     title="CPMAI Prep API",

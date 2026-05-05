@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
 from app.core.exceptions import AppError, NotFoundError
 from app.core.audit import audit_log
-from app.main import limiter
+from app.core.limiter import limiter
 from app.models.user import User
 from app.models.payment import Payment, WebhookEvent
 from app.models.subscription import Subscription

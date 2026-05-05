@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from app.core.deps import get_db
-from app.main import limiter
+from app.core.limiter import limiter
 from app.models.lead import Lead
 from app.schemas.lead import LeadCreateIn, LeadCreateOut
 from app.services.tracking_service import emit_event

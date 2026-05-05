@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_optional_user
 from app.core.exceptions import GuardrailViolation
-from app.main import limiter
+from app.core.limiter import limiter
 from app.models.user import User
 from app.schemas.assistant import AssistantRequest, AssistantResponse
 from app.services.assistant.orchestrator import AssistantOrchestrator

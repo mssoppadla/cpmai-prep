@@ -7,7 +7,7 @@ from app.core.deps import get_db, get_current_user
 from app.core.security import JWT_ALGORITHM
 from app.core.redis import redis_client
 from app.core.exceptions import UnauthorizedError, ConflictError
-from app.main import limiter
+from app.core.limiter import limiter
 from app.models.user import User
 from app.schemas.auth import (
     SignupIn, LoginIn, RefreshIn, AuthTokens, RefreshOut, UserOut,
