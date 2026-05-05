@@ -10,16 +10,19 @@ running stack:
     - confirm public learner endpoint sees the set
 
 Each step prints PASS / FAIL with a one-line summary. Exit code is 0 on
-clean run, 1 if any step failed. Designed for fast regression checks
-after any backend or schema change.
+clean run, 1 if any step failed, 2 if config is missing. Designed for
+fast regression checks after any backend or schema change.
+
+Credentials & config — never hardcoded. Resolved in this order:
+    1. ADMIN_EMAIL / ADMIN_PASSWORD env vars (if set)
+    2. BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD from backend/.env
+       (the same source the backend uses to bootstrap the super-admin)
+
+If neither is configured the script exits with a clear error before any
+network call.
 
 Usage:
     # backend + postgres + redis must be up (docker compose up -d)
-    python scripts/smoke_admin_crud.py
-    # or with custom creds / base URL:
-    BASE_URL=http://localhost:8000/api/v1 \\
-    ADMIN_EMAIL=admin@example.com \\
-    ADMIN_PASSWORD=admin-dev-pass-change-me \\
     python scripts/smoke_admin_crud.py
 
 Requires: only stdlib (uses urllib.request — no external deps).
@@ -28,15 +31,51 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
-import time
 import urllib.error
 import urllib.request
 
 
+# -----------------------------------------------------------------------------
+# Config: load credentials from backend/.env (the real config source)
+# without overwriting anything already in the environment.
+# -----------------------------------------------------------------------------
+def _load_dotenv(path: pathlib.Path) -> None:
+    """Tiny .env parser. Mirrors pydantic-settings' parsing closely enough for
+    the keys this script needs. Never overwrites already-set env vars."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        # Strip surrounding quotes and inline comments
+        val = val.split("#", 1)[0].strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+_load_dotenv(_REPO_ROOT / "backend" / ".env")
+
 BASE = os.environ.get("BASE_URL", "http://localhost:8000/api/v1")
-EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
-PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin-dev-pass-change-me")
+EMAIL = (os.environ.get("ADMIN_EMAIL")
+         or os.environ.get("BOOTSTRAP_ADMIN_EMAIL"))
+PASSWORD = (os.environ.get("ADMIN_PASSWORD")
+            or os.environ.get("BOOTSTRAP_ADMIN_PASSWORD"))
+
+if not EMAIL or not PASSWORD:
+    print("ERROR: admin credentials not configured.", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Provide them via either:", file=sys.stderr)
+    print("  - ADMIN_EMAIL / ADMIN_PASSWORD env vars, or", file=sys.stderr)
+    print("  - BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD in",
+          file=sys.stderr)
+    print(f"    {_REPO_ROOT / 'backend' / '.env'}", file=sys.stderr)
+    sys.exit(2)
 
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
