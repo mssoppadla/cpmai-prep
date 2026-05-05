@@ -71,6 +71,11 @@ def update_question(question_id: int, payload: QuestionAdminIn,
     for f in ("stem", "topic_id", "domain", "task", "enablers",
               "remarks", "difficulty", "explanation", "is_active"):
         setattr(q, f, getattr(payload, f))
+    # Replace options: clear old rows and flush before inserting new ones,
+    # otherwise the unique (question_id, option_letter) constraint trips
+    # because the INSERT can race ahead of the DELETE in the same flush.
+    q.options.clear()
+    db.flush()
     q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
     db.commit(); db.refresh(q)
     audit_log(db, admin.id, "question.updated", {"id": q.id})

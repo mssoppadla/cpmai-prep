@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { admin, content as contentApi, ApiError } from "@/lib/api";
+import { admin, content as contentApi, ApiError, errMsg } from "@/lib/api";
 import type { Difficulty, QuestionAdminIn, QuestionOptionIn } from "@/types/api";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -50,7 +50,7 @@ export default function QuestionEditorPage() {
           });
           setEnablersText((q.enablers ?? []).join(", "));
         })
-        .catch((e: ApiError) => setErr(e.body.message));
+        .catch((e) => setErr(errMsg(e)));
     }
   }, [id, isNew]);
 
@@ -96,12 +96,8 @@ export default function QuestionEditorPage() {
         await admin.questions.update(Number(id), payload);
       }
     } catch (e) {
-      const ae = e as ApiError;
-      const msg = ae.body.message + (ae.body.fields
-        ? " (" + Object.entries(ae.body.fields)
-            .map(([k, v]) => `${k}: ${v}`).join(", ") + ")"
-        : "");
-      setErr(msg);
+      console.error("[admin/questions] save failed", e);
+      setErr(errMsg(e));
     } finally { setBusy(false); }
   }
 

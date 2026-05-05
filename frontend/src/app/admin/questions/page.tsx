@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { admin, content as contentApi, ApiError } from "@/lib/api";
+import { admin, content as contentApi, errMsg } from "@/lib/api";
 import type { QuestionAdminOut } from "@/types/api";
 
 export default function QuestionsListPage() {
@@ -16,7 +16,7 @@ export default function QuestionsListPage() {
       if (filter.q) params.q = filter.q;
       if (filter.topic_id) params.topic_id = Number(filter.topic_id);
       setRows(await admin.questions.list(params));
-    } catch (e) { setErr((e as ApiError).body.message); }
+    } catch (e) { console.error("[admin/questions] list", e); setErr(errMsg(e)); }
   }
   useEffect(() => {
     contentApi.topics().then(setTopics).catch(() => {});
@@ -31,7 +31,7 @@ export default function QuestionsListPage() {
   async function remove(id: number) {
     if (!confirm("Delete this question? It will also be removed from any exam set it belongs to.")) return;
     try { await admin.questions.delete(id); await reload(); }
-    catch (e) { setErr((e as ApiError).body.message); }
+    catch (e) { console.error("[admin/questions] delete", e); setErr(errMsg(e)); }
   }
 
   return (

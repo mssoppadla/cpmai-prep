@@ -43,6 +43,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Safe error-to-string for catch blocks. Handles ApiError (with optional
+ * field-level details), plain Errors (network failures), and unknowns.
+ * Use everywhere instead of `(e as ApiError).body.message`, which throws
+ * if `e` is anything other than an ApiError.
+ */
+export function errMsg(e: unknown): string {
+  if (e instanceof ApiError) {
+    const fields = e.body?.fields
+      ? " (" + Object.entries(e.body.fields)
+          .map(([k, v]) => `${k}: ${v}`).join(", ") + ")"
+      : "";
+    return (e.body?.message ?? `HTTP ${e.status}`) + fields;
+  }
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
+
 interface FetchOpts extends RequestInit {
   authed?: boolean;
   json?: unknown;

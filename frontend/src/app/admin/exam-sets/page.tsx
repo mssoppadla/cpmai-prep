@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { admin, ApiError } from "@/lib/api";
+import { admin, errMsg } from "@/lib/api";
 import type { ExamSetSummaryOut, ExamSetAdminIn, Difficulty } from "@/types/api";
 
 const blank: ExamSetAdminIn = {
@@ -18,7 +18,7 @@ export default function ExamSetsListPage() {
 
   async function reload() {
     try { setRows(await admin.examSets.list()); }
-    catch (e) { setErr((e as ApiError).body.message); }
+    catch (e) { console.error("[admin/exam-sets] list", e); setErr(errMsg(e)); }
   }
   useEffect(() => { reload(); }, []);
 
@@ -28,14 +28,14 @@ export default function ExamSetsListPage() {
     try {
       await admin.examSets.create(form);
       setForm(null); await reload();
-    } catch (e) { setErr((e as ApiError).body.message); }
+    } catch (e) { console.error("[admin/exam-sets] create", e); setErr(errMsg(e)); }
     finally { setBusy(false); }
   }
 
   async function remove(id: number) {
     if (!confirm("Delete this exam set? Linked questions are preserved.")) return;
     try { await admin.examSets.delete(id); await reload(); }
-    catch (e) { setErr((e as ApiError).body.message); }
+    catch (e) { console.error("[admin/exam-sets] delete", e); setErr(errMsg(e)); }
   }
 
   return (

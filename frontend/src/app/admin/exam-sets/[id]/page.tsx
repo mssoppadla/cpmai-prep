@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { admin, content as contentApi, ApiError } from "@/lib/api";
+import { admin, content as contentApi, errMsg } from "@/lib/api";
 import type {
   ExamSetSummaryOut, ExamSetLinkedQuestion, QuestionAdminOut,
 } from "@/types/api";
@@ -41,7 +41,7 @@ export default function ExamSetEditorPage() {
       setLinked(ls);
       setOrderDirty(false);
     } catch (e) {
-      setErr((e as ApiError).body.message);
+      console.error("[admin/exam-sets/edit] error", e); setErr(errMsg(e));
     }
   }
   useEffect(() => {
@@ -97,7 +97,7 @@ export default function ExamSetEditorPage() {
       setTimeout(() => setOkMsg(null), 2000);
       await reload();
     } catch (e) {
-      setErr((e as ApiError).body.message);
+      console.error("[admin/exam-sets/edit] error", e); setErr(errMsg(e));
     } finally {
       setBusy(null);
     }
@@ -115,7 +115,7 @@ export default function ExamSetEditorPage() {
       setTimeout(() => setOkMsg(null), 2000);
       await reload();
     } catch (e) {
-      setErr((e as ApiError).body.message);
+      console.error("[admin/exam-sets/edit] error", e); setErr(errMsg(e));
     } finally {
       setBusy(null);
     }
@@ -129,7 +129,7 @@ export default function ExamSetEditorPage() {
       await admin.examSets.removeQuestion(setId, qid);
       await reload();
     } catch (e) {
-      setErr((e as ApiError).body.message);
+      console.error("[admin/exam-sets/edit] error", e); setErr(errMsg(e));
     } finally {
       setBusy(null);
     }
