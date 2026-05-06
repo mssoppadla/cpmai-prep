@@ -42,18 +42,21 @@ export default function ContactsPage() {
     /* eslint-disable-next-line */
   }, []);
 
-  async function deleteUser(row: ContactRow) {
-    if (row.kind !== "user") return;
-    const confirm1 = `Permanently DELETE user ${row.email}?\n\n` +
-      "This wipes their account. Their exam attempts and audit history " +
-      "are preserved (the user_id reference is dropped). Use this only for " +
-      "junk signups.";
-    if (!confirm(confirm1)) return;
+  async function deleteRow(row: ContactRow) {
+    const isUser = row.kind === "user";
+    const msg = isUser
+      ? `Permanently DELETE user ${row.email}?\n\n` +
+        "Wipes the account. Exam attempts and audit history are preserved " +
+        "(the user_id reference is dropped). Use only for junk signups."
+      : `Permanently DELETE this lead (${row.email})?\n\n` +
+        "Removes the landing-form submission. Cannot be undone.";
+    if (!confirm(msg)) return;
     try {
-      await admin.users.delete(row.id);
+      if (isUser) await admin.users.delete(row.id);
+      else        await admin.leads.delete(row.id);
       await reload();
     } catch (e) {
-      console.error("[admin/contacts] delete user", e);
+      console.error(`[admin/contacts] delete ${row.kind}`, e);
       setErr(errMsg(e));
     }
   }
@@ -180,8 +183,13 @@ export default function ContactsPage() {
               {rows.map(r => {
                 const key = `${r.kind}-${r.id}`;
                 const isOpen = editing === key;
-                const canDelete = me?.role === "super_admin" && r.kind === "user"
-                                  && r.id !== me?.id;
+                // Super-admin can delete anything except their own user row.
+                // Admin can delete leads (junk landing-form entries) but not users.
+                const canDelete = me
+                  ? (r.kind === "lead"
+                      ? (me.role === "super_admin" || me.role === "admin")
+                      : (me.role === "super_admin" && r.id !== me.id))
+                  : false;
                 return (
                   <Row
                     key={key}
@@ -198,7 +206,7 @@ export default function ContactsPage() {
                       setNotes(r.notes ?? "");
                     }}
                     onSaveNotes={() => saveNotes(r.id)}
-                    onDelete={() => deleteUser(r)}
+                    onDelete={() => deleteRow(r)}
                     onCancel={() => { setEditing(null); setNotes(""); }}
                   />
                 );
@@ -295,7 +303,9 @@ function Row({
           {canDelete && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              title="Delete this user (super-admin only). Use for junk signups."
+              title={row.kind === "user"
+                ? "Delete this user (super-admin only). Use for junk signups."
+                : "Delete this lead. Use for junk landing-form submissions."}
               className="text-xs text-rose-600 hover:underline"
             >
               Delete

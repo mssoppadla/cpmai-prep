@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { exams as examsApi, errMsg } from "@/lib/api";
+import { ApiError, exams as examsApi, errMsg } from "@/lib/api";
 import type { ExamAttemptOut } from "@/types/api";
 import {
   QuestionCard, type QuestionRanges, type Tool,
@@ -14,12 +14,24 @@ type AnnotationsByQ = Record<number, QuestionRanges>;
 const annKey  = (attemptId: number) => `cpmai.exam.annotations.${attemptId}`;
 const markKey = (attemptId: number) => `cpmai.exam.marked.${attemptId}`;
 
+/** Convert any thrown error into a discriminated-friendly shape. */
+function toApiErr(e: unknown): { message: string; code: string; status: number } {
+  if (e instanceof ApiError) {
+    return {
+      message: e.body?.message ?? `HTTP ${e.status}`,
+      code: e.body?.code ?? "unknown_error",
+      status: e.status,
+    };
+  }
+  return { message: errMsg(e), code: "unknown_error", status: 0 };
+}
+
 export default function ExamAttemptPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
   const [attempt, setAttempt] = useState<ExamAttemptOut | null>(null);
   const [index, setIndex] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; code: string; status: number } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [marked, setMarked] = useState<Record<number, boolean>>({});
   const [annotations, setAnnotations] = useState<AnnotationsByQ>({});
@@ -45,7 +57,7 @@ export default function ExamAttemptPage() {
       })
       .catch((e) => {
         console.error("[exam] start", e);
-        setError(errMsg(e));
+        setError(toApiErr(e));
       });
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
   }, [slug]);
@@ -100,7 +112,7 @@ export default function ExamAttemptPage() {
       });
     } catch (e) {
       console.error("[exam] saveAnswer", e);
-      setError(errMsg(e));
+      setError(toApiErr(e));
     }
   }, [attempt, index, marked]);
 
@@ -117,7 +129,7 @@ export default function ExamAttemptPage() {
       });
     } catch (e) {
       console.error("[exam] saveAnswer mark", e);
-      setError(errMsg(e));
+      setError(toApiErr(e));
     }
   }, [attempt, index, marked]);
 
@@ -137,17 +149,97 @@ export default function ExamAttemptPage() {
       router.push(`/exams/results/${result.id}`);
     } catch (e) {
       console.error("[exam] submit", e);
-      setError(errMsg(e));
+      setError(toApiErr(e));
       setSubmitting(false);
     }
   }
 
   if (error) {
+    const here = encodeURIComponent(`/exams/${slug}`);
+    const isAuth = error.code === "unauthorized" || error.status === 401;
+    const isPaywall = error.code === "subscription_required" || error.status === 402;
     return (
       <main className="max-w-2xl mx-auto px-6 py-10">
-        <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-lg">
-          {error}
+        <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
+          <Link href="/exams" className="hover:text-indigo-600">← All exam sets</Link>
+          <Link href="/" className="hover:text-indigo-600">Home / FAQs</Link>
         </div>
+
+        {isAuth ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <h1 className="text-xl font-bold text-slate-900 mb-2">
+              Sign in to start this exam
+            </h1>
+            <p className="text-sm text-slate-600 mb-5">
+              Practice attempts are saved to your account so you can resume,
+              review, and track progress.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Link
+                href={`/login?next=${here}`}
+                className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 text-center"
+              >
+                Sign in (Google or password)
+              </Link>
+              <Link
+                href="/exams"
+                className="px-5 py-2.5 bg-white text-slate-700 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50 text-center"
+              >
+                Browse other sets
+              </Link>
+            </div>
+          </div>
+        ) : isPaywall ? (
+          <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 p-6">
+            <h1 className="text-xl font-bold text-slate-900 mb-2">
+              This is a premium exam set
+            </h1>
+            <p className="text-sm text-indigo-900 mb-5">
+              Subscribe to unlock advanced sets, the AI tutor with extended
+              quota, and full performance analytics. Cancel anytime.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Link
+                href="/pricing"
+                className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 text-center"
+              >
+                View plans &amp; subscribe
+              </Link>
+              <Link
+                href={`/login?next=${here}`}
+                className="px-5 py-2.5 bg-white text-slate-700 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50 text-center"
+              >
+                Sign in with another account
+              </Link>
+              <Link
+                href="/exams"
+                className="px-5 py-2.5 bg-white text-slate-700 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50 text-center"
+              >
+                Pick a free set
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-lg mb-5 text-sm">
+              {error.message}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Link
+                href="/exams"
+                className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 text-center"
+              >
+                Back to exam sets
+              </Link>
+              <Link
+                href="/"
+                className="px-5 py-2.5 bg-white text-slate-700 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50 text-center"
+              >
+                Home
+              </Link>
+            </div>
+          </div>
+        )}
       </main>
     );
   }

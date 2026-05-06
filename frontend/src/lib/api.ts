@@ -325,6 +325,10 @@ export const admin = {
         { method: "PATCH", json: { notes }, authed: true });
       return data;
     },
+    async delete(id: number) {
+      await request(`/admin/leads/${id}`,
+        { method: "DELETE", authed: true });
+    },
   },
   contacts: {
     /** Unified feed: leads (landing-form) + users (signed up) in one stream. */

@@ -117,6 +117,21 @@ def update_notes(lead_id: int, payload: dict,
     return lead
 
 
+@router.delete("/{lead_id}", status_code=204)
+def delete_lead(lead_id: int,
+                db: Session = Depends(get_db),
+                admin: User = Depends(get_admin_user)):
+    """Hard-delete a lead. Used to drop junk landing-form submissions."""
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise NotFoundError()
+    email = lead.email  # capture for audit
+    db.delete(lead)
+    db.commit()
+    audit_log(db, admin.id, "lead.deleted",
+              {"lead_id": lead_id, "email": email})
+
+
 @router.get("/export.csv")
 def export_csv(db: Session = Depends(get_db),
                source: str | None = None, q: str | None = None,
