@@ -1,0 +1,54 @@
+# Caddy reverse proxy for cpmaiexamprep.com
+#
+# Caddy auto-issues + auto-renews Let's Encrypt certs for any host you
+# put in front of a directive — no manual cert handling needed.
+#
+# Edit /etc/caddy/Caddyfile (or wherever your distro keeps it), reload
+# with `sudo systemctl reload caddy`, watch logs:
+#     sudo journalctl -u caddy -f
+#
+# To add another subdomain (e.g. n8n.cpmaiexamprep.com), append a new
+# block at the bottom — Caddy issues a fresh cert on the next reload.
+
+# Apex domain → Next.js frontend
+cpmaiexamprep.com {
+    encode gzip zstd
+    reverse_proxy localhost:3000
+
+    # Security headers — already set by FastAPI for /api but harmless
+    # to repeat at the edge for the static frontend.
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+    }
+
+    # Caddy's access log → /var/log/caddy/access.log (rotated by Caddy itself)
+    log {
+        output file /var/log/caddy/cpmaiexamprep-access.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+        format json
+    }
+}
+
+# www → 301 to apex (canonical hostname)
+www.cpmaiexamprep.com {
+    redir https://cpmaiexamprep.com{uri} permanent
+}
+
+# API subdomain → FastAPI backend
+api.cpmaiexamprep.com {
+    encode gzip zstd
+    reverse_proxy localhost:8000
+
+    log {
+        output file /var/log/caddy/api-access.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+        format json
+    }
+}

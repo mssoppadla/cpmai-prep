@@ -1,0 +1,55 @@
+# Production override.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences vs dev:
+#   • frontend is built (next build) instead of `next dev`
+#   • backend uvicorn runs without --reload, no source mount
+#   • postgres + redis NOT exposed to host — only reachable on the
+#     internal docker network
+#   • restart: always on every service
+#   • prod env file used: backend/.env (same path) — values come
+#     from the host's secret store, not from /app
+services:
+  postgres:
+    restart: always
+    ports: []                        # do not expose to host in prod
+    volumes:
+      # Keep init.sql; drop the host port mapping
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  redis:
+    restart: always
+    ports: []                        # do not expose
+
+  backend:
+    restart: always
+    volumes:
+      # Persist log files on the host so backups and grep can reach them
+      # without docker exec. Logs are JSONL — see backend/app/core/logging.py.
+      - ./backend/logs:/app/logs
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # Bind to loopback only — Caddy proxies from 127.0.0.1:8000.
+    ports: ["127.0.0.1:8000:8000"]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      # NEXT_PUBLIC_* values are baked into the bundle at build time.
+      # Pulled from the host shell which has sourced frontend/.env.local
+      # (install_app.sh / deploy.sh do this before `compose build`).
+      args:
+        NEXT_PUBLIC_API_URL:          ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
+        NEXT_PUBLIC_RAZORPAY_KEY_ID:  ${NEXT_PUBLIC_RAZORPAY_KEY_ID}
+        NEXTAUTH_URL:                 ${NEXTAUTH_URL}
+        NEXTAUTH_SECRET:              ${NEXTAUTH_SECRET}
+    restart: always
+    # Loopback only — Caddy fronts the public TLS endpoint.
+    ports: ["127.0.0.1:3000:3000"]
+    volumes: []                      # image is canonical, no source mount
+    command: npm run start
+    depends_on:
+      backend: { condition: service_started }
