@@ -1,0 +1,150 @@
+name: deploy
+
+# Test → manual approval → SSH into VPS → run scripts/vps/deploy.sh
+#
+# Triggered by:
+#   • push to main (after a merge / direct commit)
+#   • workflow_dispatch (manual "Run workflow" button)
+#
+# The deploy job is gated by GitHub Environment "production":
+#   • set up at https://github.com/<owner>/<repo>/settings/environments
+#   • requires explicit approval from a configured reviewer
+#   • restricts which branches can deploy (set to: main only)
+#   • holds the SSH secrets (VPS_HOST, VPS_USER, VPS_SSH_KEY)
+#
+# See docs/ci-deploy-setup.md for one-time setup instructions.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one production deploy in flight at a time.
+# cancel-in-progress=false → finish what's running, queue the rest.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Strict test gate. Unlike the per-PR CI workflows (which use `|| true` to
+  # keep the dashboard green during scaffolding), this job MUST pass for the
+  # deploy job to start.
+  # ----------------------------------------------------------------------------
+  test:
+    name: Test gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cpmai
+          POSTGRES_PASSWORD: cpmai_test
+          POSTGRES_DB: cpmai_test
+        options: >-
+          --health-cmd "pg_isready -U cpmai -d cpmai_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ["6379:6379"]
+    env:
+      # Test-only — never reuse these in production.
+      DATABASE_URL: postgresql+psycopg2://cpmai:cpmai_test@localhost:5432/cpmai_test
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: test_secret_key_not_used_in_prod
+      ENCRYPTION_KEY: zUpGn87pjmPcsQzZK9BjpO3IBevEh0nB-Vw0c5pBQS4=
+      APP_ENV: test
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      CORS_ORIGINS: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------- Backend ----------
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend deps
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio httpx
+      - name: Apply migrations
+        run: cd backend && alembic upgrade head
+      - name: Backend tests (strict)
+        run: cd backend && pytest -q
+
+      # ---------- Frontend ----------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend deps
+        run: cd frontend && npm ci
+      - name: Frontend build (strict)
+        env:
+          # Build-time placeholders — real values are baked in on the VPS.
+          # Build only fails on a code/type error, not on missing secrets.
+          NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ""
+          NEXT_PUBLIC_RAZORPAY_KEY_ID: ""
+          NEXTAUTH_URL: http://localhost:3000
+          NEXTAUTH_SECRET: test_nextauth_secret_not_used_in_prod
+        run: cd frontend && npm run build
+      - name: Frontend lint (advisory)
+        run: cd frontend && npm run lint || true
+
+  # ----------------------------------------------------------------------------
+  # Deploy gate — requires manual approval via the "production" Environment.
+  # ----------------------------------------------------------------------------
+  deploy:
+    name: Deploy to production VPS
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://cpmaiexamprep.com
+    steps:
+      - name: Configure SSH
+        # Secrets:
+        #   VPS_HOST       — hostname or IP (kept secret)
+        #   VPS_USER       — usually "deploy"
+        #   VPS_SSH_KEY    — private key content (ed25519 recommended)
+        #   VPS_HOST_KEY   — output of `ssh-keyscan <host>` (host-key pinning)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          if [ -n "${{ secrets.VPS_HOST_KEY }}" ]; then
+            printf '%s\n' "${{ secrets.VPS_HOST_KEY }}" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Run deploy.sh on VPS
+        # The deploy.sh script does: pre-deploy backup, alembic upgrade head,
+        # idempotent seeder, restart containers, data-preservation guard,
+        # 27-step smoke. If any of those fail, deploy.sh exits non-zero and
+        # this step fails — the workflow surfaces it in the GitHub UI.
+        run: |
+          ssh -o StrictHostKeyChecking=yes -o BatchMode=yes \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              'set -e; cd /opt/cpmai-prep && ./scripts/vps/deploy.sh'
+
+      - name: Post-deploy public smoke
+        # External sanity check — hits the public hostname so we catch any
+        # edge-side regression (TLS, Caddy routing) the on-VPS smoke missed.
+        run: |
+          curl -fsS https://api.cpmaiexamprep.com/health | grep -qi 'ok\|healthy'
+          curl -fsS -o /dev/null -w "frontend %{http_code}\n" https://cpmaiexamprep.com

@@ -177,13 +177,19 @@ In Razorpay dashboard → **Settings → Webhooks → Add new**:
 
 ## Phase 3 — Day-to-day deploys
 
-This is the only command you'll run for new features and bug fixes:
+There are two ways to deploy, both of which run the same `deploy.sh`:
+
+**Manual** (good for the first few weeks while you build trust):
 
 ```bash
 ssh deploy@<VPS_IP>
 cd /opt/cpmai-prep
 ./scripts/vps/deploy.sh
 ```
+
+**Automated** via GitHub Actions — push to `main`, get a notification, click
+**Approve** in the GitHub UI, the workflow SSHes in and runs the same
+script. See [ci-deploy-setup.md](ci-deploy-setup.md) for one-time setup.
 
 What it guarantees:
 
