@@ -18,6 +18,8 @@ def submit_lead(payload: LeadCreateIn, request: Request,
     lead = Lead(
         email=payload.email.lower(),
         name=payload.name, phone=payload.phone,
+        country_code=payload.country_code,
+        whatsapp_number=payload.whatsapp_number,
         company=payload.company, role=payload.role,
         source=payload.source,
         landing_url=payload.landing_url,

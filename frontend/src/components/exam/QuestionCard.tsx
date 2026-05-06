@@ -1,11 +1,12 @@
 "use client";
+import { useCallback } from "react";
 import type { QuestionAttemptView } from "@/types/api";
+import { AnnotatableText, type TextRange } from "./AnnotatableText";
 
-export type Annotation = "highlight" | "strike";
-export type Tool = "none" | Annotation | "eraser";
+export type Tool = "none" | "highlight" | "strike" | "eraser";
 
-/** Per-option annotation state for a single question. */
-export type OptionAnnotations = Record<string, Annotation | null>;
+/** Per-target ranges keyed by `stem` or `option-A` / `option-B` etc. */
+export type QuestionRanges = Record<string, TextRange[]>;
 
 interface Props {
   question: QuestionAttemptView;
@@ -13,38 +14,35 @@ interface Props {
   total: number;
   selected: string | null;
   markedForReview: boolean;
-  /** Active toolbox mode (toggles via the toolbar). */
   tool: Tool;
-  /** Per-option annotations for this question (highlight | strike | null). */
-  annotations: OptionAnnotations;
+  ranges: QuestionRanges;
   onSelect: (letter: string | null) => void;
   onToggleReview: () => void;
-  onAnnotate: (letter: string) => void;
+  onRangesChange: (next: QuestionRanges) => void;
 }
 
 /**
- * Question + options card. Supports two attempt-time annotations on
- * each option: HIGHLIGHT (yellow background) or STRIKE (line-through).
+ * Question + options card.
  *
- * Annotations are applied by clicking an option while a tool is active:
- *   - tool = "highlight" + click   → toggle highlight on that option
- *   - tool = "strike"    + click   → toggle strike on that option
- *   - tool = "eraser"    + click   → clear annotation
- *   - tool = "none"      + click   → normal answer selection
+ * The stem text and each option's text are rendered through
+ * AnnotatableText, which lets the learner drag-select text and apply
+ * highlight or strike via the toolbox in the page header.
  *
- * Mark-for-review remains independent (its own checkbox).
+ * Picking an answer happens via the radio-button column on the left of
+ * each option. The text itself is selectable (so highlighting works
+ * cleanly) and clicking it does NOT toggle the answer — the user picks
+ * the letter pill on the left.
  */
 export function QuestionCard({
   question, index, total, selected, markedForReview,
-  tool, annotations, onSelect, onToggleReview, onAnnotate,
+  tool, ranges, onSelect, onToggleReview, onRangesChange,
 }: Props) {
-  function handleOptionClick(letter: string) {
-    if (tool === "highlight" || tool === "strike" || tool === "eraser") {
-      onAnnotate(letter);
-    } else {
-      onSelect(selected === letter ? null : letter);
-    }
-  }
+  const updateTarget = useCallback(
+    (target: string, next: TextRange[]) => {
+      onRangesChange({ ...ranges, [target]: next });
+    },
+    [ranges, onRangesChange],
+  );
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -56,50 +54,55 @@ export function QuestionCard({
           </span>
         )}
       </div>
+
       <h2 className="text-lg font-semibold text-slate-900 leading-relaxed mb-6">
-        {question.stem}
+        <AnnotatableText
+          text={question.stem}
+          ranges={ranges["stem"] ?? []}
+          tool={tool}
+          onChange={(next) => updateTarget("stem", next)}
+        />
       </h2>
+
       <div className="space-y-2">
         {question.options.map((opt) => {
           const isSelected = selected === opt.option_letter;
-          const ann = annotations[opt.option_letter] ?? null;
-          const struck = ann === "strike";
-          const lit    = ann === "highlight";
+          const targetKey = `option-${opt.option_letter}`;
           return (
-            <button
+            <div
               key={opt.option_letter}
-              type="button"
-              onClick={() => handleOptionClick(opt.option_letter)}
-              className={[
-                "w-full text-left flex items-start gap-3 p-3 rounded-lg border transition",
+              className={`flex items-start gap-3 p-3 rounded-lg border transition ${
                 isSelected
                   ? "bg-indigo-50 border-indigo-300"
-                  : "bg-white border-slate-200 hover:border-slate-300",
-                lit && !isSelected ? "bg-yellow-50 border-yellow-300" : "",
-                tool !== "none" ? "cursor-crosshair" : "",
-              ].filter(Boolean).join(" ")}
+                  : "bg-white border-slate-200"
+              }`}
             >
-              <span className={[
-                "w-6 h-6 rounded-full border-2 flex items-center justify-center",
-                "mt-0.5 font-bold text-xs flex-shrink-0",
-                isSelected
-                  ? "bg-indigo-600 border-indigo-600 text-white"
-                  : "border-slate-300 text-slate-500",
-              ].join(" ")}>
+              <button
+                type="button"
+                onClick={() => onSelect(isSelected ? null : opt.option_letter)}
+                aria-label={`Select option ${opt.option_letter}`}
+                className={`w-6 h-6 rounded-full border-2 flex items-center
+                            justify-center mt-0.5 font-bold text-xs flex-shrink-0
+                            transition ${isSelected
+                              ? "bg-indigo-600 border-indigo-600 text-white"
+                              : "border-slate-300 text-slate-500 hover:border-slate-500"}`}
+              >
                 {opt.option_letter}
+              </button>
+              <span className="text-sm text-slate-700 leading-relaxed pt-0.5 flex-1">
+                <AnnotatableText
+                  text={opt.text}
+                  ranges={ranges[targetKey] ?? []}
+                  tool={tool}
+                  onChange={(next) => updateTarget(targetKey, next)}
+                />
               </span>
-              <span className={[
-                "text-sm leading-relaxed pt-0.5 flex-1",
-                struck ? "line-through text-slate-400" : "text-slate-700",
-                lit ? "bg-yellow-200/70 px-1 rounded" : "",
-              ].filter(Boolean).join(" ")}>
-                {opt.text}
-              </span>
-            </button>
+            </div>
           );
         })}
       </div>
-      <label className="mt-5 flex items-center gap-2 text-sm text-slate-600">
+
+      <label className="mt-5 flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
         <input type="checkbox" checked={markedForReview}
                onChange={onToggleReview}
                className="rounded border-slate-300" />

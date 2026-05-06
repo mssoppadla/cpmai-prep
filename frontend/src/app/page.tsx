@@ -1,22 +1,50 @@
+/**
+ * Landing page (server-rendered).
+ *
+ * FAQs and the lead-section copy are fetched from the backend on each
+ * request so admins can edit them via /admin/faqs and /admin/settings
+ * without redeploying. A fallback copy is used if the API is down.
+ */
 import { JsonLd, organizationSchema, courseSchema, faqSchema } from "@/components/seo/JsonLd";
 import { LeadCaptureForm } from "@/components/lead/LeadCaptureForm";
 import { LandingTopBar } from "@/components/layout/LandingTopBar";
 
-const FAQS = [
-  { q: "What is the CPMAI certification?",
-    a: "CPMAI (Cognitive Project Management for AI) is a vendor-neutral certification covering a 6-phase methodology for managing AI and data science projects." },
-  { q: "How long does it take to prepare?",
-    a: "Most candidates need 6-8 weeks of focused study covering all 6 phases plus mock exams." },
-  { q: "Does CPMAI Prep guarantee passing?",
-    a: "We don't guarantee outcomes, but our learners consistently outperform the average pass rate by combining mock exams with AI-powered coaching." },
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+
+const FALLBACK_FAQS = [
+  { id: 0, question: "What is the CPMAI certification?",
+    answer: "CPMAI (Cognitive Project Management for AI) is a vendor-neutral certification covering a 6-phase methodology for managing AI and data science projects.",
+    display_order: 10 },
 ];
 
-export default function Landing() {
+const FALLBACK_LANDING = {
+  lead_section_heading: "Start with our free CPMAI study guide",
+  lead_cta_text: "Get the free guide",
+  lead_post_submit_route: "/exams",
+};
+
+async function fetchJson<T>(path: string, fallback: T): Promise<T> {
+  try {
+    const r = await fetch(`${API}${path}`, { cache: "no-store" });
+    if (!r.ok) return fallback;
+    return await r.json();
+  } catch {
+    return fallback;
+  }
+}
+
+export default async function Landing() {
+  const [faqs, landing] = await Promise.all([
+    fetchJson<typeof FALLBACK_FAQS>("/content/faqs", FALLBACK_FAQS),
+    fetchJson<typeof FALLBACK_LANDING>("/content/landing", FALLBACK_LANDING),
+  ]);
+  const faqPairs = faqs.map(f => ({ q: f.question, a: f.answer }));
+
   return (
     <>
       <JsonLd data={organizationSchema} />
       <JsonLd data={courseSchema} />
-      <JsonLd data={faqSchema(FAQS)} />
+      <JsonLd data={faqSchema(faqPairs)} />
 
       <main className="min-h-screen">
         <LandingTopBar />
@@ -37,12 +65,13 @@ export default function Landing() {
                  className="max-w-md mx-auto px-4 sm:px-6 pb-16 sm:pb-20">
           <h2 id="lead-heading"
               className="text-lg sm:text-xl font-semibold text-slate-900 text-center mb-4">
-            Start with our free CPMAI study guide
+            {landing.lead_section_heading}
           </h2>
           <LeadCaptureForm
             source="landing_hero"
-            fields={["name", "target_exam_date"]}
-            cta="Get the free guide"
+            fields={["name", "whatsapp", "target_exam_date"]}
+            cta={landing.lead_cta_text}
+            postSubmitRoute={landing.lead_post_submit_route}
           />
         </section>
 
@@ -52,16 +81,20 @@ export default function Landing() {
               className="text-xl sm:text-2xl font-bold text-slate-900 mb-5 sm:mb-6">
             Frequently asked questions
           </h2>
-          <dl className="space-y-3 sm:space-y-4">
-            {FAQS.map(f => (
-              <div key={f.q}
-                   className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200">
-                <dt className="font-semibold text-slate-900 text-base">{f.q}</dt>
-                <dd className="mt-2 text-slate-600 text-sm sm:text-base
-                               leading-relaxed">{f.a}</dd>
-              </div>
-            ))}
-          </dl>
+          {faqs.length === 0 ? (
+            <p className="text-slate-500 text-sm">No FAQs published yet.</p>
+          ) : (
+            <dl className="space-y-3 sm:space-y-4">
+              {faqs.map(f => (
+                <div key={f.id || f.question}
+                     className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200">
+                  <dt className="font-semibold text-slate-900 text-base">{f.question}</dt>
+                  <dd className="mt-2 text-slate-600 text-sm sm:text-base
+                                 leading-relaxed">{f.answer}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </section>
       </main>
     </>

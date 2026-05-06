@@ -16,6 +16,9 @@ class LeadCreateIn(BaseModel):
     email: EmailStr
     name: str | None = None
     phone: str | None = None
+    # WhatsApp opt-in (community lead magnet)
+    country_code: str | None = None        # e.g. "+91"
+    whatsapp_number: str | None = None     # local part
     company: str | None = None
     role: str | None = None
     source: LeadSource

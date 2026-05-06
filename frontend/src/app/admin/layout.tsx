@@ -11,6 +11,7 @@ const NAV = [
   { href: "/admin/questions",          label: "Questions" },
   { href: "/admin/exam-sets",          label: "Exam Sets" },
   { href: "/admin/leads",              label: "Contacts" },
+  { href: "/admin/faqs",               label: "FAQs" },
   { href: "/admin/settings",           label: "Runtime Settings" },
   { href: "/admin/llm-providers",      label: "LLM Providers" },
   { href: "/admin/payment-providers",  label: "Payment Providers" },

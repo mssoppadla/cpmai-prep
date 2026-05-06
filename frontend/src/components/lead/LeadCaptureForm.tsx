@@ -1,43 +1,91 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface Props {
   source: "landing_hero" | "newsletter" | "exit_intent" | "gated_download" |
           "pricing_page" | "exam_preview" | "demo_request";
   cta?: string;
-  fields?: Array<"name" | "phone" | "company" | "role" | "target_exam_date">;
+  fields?: Array<
+    "name" | "phone" | "whatsapp" | "company" | "role" | "target_exam_date"
+  >;
+  /**
+   * Where to send the visitor after a successful submit.
+   * If null, the form just shows a "thanks" message in place.
+   */
+  postSubmitRoute?: string | null;
 }
 
-// All inputs use these classes — text-base = 16px on mobile (no iOS zoom),
-// py-3 = 48px touch height on Android, well over Apple's 44px minimum.
 const INPUT_CLS =
   "w-full px-4 py-3 text-base border border-slate-300 rounded-lg " +
   "focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 " +
   "outline-none transition placeholder:text-slate-400";
 
-export function LeadCaptureForm({ source, cta = "Get started", fields = [] }: Props) {
+// Common dialing codes — extend as the audience grows.
+const COUNTRY_CODES: Array<{ value: string; label: string }> = [
+  { value: "+91",  label: "🇮🇳 India (+91)" },
+  { value: "+1",   label: "🇺🇸 US / Canada (+1)" },
+  { value: "+44",  label: "🇬🇧 UK (+44)" },
+  { value: "+61",  label: "🇦🇺 Australia (+61)" },
+  { value: "+65",  label: "🇸🇬 Singapore (+65)" },
+  { value: "+971", label: "🇦🇪 UAE (+971)" },
+  { value: "+49",  label: "🇩🇪 Germany (+49)" },
+  { value: "+33",  label: "🇫🇷 France (+33)" },
+  { value: "+81",  label: "🇯🇵 Japan (+81)" },
+  { value: "+86",  label: "🇨🇳 China (+86)" },
+  { value: "+27",  label: "🇿🇦 South Africa (+27)" },
+];
+
+export function LeadCaptureForm({
+  source, cta = "Get started", fields = [], postSubmitRoute,
+}: Props) {
+  const router = useRouter();
   const [state, setState] = useState<"idle" | "submitting" | "ok" | "err">("idle");
   const [form, setForm] = useState({
-    email: "", name: "", phone: "", company: "", role: "",
+    email: "", name: "", phone: "",
+    country_code: "+91",   // sensible default for the primary audience
+    whatsapp_number: "",
+    company: "", role: "",
     target_exam_date: "", consent_marketing: false,
   });
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setState("submitting");
+    setErrMsg(null);
     const utm = readUtmFromUrl();
+    // Strip empty-string optional fields so the backend's date / phone
+    // validators don't 422 on them.
+    const cleaned: Record<string, unknown> = { source, utm };
+    for (const [k, v] of Object.entries(form)) {
+      if (v === "" || v == null) continue;
+      cleaned[k] = v;
+    }
+    cleaned.consent_marketing = form.consent_marketing;
+    cleaned.landing_url = typeof window !== "undefined" ? window.location.href : "";
     try {
       const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/leads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          ...form, source, utm,
-          landing_url: typeof window !== "undefined" ? window.location.href : "",
-        }),
+        body: JSON.stringify(cleaned),
       });
-      setState(r.ok ? "ok" : "err");
-    } catch {
+      if (!r.ok) {
+        const body = await r.json().catch(() => null);
+        setErrMsg(body?.error?.message ?? `HTTP ${r.status}`);
+        setState("err");
+        return;
+      }
+      setState("ok");
+      // Route to the configured destination after a brief moment so the
+      // user can read the confirmation. postSubmitRoute=null skips this.
+      if (postSubmitRoute) {
+        const dest = postSubmitRoute;
+        setTimeout(() => { router.push(dest); }, 800);
+      }
+    } catch (e: unknown) {
+      setErrMsg((e as Error)?.message ?? "Network error");
       setState("err");
     }
   }
@@ -47,7 +95,9 @@ export function LeadCaptureForm({ source, cta = "Get started", fields = [] }: Pr
       <div role="status"
            className="p-4 bg-emerald-50 border border-emerald-200
                       rounded-lg text-emerald-800 text-sm">
-        Thanks — we'll be in touch shortly.
+        Thanks — {postSubmitRoute
+          ? "taking you to the free practice now…"
+          : "we'll be in touch shortly."}
       </div>
     );
   }
@@ -78,6 +128,39 @@ export function LeadCaptureForm({ source, cta = "Get started", fields = [] }: Pr
           className={INPUT_CLS}
           aria-label="Your name"
         />
+      )}
+      {fields.includes("whatsapp") && (
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            WhatsApp number{" "}
+            <span className="text-slate-500 font-normal">
+              (join our community for prep tips)
+            </span>
+          </label>
+          <div className="flex gap-2">
+            <select
+              value={form.country_code}
+              onChange={(e) => setForm({ ...form, country_code: e.target.value })}
+              className="px-3 py-3 text-base border border-slate-300 rounded-lg
+                         focus:ring-2 focus:ring-indigo-500 outline-none w-40"
+              aria-label="Country code"
+            >
+              {COUNTRY_CODES.map(c => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+            <input
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel-national"
+              placeholder="98xxxxxxxx"
+              value={form.whatsapp_number}
+              onChange={(e) => setForm({ ...form, whatsapp_number: e.target.value })}
+              className={INPUT_CLS + " flex-1"}
+              aria-label="WhatsApp number"
+            />
+          </div>
+        </div>
       )}
       {fields.includes("phone") && (
         <input
@@ -155,7 +238,7 @@ export function LeadCaptureForm({ source, cta = "Get started", fields = [] }: Pr
       </button>
       {state === "err" && (
         <p role="alert" className="text-sm text-rose-600">
-          Something went wrong. Please try again.
+          {errMsg ?? "Something went wrong. Please try again."}
         </p>
       )}
     </form>

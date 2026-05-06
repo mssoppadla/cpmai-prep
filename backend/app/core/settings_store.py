@@ -50,6 +50,10 @@ class SettingsStore:
         except (TypeError, ValueError):
             return default
 
+    def get_str(self, key: str, default: str = "") -> str:
+        v = self.get(key, default)
+        return str(v) if v is not None else default
+
     def set(self, key: str, value: Any, *, db: Session, updated_by: int) -> None:
         row = db.get(SystemSetting, key)
         if row:

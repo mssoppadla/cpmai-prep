@@ -8,6 +8,7 @@ import type {
   ExamAttemptOut, AnswerIn, SubmitAttemptOut,
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
+  FaqOut, FaqAdminOut, FaqIn, LandingCopy,
   QuestionAdminIn, QuestionAdminOut, ExamSetLinkedQuestion,
   SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
@@ -236,6 +237,14 @@ export const content = {
       "/content/topics");
     return data;
   },
+  async faqs(): Promise<FaqOut[]> {
+    const { data } = await request<FaqOut[]>("/content/faqs");
+    return data;
+  },
+  async landing(): Promise<LandingCopy> {
+    const { data } = await request<LandingCopy>("/content/landing");
+    return data;
+  },
 };
 
 export const admin = {
@@ -325,6 +334,25 @@ export const admin = {
       const { data } = await request<ContactRow[]>(
         `/admin/leads/contacts${qs(p)}`, { authed: true });
       return data;
+    },
+  },
+  faqs: {
+    async list() {
+      const { data } = await request<FaqAdminOut[]>("/admin/faqs", { authed: true });
+      return data;
+    },
+    async create(p: FaqIn) {
+      const { data } = await request<FaqAdminOut>(
+        "/admin/faqs", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: FaqIn) {
+      const { data } = await request<FaqAdminOut>(
+        `/admin/faqs/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async delete(id: number) {
+      await request(`/admin/faqs/${id}`, { method: "DELETE", authed: true });
     },
   },
   settings: {

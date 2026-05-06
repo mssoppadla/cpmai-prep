@@ -12,7 +12,7 @@ from app.core.exceptions import (
 from app.core.audit import audit_log
 from app.services.tracking_service import emit_event
 from app.models.user import User
-from app.models.exam_set import ExamSet
+from app.models.exam_set import ExamSet, ExamSetQuestion
 from app.models.exam_session import ExamSession, ExamAttemptAnswer
 from app.models.question import Question, QuestionOption
 from app.models.topic import Topic
@@ -46,6 +46,9 @@ class ExamService:
             user_id=user.id, exam_set_id=es.id, status="in_progress",
         ).first()
         if existing and existing.expires_at > datetime.now(timezone.utc):
+            # Backfill answer rows for any questions added to the set
+            # AFTER this session started, so they're answerable now.
+            self._ensure_answer_rows(existing, es)
             return self._serialize_attempt(existing, es)
 
         now = datetime.now(timezone.utc)
@@ -97,7 +100,21 @@ class ExamService:
             exam_session_id=session.id, question_id=payload.question_id,
         ).first()
         if not ans:
-            raise NotFoundError("Question not part of this attempt.")
+            # Defensive: a question may have been linked to the set
+            # AFTER this session started. Verify it's currently in the
+            # set, then create the missing answer row on the fly.
+            in_set = self.db.query(ExamSetQuestion).filter_by(
+                exam_set_id=session.exam_set_id,
+                question_id=payload.question_id,
+            ).first()
+            if not in_set:
+                raise NotFoundError("Question not part of this attempt.")
+            ans = ExamAttemptAnswer(
+                exam_session_id=session.id,
+                question_id=payload.question_id,
+            )
+            self.db.add(ans)
+            self.db.flush()
         ans.selected_letter = payload.selected_letter
         ans.marked_for_review = payload.marked_for_review
         ans.answered_at = datetime.now(timezone.utc)
@@ -209,6 +226,23 @@ class ExamService:
         )
 
     # -------------------------------------------------------------- helpers
+    def _ensure_answer_rows(self, session: "ExamSession", es: "ExamSet") -> None:
+        """Make sure there's a one-to-one mapping between current set
+        questions and answer rows. Creates rows for any question that
+        was added to the set after this session began."""
+        existing = {a.question_id for a in self.db.query(ExamAttemptAnswer)
+                    .filter_by(exam_session_id=session.id).all()}
+        added = 0
+        for q in es.questions:
+            if q.id in existing:
+                continue
+            self.db.add(ExamAttemptAnswer(
+                exam_session_id=session.id, question_id=q.id,
+            ))
+            added += 1
+        if added:
+            self.db.commit()
+
     def _load_session(self, user: User, attempt_id: int) -> ExamSession:
         session = self.db.get(ExamSession, attempt_id)
         if not session:

@@ -210,6 +210,32 @@ export interface LeadCreateIn {
   consent_marketing?: boolean;
 }
 export interface LeadCreateOut { id: number; message: string }
+// ---------- FAQ -----------------------------------------------------------
+export interface FaqOut {
+  id: number;
+  question: string;
+  answer: string;
+  display_order: number;
+}
+export interface FaqAdminOut extends FaqOut {
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface FaqIn {
+  question: string;
+  answer: string;
+  display_order: number;
+  is_active: boolean;
+}
+
+// ---------- Landing copy --------------------------------------------------
+export interface LandingCopy {
+  lead_section_heading: string;
+  lead_cta_text: string;
+  lead_post_submit_route: string;
+}
+
 export interface ContactRow {
   kind: "lead" | "user";
   id: number;

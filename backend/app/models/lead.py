@@ -29,6 +29,9 @@ class Lead(Base):
     email = Column(String(255), nullable=False, index=True)
     name  = Column(String(120))
     phone = Column(String(32))
+    # WhatsApp number (with country code stored separately for normalization)
+    country_code    = Column(String(8))    # e.g. "+91"
+    whatsapp_number = Column(String(32))   # local part, e.g. "9876543210"
     company = Column(String(120))
     role    = Column(String(120))
 
