@@ -1,4 +1,4 @@
-"""Admin-only leads management."""
+"""Admin-only leads management — and unified Contacts feed."""
 import csv, io
 from datetime import date
 from fastapi import APIRouter, Depends, Query
@@ -8,8 +8,9 @@ from app.core.deps import get_db, get_admin_user
 from app.core.exceptions import NotFoundError
 from app.core.audit import audit_log
 from app.models.lead import Lead
+from app.models.subscription import Subscription
 from app.models.user import User
-from app.schemas.lead import LeadAdminOut
+from app.schemas.lead import ContactRow, LeadAdminOut
 
 router = APIRouter()
 
@@ -35,6 +36,66 @@ def list_leads(db: Session = Depends(get_db),
                limit: int = Query(50, le=200), offset: int = 0):
     query = _filter(db.query(Lead), source, q, from_date, to_date)
     return query.order_by(Lead.created_at.desc()).offset(offset).limit(limit).all()
+
+
+@router.get("/contacts", response_model=list[ContactRow])
+def list_contacts(db: Session = Depends(get_db),
+                  q: str | None = None,
+                  kind: str | None = Query(None, pattern="^(lead|user)$"),
+                  limit: int = Query(200, le=500), offset: int = 0):
+    """Unified feed of leads (landing-form submissions) + users
+    (sign-ups via password or Google).
+
+    Single ordered stream by created_at, so the admin can see "all the
+    people who showed interest or signed up" in one place. Filter by
+    kind=lead or kind=user when needed.
+    """
+    rows: list[ContactRow] = []
+
+    if kind != "user":
+        lq = db.query(Lead)
+        if q:
+            lq = lq.filter(
+                (Lead.email.ilike(f"%{q}%")) | (Lead.name.ilike(f"%{q}%"))
+            )
+        for L in lq.all():
+            rows.append(ContactRow(
+                kind="lead", id=L.id,
+                email=L.email, name=L.name, created_at=L.created_at,
+                source=L.source.value if hasattr(L.source, "value") else str(L.source),
+                utm_campaign=L.utm_campaign,
+                consent_marketing=L.consent_marketing,
+                notes=L.notes,
+                converted_user_id=L.converted_user_id,
+                target_exam_date=L.target_exam_date,
+            ))
+
+    if kind != "lead":
+        uq = db.query(User)
+        if q:
+            uq = uq.filter(
+                (User.email.ilike(f"%{q}%")) | (User.name.ilike(f"%{q}%"))
+            )
+        users = uq.all()
+        if users:
+            sub_ids = {s.user_id for s in db.query(Subscription)
+                       .filter(Subscription.user_id.in_([u.id for u in users]),
+                               Subscription.status == "active").all()}
+        else:
+            sub_ids = set()
+        for U in users:
+            rows.append(ContactRow(
+                kind="user", id=U.id,
+                email=U.email, name=U.name, created_at=U.created_at,
+                role=U.role.value if hasattr(U.role, "value") else str(U.role),
+                has_google=bool(U.google_id),
+                has_password=bool(U.password_hash),
+                has_active_subscription=U.id in sub_ids,
+                last_login_at=U.last_login_at,
+            ))
+
+    rows.sort(key=lambda r: r.created_at, reverse=True)
+    return rows[offset:offset + limit]
 
 
 @router.get("/{lead_id}", response_model=LeadAdminOut)

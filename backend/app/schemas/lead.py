@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime
+from typing import Literal
 from pydantic import BaseModel, EmailStr
 from app.models.lead import LeadSource
 
@@ -43,3 +44,33 @@ class LeadAdminOut(BaseModel):
     consent_marketing: bool
     converted_user_id: int | None
     class Config: from_attributes = True
+
+
+# Unified contacts feed: leads (landing-form submissions) + users
+# (signed up via password or Google) in one row stream.
+class ContactRow(BaseModel):
+    """Discriminated row in the /admin/contacts feed.
+
+    `kind` distinguishes the underlying source. Common fields are flattened
+    so the admin UI can render a single table.
+    """
+    kind: Literal["lead", "user"]
+    id: int                      # row id within its own table (lead.id or user.id)
+    email: str
+    name: str | None = None
+    created_at: datetime
+
+    # Lead-specific (None for users)
+    source: str | None = None    # LeadSource value
+    utm_campaign: str | None = None
+    consent_marketing: bool | None = None
+    notes: str | None = None
+    converted_user_id: int | None = None
+    target_exam_date: date | None = None
+
+    # User-specific (None for leads)
+    role: str | None = None
+    has_google: bool | None = None
+    has_password: bool | None = None
+    has_active_subscription: bool | None = None
+    last_login_at: datetime | None = None

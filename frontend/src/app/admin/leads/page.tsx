@@ -1,49 +1,57 @@
 "use client";
+/**
+ * Contacts — unified feed of leads (landing-form submissions) + users
+ * (signed up via password or Google).
+ *
+ * One row stream sorted by created_at desc. Filter by kind to focus on
+ * just leads or just users. Notes editor is available for lead rows.
+ */
 import { useEffect, useState } from "react";
-import { admin, ApiError } from "@/lib/api";
-import type { LeadAdminOut, LeadSource } from "@/types/api";
+import { admin, errMsg } from "@/lib/api";
+import type { ContactRow } from "@/types/api";
 
-const SOURCES: Array<{ value: string; label: string }> = [
-  { value: "",                label: "All sources" },
-  { value: "landing_hero",    label: "Landing hero" },
-  { value: "newsletter",      label: "Newsletter" },
-  { value: "exit_intent",     label: "Exit intent" },
-  { value: "gated_download",  label: "Gated download" },
-  { value: "blog",            label: "Blog" },
-  { value: "pricing_page",    label: "Pricing" },
-  { value: "exam_preview",    label: "Exam preview" },
-  { value: "demo_request",    label: "Demo request" },
-];
-
-export default function LeadsPage() {
-  const [rows, setRows] = useState<LeadAdminOut[] | null>(null);
-  const [filter, setFilter] = useState({ source: "", q: "" });
-  const [editing, setEditing] = useState<number | null>(null);
+export default function ContactsPage() {
+  const [rows, setRows] = useState<ContactRow[] | null>(null);
+  const [filter, setFilter] = useState<{ kind: "" | "lead" | "user"; q: string }>(
+    { kind: "", q: "" }
+  );
+  const [editing, setEditing] = useState<string | null>(null);  // `${kind}-${id}`
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function reload() {
+    setBusy(true);
+    setErr(null);
     try {
-      const params: any = { limit: 200 };
-      if (filter.source) params.source = filter.source;
-      if (filter.q)      params.q = filter.q;
-      setRows(await admin.leads.list(params));
-    } catch (e) { setErr((e as ApiError).body.message); }
+      const params: Record<string, string | number> = { limit: 500 };
+      if (filter.kind) params.kind = filter.kind;
+      if (filter.q) params.q = filter.q;
+      setRows(await admin.contacts.list(params as any));
+    } catch (e) {
+      console.error("[admin/contacts] list", e);
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
   }
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
 
   async function saveNotes(id: number) {
     try {
       await admin.leads.updateNotes(id, notes);
-      setEditing(null); setNotes("");
+      setEditing(null);
+      setNotes("");
       await reload();
-    } catch (e) { setErr((e as ApiError).body.message); }
+    } catch (e) {
+      console.error("[admin/contacts] save notes", e);
+      setErr(errMsg(e));
+    }
   }
 
   async function exportCsv() {
     const params: Record<string, string> = {};
-    if (filter.source) params.source = filter.source;
-    if (filter.q)      params.q = filter.q;
+    if (filter.q) params.q = filter.q;
     const qs = new URLSearchParams(params).toString();
     const url = `${process.env.NEXT_PUBLIC_API_URL}/admin/leads/export.csv${qs ? "?" + qs : ""}`;
     const token = typeof window !== "undefined"
@@ -65,132 +73,224 @@ export default function LeadsPage() {
     }
   }
 
+  const totals = rows && {
+    all: rows.length,
+    leads: rows.filter(r => r.kind === "lead").length,
+    users: rows.filter(r => r.kind === "user").length,
+    google: rows.filter(r => r.kind === "user" && r.has_google).length,
+    paid: rows.filter(r => r.kind === "user" && r.has_active_subscription).length,
+  };
+
   return (
     <div className="p-8 max-w-6xl">
       <header className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Leads</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Contacts</h1>
           <p className="text-slate-600 mt-1 text-sm">
-            All capture surfaces with UTM context. Stitched to anonymous journey
-            via <code className="bg-slate-100 px-1 rounded text-xs">anon_id</code>.
+            Everyone who showed interest — landing-form leads plus full sign-ups (password or Google).
           </p>
+          {totals && (
+            <p className="text-xs text-slate-500 mt-2">
+              {totals.all} total · {totals.leads} leads · {totals.users} users
+              {" · "}{totals.google} via Google · {totals.paid} on a paid plan
+            </p>
+          )}
         </div>
-        <button onClick={exportCsv}
-                className="px-4 py-2 bg-white text-slate-700 text-sm font-medium
-                           border border-slate-300 rounded-lg hover:bg-slate-50">
-          Export CSV
+        <button
+          onClick={exportCsv}
+          className="px-4 py-2 bg-white text-slate-700 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
+        >
+          Export leads CSV
         </button>
       </header>
 
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex gap-2">
-        <input value={filter.q}
-               onChange={(e) => setFilter({ ...filter, q: e.target.value })}
-               placeholder="Search email…"
-               className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded" />
-        <select value={filter.source}
-                onChange={(e) => setFilter({ ...filter, source: e.target.value })}
-                className="px-3 py-1.5 text-sm border border-slate-300 rounded">
-          {SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        <input
+          value={filter.q}
+          onChange={(e) => setFilter({ ...filter, q: e.target.value })}
+          placeholder="Search email or name…"
+          className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded"
+        />
+        <select
+          value={filter.kind}
+          onChange={(e) => setFilter({ ...filter, kind: e.target.value as any })}
+          className="px-3 py-1.5 text-sm border border-slate-300 rounded"
+        >
+          <option value="">Both leads + users</option>
+          <option value="lead">Leads only</option>
+          <option value="user">Users only</option>
         </select>
-        <button onClick={reload}
-                className="px-4 py-1.5 bg-slate-700 text-white text-sm rounded
-                           hover:bg-slate-800">
-          Filter
+        <button
+          onClick={reload}
+          disabled={busy}
+          className="px-4 py-1.5 bg-slate-700 text-white text-sm rounded hover:bg-slate-800 disabled:opacity-50"
+        >
+          {busy ? "Loading…" : "Filter"}
         </button>
       </div>
 
-      {err && <div className="bg-rose-50 border border-rose-200 text-rose-700
-                              p-3 rounded-lg mb-4 text-sm">{err}</div>}
-      {!rows ? <div className="text-slate-500">Loading…</div>
-       : rows.length === 0 ? (
-         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center
-                         text-slate-500">
-           No leads match the filter.
-         </div>
-       ) : (
+      {err && (
+        <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-lg mb-4 text-sm">
+          {err}
+        </div>
+      )}
+
+      {!rows ? (
+        <div className="text-slate-500">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
+          No contacts match the filter.
+        </div>
+      ) : (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-xs font-medium text-slate-500 uppercase">
-                <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Source</th>
-                <th className="px-4 py-3">UTM</th>
-                <th className="px-4 py-3">Target exam</th>
-                <th className="px-4 py-3">Consent</th>
-                <th className="px-4 py-3">Captured</th>
+                <th className="px-4 py-3">Contact</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Source / role</th>
+                <th className="px-4 py-3">Subscription</th>
+                <th className="px-4 py-3">Last seen</th>
+                <th className="px-4 py-3">Created</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map(l => (
-                <>
-                  <tr key={l.id} className="hover:bg-slate-50 cursor-pointer"
-                      onClick={() => {
-                        setEditing(editing === l.id ? null : l.id);
-                        setNotes(l.notes ?? "");
-                      }}>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-slate-900">{l.email}</div>
-                      {l.name && <div className="text-xs text-slate-500">{l.name}</div>}
-                      {l.converted_user_id && (
-                        <span className="text-xs text-emerald-700 font-medium">
-                          ✓ converted
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">{l.source}</td>
-                    <td className="px-4 py-3 text-xs text-slate-600">
-                      {l.utm_source && (
-                        <div>{l.utm_source}{l.utm_medium ? ` / ${l.utm_medium}` : ""}</div>
-                      )}
-                      {l.utm_campaign && (
-                        <div className="text-slate-500">{l.utm_campaign}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                      {l.target_exam_date ?? "—"}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {l.consent_marketing
-                        ? <span className="text-emerald-700">✓ yes</span>
-                        : <span className="text-slate-500">no</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-500">
-                      {new Date(l.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                  {editing === l.id && (
-                    <tr className="bg-slate-50">
-                      <td colSpan={6} className="px-4 py-4">
-                        <div className="text-xs font-semibold text-slate-700 mb-2">
-                          Internal notes (admin-only)
-                        </div>
-                        <textarea value={notes} rows={3}
-                                  onChange={(e) => setNotes(e.target.value)}
-                                  placeholder="Sales follow-up, qualifying details…"
-                                  className="w-full px-3 py-2 text-sm border
-                                             border-slate-300 rounded mb-2" />
-                        <div className="flex gap-2">
-                          <button onClick={() => saveNotes(l.id)}
-                                  className="px-3 py-1.5 bg-indigo-600 text-white text-xs
-                                             rounded hover:bg-indigo-700">
-                            Save notes
-                          </button>
-                          <button onClick={() => { setEditing(null); setNotes(""); }}
-                                  className="px-3 py-1.5 bg-white text-slate-700 text-xs
-                                             border border-slate-300 rounded
-                                             hover:bg-slate-50">
-                            Cancel
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
-              ))}
+              {rows.map(r => {
+                const key = `${r.kind}-${r.id}`;
+                const isOpen = editing === key;
+                return (
+                  <Row
+                    key={key}
+                    row={r}
+                    isOpen={isOpen}
+                    notes={notes}
+                    setNotes={setNotes}
+                    onToggle={() => {
+                      if (isOpen) { setEditing(null); setNotes(""); return; }
+                      // Notes only apply to leads
+                      if (r.kind !== "lead") return;
+                      setEditing(key);
+                      setNotes(r.notes ?? "");
+                    }}
+                    onSaveNotes={() => saveNotes(r.id)}
+                    onCancel={() => { setEditing(null); setNotes(""); }}
+                  />
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
     </div>
+  );
+}
+
+interface RowProps {
+  row: ContactRow;
+  isOpen: boolean;
+  notes: string;
+  setNotes: (v: string) => void;
+  onToggle: () => void;
+  onSaveNotes: () => void;
+  onCancel: () => void;
+}
+function Row({ row, isOpen, notes, setNotes, onToggle, onSaveNotes, onCancel }: RowProps) {
+  return (
+    <>
+      <tr
+        className={`hover:bg-slate-50 ${row.kind === "lead" ? "cursor-pointer" : ""}`}
+        onClick={onToggle}
+      >
+        <td className="px-4 py-3">
+          <div className="text-sm font-medium text-slate-900">{row.email}</div>
+          {row.name && <div className="text-xs text-slate-500">{row.name}</div>}
+          {row.kind === "lead" && row.converted_user_id && (
+            <span className="text-xs text-emerald-700 font-medium">✓ converted</span>
+          )}
+          {row.kind === "user" && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {row.has_google && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                  Google
+                </span>
+              )}
+              {row.has_password && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                  Password
+                </span>
+              )}
+            </div>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          {row.kind === "lead" ? (
+            <span className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+              lead
+            </span>
+          ) : (
+            <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+              user
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-3 text-sm text-slate-600">
+          {row.kind === "lead" ? row.source : row.role}
+          {row.kind === "lead" && row.utm_campaign && (
+            <div className="text-xs text-slate-500">{row.utm_campaign}</div>
+          )}
+        </td>
+        <td className="px-4 py-3 text-sm">
+          {row.kind === "user" ? (
+            row.has_active_subscription
+              ? <span className="text-emerald-700 font-medium">paid</span>
+              : <span className="text-slate-500">free</span>
+          ) : (
+            row.consent_marketing
+              ? <span className="text-emerald-700">✓ consent</span>
+              : <span className="text-slate-500">no consent</span>
+          )}
+        </td>
+        <td className="px-4 py-3 text-xs text-slate-500">
+          {row.kind === "user"
+            ? (row.last_login_at
+                ? new Date(row.last_login_at).toLocaleString()
+                : <span className="italic">never</span>)
+            : (row.target_exam_date ? `target: ${row.target_exam_date}` : "—")}
+        </td>
+        <td className="px-4 py-3 text-xs text-slate-500">
+          {new Date(row.created_at).toLocaleDateString()}
+        </td>
+      </tr>
+      {isOpen && row.kind === "lead" && (
+        <tr className="bg-slate-50">
+          <td colSpan={6} className="px-4 py-4">
+            <div className="text-xs font-semibold text-slate-700 mb-2">
+              Internal notes (admin-only)
+            </div>
+            <textarea
+              value={notes}
+              rows={3}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Sales follow-up, qualifying details…"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded mb-2"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={onSaveNotes}
+                className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700"
+              >
+                Save notes
+              </button>
+              <button
+                onClick={onCancel}
+                className="px-3 py-1.5 bg-white text-slate-700 text-xs border border-slate-300 rounded hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

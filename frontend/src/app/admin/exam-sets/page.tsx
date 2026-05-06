@@ -38,6 +38,29 @@ export default function ExamSetsListPage() {
     catch (e) { console.error("[admin/exam-sets] delete", e); setErr(errMsg(e)); }
   }
 
+  async function togglePremium(s: ExamSetSummaryOut) {
+    setBusy(true); setErr(null);
+    try {
+      // Backend PATCH expects a full ExamSetAdminIn — preserve existing
+      // settings and flip is_premium.
+      await admin.examSets.update(s.id, {
+        name: s.name, slug: s.slug, description: s.description ?? "",
+        difficulty: s.difficulty, time_limit_minutes: s.time_limit_minutes,
+        passing_score: s.passing_score,
+        is_active: true,                           // list endpoint hides inactive; keep on
+        is_premium: !s.is_premium,
+        display_order: 100,
+        cover_image_url: s.cover_image_url ?? null,
+      });
+      await reload();
+    } catch (e) {
+      console.error("[admin/exam-sets] toggle premium", e);
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="p-8 max-w-5xl">
       <header className="flex items-center justify-between mb-6">
@@ -175,14 +198,21 @@ export default function ExamSetsListPage() {
                     {s.time_limit_minutes}m
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    {s.is_premium ? (
-                      <span className="text-xs px-2 py-0.5 rounded border font-medium
-                                       bg-indigo-50 text-indigo-700 border-indigo-200">
-                        ⭐ premium
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-500">free</span>
-                    )}
+                    <button
+                      onClick={() => togglePremium(s)}
+                      disabled={busy}
+                      title={s.is_premium
+                        ? "Click to make this set free"
+                        : "Click to require a paid subscription"}
+                      className={`text-xs px-2 py-0.5 rounded border font-medium transition
+                        disabled:opacity-50 ${
+                        s.is_premium
+                          ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                          : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                      }`}
+                    >
+                      {s.is_premium ? "⭐ premium" : "free"}
+                    </button>
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <Link href={`/admin/exam-sets/${s.id}`}

@@ -7,7 +7,7 @@ import type {
   UserOut, UserAdminOut, UserDashboardOut, ExamSetSummaryOut, ExamSetAdminIn,
   ExamAttemptOut, AnswerIn, SubmitAttemptOut,
   AssistantRequest, AssistantResponse,
-  LeadCreateIn, LeadCreateOut, LeadAdminOut, ChatQuota,
+  LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
   QuestionAdminIn, QuestionAdminOut, ExamSetLinkedQuestion,
   SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
@@ -314,6 +314,16 @@ export const admin = {
       const { data } = await request<LeadAdminOut>(
         `/admin/leads/${id}/notes`,
         { method: "PATCH", json: { notes }, authed: true });
+      return data;
+    },
+  },
+  contacts: {
+    /** Unified feed: leads (landing-form) + users (signed up) in one stream. */
+    async list(p?: {
+      kind?: "lead" | "user"; q?: string; limit?: number; offset?: number;
+    }) {
+      const { data } = await request<ContactRow[]>(
+        `/admin/leads/contacts${qs(p)}`, { authed: true });
       return data;
     },
   },

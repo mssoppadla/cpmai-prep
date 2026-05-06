@@ -1,5 +1,6 @@
 import { JsonLd, organizationSchema, courseSchema, faqSchema } from "@/components/seo/JsonLd";
 import { LeadCaptureForm } from "@/components/lead/LeadCaptureForm";
+import { LandingTopBar } from "@/components/layout/LandingTopBar";
 
 const FAQS = [
   { q: "What is the CPMAI certification?",
@@ -18,6 +19,7 @@ export default function Landing() {
       <JsonLd data={faqSchema(FAQS)} />
 
       <main className="min-h-screen">
+        <LandingTopBar />
         <header className="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 md:pt-24
                            pb-10 sm:pb-14 text-center">
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900

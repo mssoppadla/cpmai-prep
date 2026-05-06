@@ -210,6 +210,27 @@ export interface LeadCreateIn {
   consent_marketing?: boolean;
 }
 export interface LeadCreateOut { id: number; message: string }
+export interface ContactRow {
+  kind: "lead" | "user";
+  id: number;
+  email: string;
+  name: string | null;
+  created_at: string;
+  // lead-only
+  source?: string | null;
+  utm_campaign?: string | null;
+  consent_marketing?: boolean | null;
+  notes?: string | null;
+  converted_user_id?: number | null;
+  target_exam_date?: string | null;
+  // user-only
+  role?: string | null;
+  has_google?: boolean | null;
+  has_password?: boolean | null;
+  has_active_subscription?: boolean | null;
+  last_login_at?: string | null;
+}
+
 export interface LeadAdminOut {
   id: number;
   email: string;
