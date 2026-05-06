@@ -1,11 +1,19 @@
 # VPS deployment runbook
 
-End-to-end production deployment for **cpmaiexamprep.com** on a Hostinger
+End-to-end production deployment for **cpmaiexamprep.com** on an
 Ubuntu 24.04 VPS, with backup, rollback, and zero-data-loss guarantees.
 
 This runbook is the *only* document you need on the VPS itself. The
 scripts under [`scripts/vps/`](../scripts/vps/) do the heavy lifting; this
 file explains *when* to run *which* and what to expect.
+
+> **Substitute throughout this runbook**:
+> - `<VPS_IP>` — the public IP of your VPS (kept out of this repo on purpose)
+> - `<your-google-client-id>` — your OAuth client ID from Google Cloud Console
+> - the deploy user defaults to `deploy`; override with `DEPLOY_USER=…` env var
+>
+> Treat the VPS IP, hostname, and SSH details as **operator secrets** — keep
+> them in a private password manager, not in any file in this repo.
 
 ---
 
@@ -13,7 +21,7 @@ file explains *when* to run *which* and what to expect.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Hostinger VPS  (Ubuntu 24.04, IP: 187.127.163.86)                │
+│ Ubuntu 24.04 VPS  (public IP kept private)                       │
 │                                                                  │
 │  ┌─────────────────────┐   :80, :443                             │
 │  │ Caddy (host pkg)    │ ──────── auto-TLS via Let's Encrypt    │
@@ -29,19 +37,20 @@ file explains *when* to run *which* and what to expect.
 │  │  │ :3000    │  │ :8000    │  │ internal │  │ internal │      │ │
 │  │  └──────────┘  └──────────┘  └────┬─────┘  └──────────┘      │ │
 │  │                                   │                          │ │
-│  │                              pg_dump → /var/backups/cpmai-prep│ │
+│  │                              pg_dump → backups dir on host   │ │
 │  └──────────────────────────────────────────────────────────────┘ │
 │                                                                  │
-│  n8n (separate stack — keep on different ports, NOT 80/443)      │
+│  Other stacks on the same box (e.g. n8n) — keep off ports 80/443 │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-DNS:
+DNS (in your domain registrar):
+
 | Record | Value |
 |---|---|
-| `cpmaiexamprep.com`        A | 187.127.163.86 |
-| `www.cpmaiexamprep.com`    A | 187.127.163.86 |
-| `api.cpmaiexamprep.com`    A | 187.127.163.86 |
+| `cpmaiexamprep.com`        A | `<VPS_IP>` |
+| `www.cpmaiexamprep.com`    A | `<VPS_IP>` |
+| `api.cpmaiexamprep.com`    A | `<VPS_IP>` |
 
 ---
 
@@ -52,7 +61,7 @@ Do this **once** on a fresh VPS. Idempotent — re-running is safe.
 ### 1.1 SSH in as root
 
 ```bash
-ssh root@187.127.163.86
+ssh root@<VPS_IP>
 ```
 
 ### 1.2 Stop n8n on ports 80/443 (if it's grabbing them)
@@ -92,7 +101,7 @@ upload your SSH key and disable password auth:
 
 ```bash
 # from your laptop
-ssh-copy-id deploy@187.127.163.86
+ssh-copy-id deploy@<VPS_IP>
 
 # back on the VPS, as root
 sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
@@ -103,7 +112,7 @@ exit
 
 ### 1.4 Point DNS
 
-In your domain registrar, set the three A records to `187.127.163.86`.
+In your domain registrar, set the three A records to `<VPS_IP>`.
 Caddy will auto-issue TLS certificates on the first hit to each hostname —
 nothing else to configure.
 
@@ -112,7 +121,7 @@ nothing else to configure.
 ## Phase 2 — First-time app install
 
 ```bash
-ssh deploy@187.127.163.86
+ssh deploy@<VPS_IP>
 git clone https://github.com/mssoppadla/cpmai-prep.git /opt/cpmai-prep
 cd /opt/cpmai-prep
 ./scripts/vps/install_app.sh
@@ -123,7 +132,7 @@ The script will prompt for:
 | Prompt | What to enter |
 |---|---|
 | Production domain | `cpmaiexamprep.com` |
-| Google OAuth Client ID | `1071742735533-vq77sasajqs61cqrp92765b0rjlqdet4.apps.googleusercontent.com` (or blank to disable) |
+| Google OAuth Client ID | `<your-google-client-id>` (or blank to disable) |
 | Razorpay Key ID | `rzp_live_…` (or `rzp_test_…` until live) |
 | Razorpay Key Secret | (matching secret) |
 | Razorpay Webhook Secret | (from Razorpay dashboard → Webhooks) |
@@ -171,7 +180,7 @@ In Razorpay dashboard → **Settings → Webhooks → Add new**:
 This is the only command you'll run for new features and bug fixes:
 
 ```bash
-ssh deploy@187.127.163.86
+ssh deploy@<VPS_IP>
 cd /opt/cpmai-prep
 ./scripts/vps/deploy.sh
 ```
@@ -267,7 +276,7 @@ disaster-recovery, periodically pull a copy down:
 ```bash
 # from your laptop, weekly
 rsync -avh --include='*__daily.sql.gz' --exclude='*' \
-  deploy@187.127.163.86:/var/backups/cpmai-prep/ ~/cpmai-backups/
+  deploy@<VPS_IP>:/var/backups/cpmai-prep/ ~/cpmai-backups/
 ```
 
 Or set up a cron on a *different* box. Don't put another rclone-to-S3 step
