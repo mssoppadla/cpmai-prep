@@ -7,11 +7,12 @@
  * just leads or just users. Notes editor is available for lead rows.
  */
 import { useEffect, useState } from "react";
-import { admin, errMsg } from "@/lib/api";
-import type { ContactRow } from "@/types/api";
+import { admin, auth, errMsg } from "@/lib/api";
+import type { ContactRow, UserOut } from "@/types/api";
 
 export default function ContactsPage() {
   const [rows, setRows] = useState<ContactRow[] | null>(null);
+  const [me, setMe] = useState<UserOut | null>(null);
   const [filter, setFilter] = useState<{ kind: "" | "lead" | "user"; q: string }>(
     { kind: "", q: "" }
   );
@@ -35,7 +36,27 @@ export default function ContactsPage() {
       setBusy(false);
     }
   }
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    reload();
+    auth.me().then(setMe).catch(() => setMe(null));
+    /* eslint-disable-next-line */
+  }, []);
+
+  async function deleteUser(row: ContactRow) {
+    if (row.kind !== "user") return;
+    const confirm1 = `Permanently DELETE user ${row.email}?\n\n` +
+      "This wipes their account. Their exam attempts and audit history " +
+      "are preserved (the user_id reference is dropped). Use this only for " +
+      "junk signups.";
+    if (!confirm(confirm1)) return;
+    try {
+      await admin.users.delete(row.id);
+      await reload();
+    } catch (e) {
+      console.error("[admin/contacts] delete user", e);
+      setErr(errMsg(e));
+    }
+  }
 
   async function saveNotes(id: number) {
     try {
@@ -152,12 +173,15 @@ export default function ContactsPage() {
                 <th className="px-4 py-3">Subscription</th>
                 <th className="px-4 py-3">Last seen</th>
                 <th className="px-4 py-3">Created</th>
+                <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map(r => {
                 const key = `${r.kind}-${r.id}`;
                 const isOpen = editing === key;
+                const canDelete = me?.role === "super_admin" && r.kind === "user"
+                                  && r.id !== me?.id;
                 return (
                   <Row
                     key={key}
@@ -165,6 +189,7 @@ export default function ContactsPage() {
                     isOpen={isOpen}
                     notes={notes}
                     setNotes={setNotes}
+                    canDelete={canDelete}
                     onToggle={() => {
                       if (isOpen) { setEditing(null); setNotes(""); return; }
                       // Notes only apply to leads
@@ -173,6 +198,7 @@ export default function ContactsPage() {
                       setNotes(r.notes ?? "");
                     }}
                     onSaveNotes={() => saveNotes(r.id)}
+                    onDelete={() => deleteUser(r)}
                     onCancel={() => { setEditing(null); setNotes(""); }}
                   />
                 );
@@ -190,11 +216,16 @@ interface RowProps {
   isOpen: boolean;
   notes: string;
   setNotes: (v: string) => void;
+  canDelete: boolean;
   onToggle: () => void;
   onSaveNotes: () => void;
+  onDelete: () => void;
   onCancel: () => void;
 }
-function Row({ row, isOpen, notes, setNotes, onToggle, onSaveNotes, onCancel }: RowProps) {
+function Row({
+  row, isOpen, notes, setNotes, canDelete,
+  onToggle, onSaveNotes, onDelete, onCancel,
+}: RowProps) {
   return (
     <>
       <tr
@@ -260,10 +291,21 @@ function Row({ row, isOpen, notes, setNotes, onToggle, onSaveNotes, onCancel }: 
         <td className="px-4 py-3 text-xs text-slate-500">
           {new Date(row.created_at).toLocaleDateString()}
         </td>
+        <td className="px-4 py-3 text-right">
+          {canDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              title="Delete this user (super-admin only). Use for junk signups."
+              className="text-xs text-rose-600 hover:underline"
+            >
+              Delete
+            </button>
+          )}
+        </td>
       </tr>
       {isOpen && row.kind === "lead" && (
         <tr className="bg-slate-50">
-          <td colSpan={6} className="px-4 py-4">
+          <td colSpan={7} className="px-4 py-4">
             <div className="text-xs font-semibold text-slate-700 mb-2">
               Internal notes (admin-only)
             </div>

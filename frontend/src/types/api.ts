@@ -234,6 +234,8 @@ export interface LandingCopy {
   lead_section_heading: string;
   lead_cta_text: string;
   lead_post_submit_route: string;
+  premium_upsell_title: string;
+  premium_upsell_body: string;
 }
 
 export interface ContactRow {

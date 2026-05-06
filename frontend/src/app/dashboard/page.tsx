@@ -2,10 +2,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { auth, exams as examsApi, errMsg } from "@/lib/api";
+import { auth, content as contentApi, exams as examsApi, errMsg } from "@/lib/api";
 import type {
-  ExamSetSummaryOut, UserDashboardOut,
+  ExamSetSummaryOut, LandingCopy, UserDashboardOut,
 } from "@/types/api";
+
+const UPSELL_FALLBACK: Pick<LandingCopy, "premium_upsell_title" | "premium_upsell_body"> = {
+  premium_upsell_title: "Get the full bank",
+  premium_upsell_body:
+    "Premium unlocks all advanced sets, AI tutor with extended quota, and detailed performance analytics.",
+};
 
 /**
  * Learner dashboard — shown after a user (role=`user`) signs in.
@@ -20,19 +26,27 @@ export default function LearnerDashboard() {
   const router = useRouter();
   const [data, setData] = useState<UserDashboardOut | null>(null);
   const [sets, setSets] = useState<ExamSetSummaryOut[] | null>(null);
+  const [upsell, setUpsell] = useState(UPSELL_FALLBACK);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [d, s] = await Promise.all([
+        const [d, s, copy] = await Promise.all([
           auth.dashboard(),
           examsApi.listSets(),
+          contentApi.landing().catch(() => null),  // best-effort
         ]);
         if (cancelled) return;
         setData(d);
         setSets(s);
+        if (copy) {
+          setUpsell({
+            premium_upsell_title: copy.premium_upsell_title,
+            premium_upsell_body:  copy.premium_upsell_body,
+          });
+        }
         // If an admin somehow lands here, kick them to the admin console.
         if (d.user.role === "admin" || d.user.role === "super_admin") {
           router.replace("/admin");
@@ -80,7 +94,12 @@ export default function LearnerDashboard() {
             <div className="text-xs text-slate-500">Learner Dashboard</div>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-slate-600">{data.user.email}</span>
+            <Link href="/#faq-heading"
+                  className="text-slate-600 hover:text-indigo-600">
+              Home / FAQs
+            </Link>
+            <span className="text-slate-300" aria-hidden>·</span>
+            <span className="text-slate-600 hidden sm:inline">{data.user.email}</span>
             <button
               onClick={async () => { await auth.logout(); router.push("/"); }}
               className="text-indigo-600 hover:underline"
@@ -163,11 +182,10 @@ export default function LearnerDashboard() {
           <div className="mt-6 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl p-5 flex items-start gap-4">
             <div className="flex-1">
               <div className="text-sm font-semibold text-indigo-900 mb-1">
-                Get the full bank
+                {upsell.premium_upsell_title}
               </div>
               <p className="text-sm text-indigo-800">
-                Premium unlocks all advanced sets, AI tutor with extended quota,
-                and detailed performance analytics.
+                {upsell.premium_upsell_body}
               </p>
             </div>
             <Link

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { exams as examsApi, errMsg } from "@/lib/api";
 import type { ExamAttemptOut } from "@/types/api";
@@ -184,6 +185,16 @@ export default function ExamAttemptPage() {
 
   return (
     <main className="max-w-3xl mx-auto px-6 py-8">
+      {/* Top utility row — quick exit back to home/FAQs or learner dashboard. */}
+      <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
+        <Link href="/dashboard" className="hover:text-indigo-600">
+          ← Dashboard
+        </Link>
+        <Link href="/#faq-heading" className="hover:text-indigo-600">
+          Home / FAQs
+        </Link>
+      </div>
+
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <div>
           <div className="text-xs text-slate-500 uppercase tracking-wide">

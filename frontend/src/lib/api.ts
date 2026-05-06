@@ -450,5 +450,9 @@ export const admin = {
         { method: "PATCH", authed: true });
       return data;
     },
+    async delete(userId: number) {
+      await request(`/admin/users/${userId}`,
+        { method: "DELETE", authed: true });
+    },
   },
 };

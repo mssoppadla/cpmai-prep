@@ -11,20 +11,34 @@ from app.schemas.settings import SettingOut, SettingUpdate
 
 router = APIRouter()
 
+# Helper: a non-empty short string (for landing-page copy bits).
+def _short_str(max_len: int = 500):
+    return lambda v: isinstance(v, str) and 1 <= len(v) <= max_len
+
 EDITABLE: dict[str, Callable] = {
+    # AI chat operational limits
     "chat.daily_limit.anonymous":        lambda v: isinstance(v, int) and 0 <= v <= 1000,
     "chat.daily_limit.authenticated":    lambda v: isinstance(v, int) and 0 <= v <= 10000,
     "chat.max_input_chars":              lambda v: isinstance(v, int) and 100 <= v <= 32000,
     "chat.max_output_chars":             lambda v: isinstance(v, int) and 100 <= v <= 32000,
     "chat.tokens_per_day_authenticated": lambda v: isinstance(v, int) and v >= 0,
     "chat.cooldown_seconds":             lambda v: isinstance(v, (int, float)) and v >= 0,
+    # Auth lockout policy
     "auth.lockout_threshold":            lambda v: isinstance(v, int) and 1 <= v <= 50,
     "auth.lockout_minutes":              lambda v: isinstance(v, int) and 1 <= v <= 1440,
+    # LLM / payment provider plumbing
     "llm.active_provider_id":            lambda v: v is None or isinstance(v, int),
     "llm.fallback_provider_id":          lambda v: v is None or isinstance(v, int),
     "llm.cache_ttl_seconds":             lambda v: isinstance(v, int) and v >= 1,
     "payment.active_provider_id":        lambda v: v is None or isinstance(v, int),
     "payment.cache_ttl_seconds":         lambda v: isinstance(v, int) and v >= 1,
+    # Landing-page copy (admin-editable, no redeploy needed). All values
+    # are short strings so the validator stays simple.
+    "landing.lead_section_heading":      _short_str(200),
+    "landing.lead_cta_text":             _short_str(80),
+    "landing.lead_post_submit_route":    _short_str(200),
+    "landing.premium_upsell_title":      _short_str(120),
+    "landing.premium_upsell_body":       _short_str(500),
 }
 
 

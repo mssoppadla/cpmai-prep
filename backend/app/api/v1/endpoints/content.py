@@ -33,7 +33,8 @@ def landing_copy():
     """Admin-editable landing-page text bits.
 
     Keys backed by system_settings so admins can tweak them in
-    /admin/settings without redeploying.
+    /admin/settings without redeploying. Includes the upsell banner
+    shown on the learner dashboard.
     """
     return {
         "lead_section_heading": settings_store.get_str(
@@ -47,5 +48,14 @@ def landing_copy():
         "lead_post_submit_route": settings_store.get_str(
             "landing.lead_post_submit_route",
             "/exams",
+        ),
+        "premium_upsell_title": settings_store.get_str(
+            "landing.premium_upsell_title",
+            "Get the full bank",
+        ),
+        "premium_upsell_body": settings_store.get_str(
+            "landing.premium_upsell_body",
+            "Premium unlocks all advanced sets, AI tutor with extended quota, "
+            "and detailed performance analytics.",
         ),
     }
