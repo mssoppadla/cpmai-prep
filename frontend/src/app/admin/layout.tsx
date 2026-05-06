@@ -7,6 +7,7 @@ import type { UserOut } from "@/types/api";
 
 const NAV = [
   { href: "/admin",                    label: "Dashboard" },
+  { href: "/admin/users",              label: "Users" },
   { href: "/admin/questions",          label: "Questions" },
   { href: "/admin/exam-sets",          label: "Exam Sets" },
   { href: "/admin/leads",              label: "Leads" },
@@ -28,7 +29,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         const me = await auth.me();
         if (cancelled) return;
         if (!["admin", "super_admin"].includes(me.role)) {
-          router.replace("/");
+          // Regular users get bounced to their own dashboard, not the
+          // marketing landing page.
+          router.replace("/dashboard");
           return;
         }
         setUser(me);

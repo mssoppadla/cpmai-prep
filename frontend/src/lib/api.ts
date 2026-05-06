@@ -4,7 +4,7 @@
  */
 import type {
   ApiErrorBody, AuthTokens, LoginIn, SignupIn, RefreshIn,
-  UserOut, UserAdminOut, ExamSetSummaryOut, ExamSetAdminIn,
+  UserOut, UserAdminOut, UserDashboardOut, ExamSetSummaryOut, ExamSetAdminIn,
   ExamAttemptOut, AnswerIn, SubmitAttemptOut,
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ChatQuota,
@@ -139,6 +139,11 @@ export const auth = {
   },
   async me(): Promise<UserOut> {
     const { data } = await request<UserOut>("/users/me", { authed: true });
+    return data;
+  },
+  async dashboard(): Promise<UserDashboardOut> {
+    const { data } = await request<UserDashboardOut>(
+      "/users/me/dashboard", { authed: true });
     return data;
   },
 };
@@ -393,9 +398,18 @@ export const admin = {
     },
   },
   users: {
-    async list(p?: { q?: string; limit?: number; offset?: number }) {
+    async list(p?: {
+      q?: string; role?: string; method?: "google" | "password" | "both";
+      limit?: number; offset?: number;
+    }) {
       const { data } = await request<UserAdminOut[]>(
         `/admin/users${qs(p)}`, { authed: true });
+      return data;
+    },
+    async changeRole(userId: number, role: string) {
+      const { data } = await request<UserAdminOut>(
+        `/admin/users/${userId}/role?role=${encodeURIComponent(role)}`,
+        { method: "PATCH", authed: true });
       return data;
     },
   },

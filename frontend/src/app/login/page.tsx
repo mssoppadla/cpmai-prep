@@ -4,13 +4,20 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { auth, ApiError, errMsg } from "@/lib/api";
 import { GoogleSignInButton } from "@/lib/google-auth";
+import type { UserRole } from "@/types/api";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
+
+/** Where to land after a successful sign-in, based on role. */
+function destinationFor(role: UserRole, override: string | null): string {
+  if (override) return override;
+  return role === "admin" || role === "super_admin" ? "/admin" : "/dashboard";
+}
 
 export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/admin";
+  const explicitNext = params.get("next");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,8 +29,8 @@ export default function LoginPage() {
     setBusy(true);
     setErr(null);
     try {
-      await auth.login({ email, password });
-      router.push(next);
+      const tokens = await auth.login({ email, password });
+      router.push(destinationFor(tokens.user.role, explicitNext));
     } catch (e) {
       console.error("[login] password sign-in failed", e);
       setErr(errMsg(e));
@@ -36,8 +43,8 @@ export default function LoginPage() {
     setBusy(true);
     setErr(null);
     try {
-      await auth.googleLogin(credential);
-      router.push(next);
+      const tokens = await auth.googleLogin(credential);
+      router.push(destinationFor(tokens.user.role, explicitNext));
     } catch (e) {
       console.error("[login] google sign-in failed", e);
       setErr(errMsg(e));

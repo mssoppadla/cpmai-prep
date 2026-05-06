@@ -50,6 +50,22 @@ export interface UserAdminOut extends UserOut {
   failed_login_count: number;
   locked_until: string | null;
   last_login_at: string | null;
+  has_google: boolean;
+  has_password: boolean;
+  has_active_subscription: boolean;
+  subscription_plan: string | null;
+}
+export interface SubscriptionSummary {
+  active: boolean;
+  plan: string | null;
+  status: string | null;
+  current_period_end: string | null;
+}
+export interface UserDashboardOut {
+  user: UserOut;
+  subscription: SubscriptionSummary;
+  has_google: boolean;
+  has_password: boolean;
 }
 export interface AuthTokens { access: string; refresh: string; user: UserOut }
 

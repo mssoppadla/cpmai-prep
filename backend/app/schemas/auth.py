@@ -51,6 +51,27 @@ class UserAdminOut(UserOut):
     failed_login_count: int
     locked_until: datetime | None
     last_login_at: datetime | None
+    # Login-method & subscription summaries — populated by the endpoint.
+    has_google: bool = False
+    has_password: bool = False
+    has_active_subscription: bool = False
+    subscription_plan: str | None = None
+
+
+class SubscriptionSummary(BaseModel):
+    active: bool
+    plan: str | None = None
+    status: str | None = None
+    current_period_end: datetime | None = None
+
+
+class UserDashboardOut(BaseModel):
+    """Self-view returned by /users/me/dashboard. Includes subscription
+    so the learner UI can decide what's accessible / what to upsell."""
+    user: UserOut
+    subscription: SubscriptionSummary
+    has_google: bool
+    has_password: bool
 
 
 class AuthTokens(BaseModel):
