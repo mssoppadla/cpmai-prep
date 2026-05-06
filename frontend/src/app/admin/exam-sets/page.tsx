@@ -13,6 +13,7 @@ const blank: ExamSetAdminIn = {
 export default function ExamSetsListPage() {
   const [rows, setRows] = useState<ExamSetSummaryOut[] | null>(null);
   const [form, setForm] = useState<ExamSetAdminIn | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -22,14 +23,38 @@ export default function ExamSetsListPage() {
   }
   useEffect(() => { reload(); }, []);
 
-  async function create() {
+  function startEdit(s: ExamSetSummaryOut) {
+    setEditingId(s.id);
+    setForm({
+      name: s.name, slug: s.slug, description: s.description ?? "",
+      difficulty: s.difficulty,
+      time_limit_minutes: s.time_limit_minutes,
+      passing_score: s.passing_score,
+      is_active: true,
+      is_premium: s.is_premium,
+      display_order: 100,
+      cover_image_url: s.cover_image_url ?? null,
+    });
+  }
+  function cancelForm() { setForm(null); setEditingId(null); }
+
+  async function saveForm() {
     if (!form) return;
     setBusy(true); setErr(null);
     try {
-      await admin.examSets.create(form);
-      setForm(null); await reload();
-    } catch (e) { console.error("[admin/exam-sets] create", e); setErr(errMsg(e)); }
-    finally { setBusy(false); }
+      if (editingId) {
+        await admin.examSets.update(editingId, form);
+      } else {
+        await admin.examSets.create(form);
+      }
+      cancelForm();
+      await reload();
+    } catch (e) {
+      console.error("[admin/exam-sets] save", e);
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function remove(id: number) {
@@ -71,7 +96,7 @@ export default function ExamSetsListPage() {
           </p>
         </div>
         {!form && (
-          <button onClick={() => setForm({ ...blank })}
+          <button onClick={() => { setEditingId(null); setForm({ ...blank }); }}
                   className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
                              rounded-lg hover:bg-indigo-700">
             + New Exam Set
@@ -84,7 +109,9 @@ export default function ExamSetsListPage() {
 
       {form && (
         <div className="bg-white rounded-xl border-2 border-indigo-200 p-6 mb-6">
-          <h2 className="font-semibold text-slate-900 mb-4">New exam set</h2>
+          <h2 className="font-semibold text-slate-900 mb-4">
+            {editingId ? `Edit exam set` : "New exam set"}
+          </h2>
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Name">
               <input value={form.name}
@@ -142,12 +169,14 @@ export default function ExamSetsListPage() {
             </label>
           </div>
           <div className="flex items-center gap-3 mt-5">
-            <button onClick={create} disabled={busy}
+            <button onClick={saveForm} disabled={busy}
                     className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
                                rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-              {busy ? "Creating…" : "Create"}
+              {busy
+                ? (editingId ? "Saving…" : "Creating…")
+                : (editingId ? "Save changes" : "Create")}
             </button>
-            <button onClick={() => setForm(null)}
+            <button onClick={cancelForm}
                     className="px-4 py-2 bg-white text-slate-700 text-sm font-medium
                                border border-slate-300 rounded-lg hover:bg-slate-50">
               Cancel
@@ -195,7 +224,9 @@ export default function ExamSetsListPage() {
                     {s.question_count}
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600 tabular-nums">
-                    {s.time_limit_minutes}m
+                    <span title="Click Edit to change the countdown duration">
+                      ⏱ {s.time_limit_minutes} min
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <button
@@ -215,6 +246,10 @@ export default function ExamSetsListPage() {
                     </button>
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <button onClick={() => startEdit(s)}
+                            className="text-xs text-slate-700 hover:underline mr-3">
+                      Edit
+                    </button>
                     <Link href={`/admin/exam-sets/${s.id}`}
                           className="text-xs text-indigo-600 hover:underline mr-3">
                       Manage questions
