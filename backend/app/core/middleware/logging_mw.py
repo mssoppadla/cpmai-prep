@@ -7,6 +7,7 @@ log = structlog.get_logger("http")
 
 SENSITIVE_PATHS = {
     "/api/v1/auth/login", "/api/v1/auth/signup", "/api/v1/auth/password",
+    "/api/v1/auth/refresh", "/api/v1/auth/google",
     "/api/v1/payments/verify",
 }
 

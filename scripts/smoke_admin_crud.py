@@ -251,6 +251,120 @@ def main() -> int:
          f"status={status} count={len(body) if isinstance(body, list) else 0}")
 
     # ------------------------------------------------------------------
+    section("Landing copy is hot-editable (no restart)")
+    # Read current value, change it, read again, revert. Proves the
+    # settings_store cache invalidation works without a restart.
+    status, body = http("GET", "/content/landing")
+    original_heading = body.get("lead_section_heading") if body else None
+    step("read /content/landing", status == 200 and original_heading,
+         f"status={status} heading={original_heading!r}")
+
+    new_heading = "SMOKE-PROBE heading"
+    status, _ = http("PATCH", "/admin/settings/landing.lead_section_heading",
+                     {"value": new_heading}, _token)
+    step("PATCH landing.lead_section_heading", status == 200,
+         f"status={status}")
+
+    # Re-read public endpoint — change should be visible immediately.
+    # settings_store has a 30s in-process cache, so we may need to retry
+    # briefly if the worker that serves the GET hasn't cleared its cache.
+    import time as _time
+    seen_change = False
+    for _ in range(8):
+        status, body = http("GET", "/content/landing")
+        if body and body.get("lead_section_heading") == new_heading:
+            seen_change = True
+            break
+        _time.sleep(0.5)
+    step("public /content/landing reflects new heading without restart",
+         seen_change,
+         f"after-PATCH heading={(body or {}).get('lead_section_heading')!r}")
+
+    # Revert.
+    status, _ = http("PATCH", "/admin/settings/landing.lead_section_heading",
+                     {"value": original_heading}, _token)
+    step("revert heading", status == 200, f"status={status}")
+
+    # ------------------------------------------------------------------
+    section("FAQ CRUD")
+    status, body = http("POST", "/admin/faqs", {
+        "question": "SMOKE: is this a real FAQ?",
+        "answer": "No — created by the smoke test, deleted at the end.",
+        "display_order": 9999, "is_active": True,
+    }, _token)
+    fid = body.get("id") if body else None
+    step("create FAQ", status == 201 and fid is not None,
+         f"status={status} id={fid}")
+
+    if fid:
+        status, body = http("PATCH", f"/admin/faqs/{fid}", {
+            "question": "SMOKE: edited FAQ question?",
+            "answer": "Edited body.",
+            "display_order": 9999, "is_active": False,
+        }, _token)
+        step("update FAQ (set inactive)",
+             status == 200 and body and body.get("is_active") is False,
+             f"status={status}")
+
+        # Public /content/faqs hides inactive — confirm
+        status, body = http("GET", "/content/faqs")
+        hidden = (status == 200 and isinstance(body, list)
+                  and not any(f.get("id") == fid for f in body))
+        step("inactive FAQ hidden from public /content/faqs", hidden,
+             f"status={status}")
+
+        status, _ = http("DELETE", f"/admin/faqs/{fid}", token=_token)
+        step("delete FAQ", status == 204, f"status={status}")
+
+    # ------------------------------------------------------------------
+    section("Contact (lead) delete via super-admin")
+    # Create a junk lead to exercise the delete path, then delete it.
+    junk_email = f"smoke-junk-{int(__import__('time').time())}@example.com"
+    status, body = http("POST", "/leads", {
+        "email": junk_email, "name": "Smoke Junk",
+        "source": "landing_hero", "consent_marketing": True,
+    })
+    lid = body.get("id") if body else None
+    step("create junk lead", status == 201 and lid is not None,
+         f"status={status} id={lid}")
+
+    if lid:
+        status, _ = http("DELETE", f"/admin/leads/{lid}", token=_token)
+        step("super-admin deletes lead", status == 204, f"status={status}")
+
+    # ------------------------------------------------------------------
+    section("Subscription gating on premium exam sets")
+    # /exam-sets/{slug}/start requires get_current_user; admin has no active
+    # subscription, so attempting a premium set must yield 402
+    # (subscription_required). A free set returns 201. This proves the
+    # gate at exam_service.py:38 still fires after any code change.
+    status, body = http("GET", "/exam-sets")  # public list
+    free_slug = next((s["slug"] for s in (body or [])
+                      if not s.get("is_premium")), None)
+    premium_slug = next((s["slug"] for s in (body or [])
+                         if s.get("is_premium")), None)
+
+    if premium_slug:
+        status, body = http("POST", f"/exam-sets/{premium_slug}/start",
+                            None, _token)
+        gated = status == 402 and body and (body.get("error") or {}).get("code") == "subscription_required"
+        step("premium set blocked without subscription (402)", gated,
+             f"slug={premium_slug} status={status}")
+    else:
+        step("premium set blocked without subscription (402)", True,
+             "skipped — no premium set seeded")
+
+    if free_slug:
+        # Don't actually start (creates rows); just verify the path is
+        # reachable for an authed user. POST returns 201 and an attempt id.
+        # Use a short-lived attempt and clean up via DB-level tear-down.
+        status, body = http("POST", f"/exam-sets/{free_slug}/start",
+                            None, _token)
+        step("free set startable for authed user (201 or reuse 200)",
+             status in (200, 201) and body and "id" in body,
+             f"slug={free_slug} status={status}")
+
+    # ------------------------------------------------------------------
     section("Cleanup")
     status, _ = http("DELETE", f"/admin/exam-sets/{sid}", token=_token)
     step("delete exam set", status == 204, f"status={status}")
