@@ -14,7 +14,12 @@ class User(Base):
     __tablename__ = "users"
     id                 = Column(Integer, primary_key=True)
     email              = Column(String(255), unique=True, nullable=False, index=True)
-    password_hash      = Column(String(255), nullable=False)
+    # Nullable: Google-only accounts have no password. Admins can still set
+    # one to keep password login as a fallback alongside Google.
+    password_hash      = Column(String(255), nullable=True)
+    # Google OIDC subject (`sub` claim). Unique per Google account; nullable
+    # so password-only users have no Google linkage.
+    google_id          = Column(String(64), unique=True, nullable=True, index=True)
     name               = Column(String(120))
     role               = Column(SQLEnum(UserRole, name="user_role"),
                                 default=UserRole.USER, nullable=False, index=True)

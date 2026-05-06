@@ -140,6 +140,15 @@ def main() -> int:
         step("login as super-admin", False, f"status={status} body={body}")
         return 1
 
+    # Verify the /auth/google endpoint exists and rejects an obvious bogus
+    # credential. Returns 503 when GOOGLE_OAUTH_CLIENT_ID is unset (feature
+    # disabled) or 401 when configured (token can't be verified). Either is
+    # a healthy answer; what would be wrong is a 500 or 200.
+    status, body = http("POST", "/auth/google", {"credential": "bogus.jwt"})
+    step("google sign-in endpoint rejects bogus token",
+         status in (401, 503),
+         f"status={status} ({'configured' if status == 401 else 'disabled'})")
+
     # ------------------------------------------------------------------
     section("Question CRUD")
     payload = {

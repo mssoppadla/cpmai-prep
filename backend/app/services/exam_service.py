@@ -10,6 +10,7 @@ from app.core.exceptions import (
     NotFoundError, ConflictError, ForbiddenError, SubscriptionRequiredError
 )
 from app.core.audit import audit_log
+from app.services.tracking_service import emit_event
 from app.models.user import User
 from app.models.exam_set import ExamSet
 from app.models.exam_session import ExamSession, ExamAttemptAnswer
@@ -66,6 +67,10 @@ class ExamService:
         self.db.refresh(session)
         audit_log(self.db, user.id, "exam.attempt_started",
                   {"exam_set_id": es.id, "session_id": session.id})
+        emit_event(self.db, "exam.started", user_id=user.id,
+                   metadata={"exam_set_id": es.id, "exam_set_slug": es.slug,
+                             "exam_session_id": session.id,
+                             "is_premium": es.is_premium})
         return self._serialize_attempt(session, es)
 
     # ------------------------------------------------------------------- get
@@ -188,6 +193,12 @@ class ExamService:
 
         audit_log(self.db, user.id, "exam.attempt_submitted",
                   {"session_id": session.id, "score": score, "passed": passed})
+        emit_event(self.db, "exam.submitted", user_id=user.id,
+                   metadata={"exam_set_id": es.id if es else None,
+                             "exam_session_id": session.id,
+                             "score": score, "passed": passed,
+                             "correct": correct, "incorrect": incorrect,
+                             "unanswered": unanswered})
 
         return SubmitAttemptOut(
             id=session.id, score=score, passed=passed,

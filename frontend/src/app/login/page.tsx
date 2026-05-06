@@ -2,7 +2,10 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { auth, ApiError } from "@/lib/api";
+import { auth, ApiError, errMsg } from "@/lib/api";
+import { GoogleSignInButton } from "@/lib/google-auth";
+
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,7 +25,22 @@ export default function LoginPage() {
       await auth.login({ email, password });
       router.push(next);
     } catch (e) {
-      setErr((e as ApiError).body?.message ?? "Sign in failed");
+      console.error("[login] password sign-in failed", e);
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleGoogleCredential(credential: string) {
+    setBusy(true);
+    setErr(null);
+    try {
+      await auth.googleLogin(credential);
+      router.push(next);
+    } catch (e) {
+      console.error("[login] google sign-in failed", e);
+      setErr(errMsg(e));
     } finally {
       setBusy(false);
     }
@@ -35,6 +53,25 @@ export default function LoginPage() {
         <p className="text-sm text-slate-600 mb-5">
           Use your CPMAI Prep account.
         </p>
+        {GOOGLE_CLIENT_ID && (
+          <>
+            <div className="flex justify-center mb-4">
+              <GoogleSignInButton
+                clientId={GOOGLE_CLIENT_ID}
+                onCredential={handleGoogleCredential}
+                onError={(e) => setErr(e.message)}
+              />
+            </div>
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                <div className="w-full border-t border-slate-200" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-white px-2 text-xs uppercase tracking-wider text-slate-400">or</span>
+              </div>
+            </div>
+          </>
+        )}
         <form onSubmit={submit} className="space-y-3" noValidate>
           <input
             required

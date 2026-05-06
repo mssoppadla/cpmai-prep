@@ -16,6 +16,16 @@ class LoginIn(BaseModel):
     password: str
 
 
+class GoogleLoginIn(BaseModel):
+    """Body for POST /auth/google.
+
+    `credential` is the JWT Google Sign-In gives the frontend in its
+    callback. The backend verifies it against the configured Google
+    OAuth client ID and finds-or-creates the user.
+    """
+    credential: str
+
+
 class RefreshIn(BaseModel):
     refresh_token: str
 

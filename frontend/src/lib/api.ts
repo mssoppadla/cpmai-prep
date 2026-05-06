@@ -107,6 +107,13 @@ export const auth = {
     setTokens(data.access, data.refresh);
     return data;
   },
+  async googleLogin(credential: string): Promise<AuthTokens> {
+    const { data } = await request<AuthTokens>("/auth/google", {
+      method: "POST", json: { credential },
+    });
+    setTokens(data.access, data.refresh);
+    return data;
+  },
   async login(payload: LoginIn): Promise<AuthTokens> {
     const { data } = await request<AuthTokens>("/auth/login", {
       method: "POST", json: payload,
