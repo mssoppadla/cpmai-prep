@@ -62,8 +62,10 @@ jobs:
       SECRET_KEY: test_secret_key_not_used_in_prod
       ENCRYPTION_KEY: zUpGn87pjmPcsQzZK9BjpO3IBevEh0nB-Vw0c5pBQS4=
       APP_ENV: test
-      ALLOWED_HOSTS: localhost,127.0.0.1
-      CORS_ORIGINS: http://localhost:3000
+      # Pydantic-settings parses list[str] fields as JSON when sourced from
+      # env. Provide them in JSON-array form, not comma-separated.
+      ALLOWED_HOSTS: '["localhost","127.0.0.1"]'
+      CORS_ORIGINS: '["http://localhost:3000"]'
     steps:
       - uses: actions/checkout@v4
 
