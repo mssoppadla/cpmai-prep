@@ -72,17 +72,24 @@ EOF
   SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
   FERNET=$(python3 -c 'import secrets, base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')
   ADMIN_PW=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+  # Smoke-test super-admin — separate from the operator account so that
+  # rotating BOOTSTRAP_ADMIN_PASSWORD via /admin/users never breaks the
+  # smoke. seed.py keeps the DB hash in sync with this value.
+  SMOKE_PW=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+  SMOKE_EMAIL="smoke-admin@${PROD_DOMAIN}"
 
   TMP=$(mktemp)
   awk -v s="$SECRET" -v f="$FERNET" -v p="$ADMIN_PW" \
       -v d="$PROD_DOMAIN" -v g="$GOOGLE_CID" \
       -v rk="$RP_KEY_ID" -v rs="$RP_SECRET" -v rw="$RP_WEBHOOK" \
-      -v ae="$ADMIN_EMAIL" '
+      -v ae="$ADMIN_EMAIL" -v se="$SMOKE_EMAIL" -v sp="$SMOKE_PW" '
     /^APP_ENV=/                    { print "APP_ENV=production"; next }
     /^SECRET_KEY=/                 { print "SECRET_KEY=" s; next }
     /^ENCRYPTION_KEY=/             { print "ENCRYPTION_KEY=" f; next }
     /^BOOTSTRAP_ADMIN_EMAIL=/      { print "BOOTSTRAP_ADMIN_EMAIL=" ae; next }
     /^BOOTSTRAP_ADMIN_PASSWORD=/   { print "BOOTSTRAP_ADMIN_PASSWORD=" p; next }
+    /^SMOKE_ADMIN_EMAIL=/          { print "SMOKE_ADMIN_EMAIL=" se; next }
+    /^SMOKE_ADMIN_PASSWORD=/       { print "SMOKE_ADMIN_PASSWORD=" sp; next }
     /^ALLOWED_HOSTS=/              { print "ALLOWED_HOSTS=[\"" d "\",\"www." d "\",\"api." d "\"]"; next }
     /^CORS_ORIGINS=/               { print "CORS_ORIGINS=[\"https://" d "\",\"https://www." d "\"]"; next }
     /^GOOGLE_OAUTH_CLIENT_ID=/     { print "GOOGLE_OAUTH_CLIENT_ID=" g; next }

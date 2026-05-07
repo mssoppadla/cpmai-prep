@@ -59,6 +59,26 @@ set -a; . ./frontend/.env.local; set +a
 : "${FRONTEND_HOST_PORT:=3000}"
 export BACKEND_HOST_PORT FRONTEND_HOST_PORT
 
+# Backfill SMOKE_ADMIN_* into backend/.env if it predates the smoke-account
+# split. The seeder (and the smoke) only consult these if they're set, so
+# this is safe to run on every deploy: it's a true no-op once the lines
+# already exist.
+if ! grep -q '^SMOKE_ADMIN_EMAIL=' backend/.env; then
+  say "Backfilling SMOKE_ADMIN_* into backend/.env (one-time)..."
+  SMOKE_PW=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+  cat >> backend/.env <<EOF
+
+# Smoke / CI test super-admin — separate from BOOTSTRAP_ADMIN so rotating
+# the operator password never breaks the deploy gate. Auto-added by
+# scripts/vps/deploy.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+SMOKE_ADMIN_EMAIL=smoke-admin@${PROD_DOMAIN}
+SMOKE_ADMIN_PASSWORD=${SMOKE_PW}
+EOF
+  chmod 0600 backend/.env
+  ok "smoke admin credentials added to backend/.env"
+  unset SMOKE_PW
+fi
+
 # Ensure the bind-mounted logs dir is writable by the container's app user
 # (uid 999, set by backend Dockerfile's `useradd -r`). Idempotent: chown is
 # fine on a directory that already has the right owner.

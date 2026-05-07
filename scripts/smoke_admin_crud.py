@@ -62,17 +62,29 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _load_dotenv(_REPO_ROOT / "backend" / ".env")
 
 BASE = os.environ.get("BASE_URL", "http://localhost:8000/api/v1")
+# Credential resolution order:
+#   1. ADMIN_EMAIL / ADMIN_PASSWORD       — explicit override (CI / one-off)
+#   2. SMOKE_ADMIN_EMAIL / *_PASSWORD     — dedicated smoke account, kept in
+#                                           sync by seed_smoke_admin(). Use this
+#                                           in normal day-to-day deploys; it
+#                                           survives BOOTSTRAP_ADMIN rotation.
+#   3. BOOTSTRAP_ADMIN_EMAIL / *_PASSWORD — fallback for fresh installs that
+#                                           haven't yet seeded a smoke admin.
 EMAIL = (os.environ.get("ADMIN_EMAIL")
+         or os.environ.get("SMOKE_ADMIN_EMAIL")
          or os.environ.get("BOOTSTRAP_ADMIN_EMAIL"))
 PASSWORD = (os.environ.get("ADMIN_PASSWORD")
+            or os.environ.get("SMOKE_ADMIN_PASSWORD")
             or os.environ.get("BOOTSTRAP_ADMIN_PASSWORD"))
 
 if not EMAIL or not PASSWORD:
     print("ERROR: admin credentials not configured.", file=sys.stderr)
     print("", file=sys.stderr)
-    print("Provide them via either:", file=sys.stderr)
-    print("  - ADMIN_EMAIL / ADMIN_PASSWORD env vars, or", file=sys.stderr)
-    print("  - BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD in",
+    print("Provide them via one of:", file=sys.stderr)
+    print("  - ADMIN_EMAIL / ADMIN_PASSWORD env vars (override)", file=sys.stderr)
+    print("  - SMOKE_ADMIN_EMAIL / SMOKE_ADMIN_PASSWORD (preferred — auto-seeded)",
+          file=sys.stderr)
+    print("  - BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD (fallback) in",
           file=sys.stderr)
     print(f"    {_REPO_ROOT / 'backend' / '.env'}", file=sys.stderr)
     sys.exit(2)

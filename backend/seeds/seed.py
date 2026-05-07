@@ -27,7 +27,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from app.core.database import SessionLocal  # noqa: E402
-from app.core.security import hash_password  # noqa: E402
+from app.core.security import hash_password, verify_password  # noqa: E402
 
 import app.models  # noqa: E402, F401  -- triggers SQLAlchemy registration
 from app.models.exam_set import ExamSet, ExamSetQuestion  # noqa: E402
@@ -102,6 +102,40 @@ def seed_super_admin(db) -> str | None:
         return None
     db.add(User(email=email, password_hash=hash_password(password),
                 name="Admin", role=UserRole.SUPER_ADMIN, is_active=True))
+    db.commit()
+    return email
+
+
+def seed_smoke_admin(db) -> str | None:
+    """Create or sync a SEPARATE super-admin used only by the smoke test.
+
+    Why separate: the bootstrap admin's password gets rotated by operators
+    via /admin/users (or psql) and the .env value goes stale. The smoke
+    account stays in sync with SMOKE_ADMIN_PASSWORD in .env so rotating the
+    real admin never breaks the deploy gate.
+
+    Idempotent: if the user already exists with the right password, no-op;
+    if the password in .env was rotated, the DB hash is updated to match;
+    if the user doesn't exist, it's created.
+
+    Returns a status string for logging, or None if env values aren't set.
+    """
+    email = os.environ.get("SMOKE_ADMIN_EMAIL", "").strip().lower()
+    password = os.environ.get("SMOKE_ADMIN_PASSWORD", "").strip()
+    if not email or not password:
+        return None
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        # Sync the password if the env value diverged from the DB hash.
+        if not verify_password(password, user.password_hash or ""):
+            user.password_hash = hash_password(password)
+            user.is_active = True
+            user.role = UserRole.SUPER_ADMIN
+            db.commit()
+            return f"{email} (password synced)"
+        return None
+    db.add(User(email=email, password_hash=hash_password(password),
+                name="Smoke Admin", role=UserRole.SUPER_ADMIN, is_active=True))
     db.commit()
     return email
 
@@ -187,6 +221,14 @@ def main() -> None:
             print(f"  super-admin created: {admin_email}")
         else:
             print(f"  super-admin already present (skipped)")
+
+        smoke = seed_smoke_admin(db)
+        if smoke:
+            print(f"  smoke admin: {smoke}")
+        else:
+            # Either env vars aren't set, or the user already exists with
+            # the correct password. Both are normal on subsequent runs.
+            pass
 
         question_ids = seed_sample_questions(db)
         print(f"  questions: {db.query(Question).count()} total")
