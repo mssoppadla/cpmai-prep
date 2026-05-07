@@ -16,6 +16,11 @@ os.environ.setdefault("SECRET_KEY", "test-secret-do-not-use-in-prod")
 os.environ.setdefault("ENCRYPTION_KEY", Fernet.generate_key().decode())
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
+# Starlette's TestClient sends Host: testserver. Force-include it in
+# ALLOWED_HOSTS so TrustedHost middleware doesn't 400 every test request.
+# We override (not setdefault) because CI may set a stricter value via the
+# workflow env block — tests still need testserver regardless.
+os.environ["ALLOWED_HOSTS"] = '["localhost","127.0.0.1","testserver"]'
 
 import fakeredis
 from app.core import redis as redis_module
