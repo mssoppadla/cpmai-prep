@@ -27,8 +27,10 @@ export default async function Image() {
         <div style={{
           fontSize: 80, fontWeight: 800, color: "white",
           lineHeight: 1.05, letterSpacing: "-0.02em",
+          display: "flex", flexDirection: "column", alignItems: "center",
         }}>
-          Pass the CPMAI<br />Certification
+          <div>Pass the CPMAI</div>
+          <div>Certification</div>
         </div>
         <div style={{
           fontSize: 32, color: "rgba(255,255,255,0.92)",

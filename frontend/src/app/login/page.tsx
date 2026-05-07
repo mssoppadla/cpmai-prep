@@ -6,6 +6,11 @@ import { auth, ApiError, errMsg } from "@/lib/api";
 import { GoogleSignInButton } from "@/lib/google-auth";
 import type { UserRole } from "@/types/api";
 
+// Login is inherently per-request (reads ?next=… from the URL and runs
+// browser-only auth flow), so we opt out of static prerendering. This also
+// avoids the useSearchParams() Suspense-boundary error during `next build`.
+export const dynamic = "force-dynamic";
+
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
 /** Where to land after a successful sign-in, based on role. */
