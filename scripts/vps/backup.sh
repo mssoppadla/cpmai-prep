@@ -67,19 +67,27 @@ ok "env snapshot stored"
 # Daily backups: keep 30 most recent
 # Pre-deploy:   keep all from last 14 days, prune older than 14
 say "Pruning old backups..."
-# Daily
-ls -1t "$BACKUP_DIR"/*__daily.sql.gz 2>/dev/null \
-  | tail -n +31 | xargs -r rm -f
-ls -1t "$BACKUP_DIR"/*__daily.env.tar.gz 2>/dev/null \
-  | tail -n +31 | xargs -r rm -f
-# Pre-deploy older than 14 days
-find "$BACKUP_DIR" -maxdepth 1 -name '*__pre-deploy-*' -mtime +14 -print -delete \
-  | sed 's/^/  pruned /' || true
-# Manual / arbitrary tags older than 30 days
-find "$BACKUP_DIR" -maxdepth 1 \
-  ! -name '*__daily*' ! -name '*__pre-deploy-*' \
-  -name '*.sql.gz' -mtime +30 -print -delete \
-  | sed 's/^/  pruned /' || true
+# Each block is wrapped in `|| true` so an empty-pattern (no matching files)
+# doesn't kill the whole script under `set -e + pipefail`. The whole
+# retention pass runs in a subshell with set +e so individual commands
+# can fail noisily without aborting the surrounding deploy.
+(
+  set +e
+  # Daily — keep 30 most recent
+  ls -1t "$BACKUP_DIR"/*__daily.sql.gz 2>/dev/null \
+    | tail -n +31 | xargs -r rm -f
+  ls -1t "$BACKUP_DIR"/*__daily.env.tar.gz 2>/dev/null \
+    | tail -n +31 | xargs -r rm -f
+  # Pre-deploy older than 14 days
+  find "$BACKUP_DIR" -maxdepth 1 -name '*__pre-deploy-*' -mtime +14 -print -delete 2>/dev/null \
+    | sed 's/^/  pruned /'
+  # Manual / arbitrary tags older than 30 days
+  find "$BACKUP_DIR" -maxdepth 1 \
+    ! -name '*__daily*' ! -name '*__pre-deploy-*' \
+    -name '*.sql.gz' -mtime +30 -print -delete 2>/dev/null \
+    | sed 's/^/  pruned /'
+  exit 0
+)
 
 ok "retention applied"
 echo
