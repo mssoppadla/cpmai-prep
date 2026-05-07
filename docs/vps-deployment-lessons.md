@@ -43,6 +43,18 @@ SKIP_PREFLIGHT=1 git push
 SKIP_BACKEND=1 ./scripts/preflight.sh   # frontend only (faster)
 ```
 
+**Worktree-aware:** if you run preflight from a git worktree, it checks
+that any running backend container is bind-mounted to *this* worktree's
+`backend/` (not the parent repo's). If they don't match, it falls back to
+`docker compose run --rm --no-deps --user 0:0 backend` from the worktree
+dir, which mounts the worktree backend correctly and avoids port conflicts
+with the parent stack. Without this check, a stale parent-repo container
+would silently test the wrong code.
+
+**Windows skip:** `next build` is skipped on Windows because `@vercel/og`
+fails with `TypeError: Invalid URL` during prerender there. CI runs Linux
+and catches build issues. The summary at the end labels this as deferred.
+
 ---
 
 ## Quick-reference table
