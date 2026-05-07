@@ -3,12 +3,29 @@
 Uses an in-memory SQLite DB (per-test) for speed and a fakeredis instance
 so tests don't need an actual Redis. The app's Razorpay integration is
 patched out via fixtures that inject a fake provider into PaymentRegistry.
+
+Wiring rules (these took a long debug session — don't unwind without
+reading why):
+
+  • StaticPool on the SQLite engine — `:memory:` is otherwise per-
+    connection, so the test session and the request session would see
+    different empty databases.
+  • `client` fixture uses `app.dependency_overrides[get_db]` — NOT
+    monkeypatching `SessionLocal`. Request handlers import SessionLocal
+    into their own namespace at module load, so patching db_module's
+    attribute doesn't reach them. Dependency override is the canonical
+    FastAPI test pattern.
+  • slowapi limiter is disabled for the duration of every test —
+    its storage_uri points at the real Redis (or fakeredis), and
+    counters accumulate across tests, so within seconds the 5/min
+    auth-login limit fires and breaks unrelated tests.
 """
 import os
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 # Ensure required env vars BEFORE importing app modules
 os.environ.setdefault("APP_ENV", "test")
@@ -39,8 +56,14 @@ from app.models import (                                             # noqa
 
 @pytest.fixture
 def db_engine():
-    engine = create_engine("sqlite:///:memory:",
-                           connect_args={"check_same_thread": False})
+    # StaticPool keeps the SAME connection across all callers, so the
+    # in-memory database the test fixture writes to is the same one the
+    # request handlers read from.
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
 
     @event.listens_for(engine, "connect")
     def fk_pragma(conn, _):
@@ -52,11 +75,8 @@ def db_engine():
 
 
 @pytest.fixture
-def db(db_engine, monkeypatch):
+def db(db_engine):
     Session = sessionmaker(bind=db_engine, autoflush=False, autocommit=False)
-    from app.core import database as db_module
-    monkeypatch.setattr(db_module, "SessionLocal", Session)
-    monkeypatch.setattr(db_module, "engine", db_engine)
     s = Session()
     try:
         # Seed the 6 CPMAI topics — many tests rely on these.
@@ -149,11 +169,46 @@ def sample_exam_set(db, sample_question, admin):
 
 
 @pytest.fixture
-def client(db):
-    """FastAPI TestClient. Imports app lazily so monkey-patches apply."""
+def client(db_engine, db):
+    """FastAPI TestClient bound to the test SQLite engine.
+
+    Two things are required for request handlers to see the same DB rows
+    that fixtures (db, user, admin, sample_question, …) write:
+
+    1. The TestClient's request must use a session bound to db_engine.
+       We accomplish this by registering a dependency override on get_db
+       — request handlers depend on get_db, and FastAPI substitutes our
+       override at injection time.
+    2. The connection pool must be StaticPool (configured on db_engine)
+       so multiple sessions to `sqlite:///:memory:` see the same database
+       instead of each spawning an empty in-memory DB.
+
+    Also disables the slowapi rate limiter so tests can do many requests
+    in quick succession without 429ing each other.
+    """
     from fastapi.testclient import TestClient
     from app.main import app
-    return TestClient(app)
+    from app.core.deps import get_db
+    from app.core.limiter import limiter
+
+    Session = sessionmaker(bind=db_engine, autoflush=False, autocommit=False)
+
+    def override_get_db():
+        s = Session()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    was_enabled = limiter.enabled
+    limiter.enabled = False
+
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        limiter.enabled = was_enabled
 
 
 def auth_header(client, email: str, password: str = "password123") -> dict:
