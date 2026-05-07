@@ -1,15 +1,10 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { auth, ApiError, errMsg } from "@/lib/api";
 import { GoogleSignInButton } from "@/lib/google-auth";
 import type { UserRole } from "@/types/api";
-
-// Login is inherently per-request (reads ?next=… from the URL and runs
-// browser-only auth flow), so we opt out of static prerendering. This also
-// avoids the useSearchParams() Suspense-boundary error during `next build`.
-export const dynamic = "force-dynamic";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
@@ -19,7 +14,28 @@ function destinationFor(role: UserRole, override: string | null): string {
   return role === "admin" || role === "super_admin" ? "/admin" : "/dashboard";
 }
 
+// Next.js requires useSearchParams() to be inside a <Suspense> boundary so the
+// rest of the page can prerender. Hence the LoginForm/LoginPage split.
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginFallback() {
+  return (
+    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-sm bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <div className="h-5 w-24 bg-slate-200 rounded animate-pulse mb-3" />
+        <div className="h-4 w-40 bg-slate-100 rounded animate-pulse" />
+      </div>
+    </main>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const explicitNext = params.get("next");
