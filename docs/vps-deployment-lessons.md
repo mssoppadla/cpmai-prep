@@ -11,6 +11,40 @@ the specific fix that made each one self-heal on future installs.
 
 ---
 
+## Local pre-push gate
+
+Before any code reaches GitHub Actions, a `pre-push` git hook runs the same
+checks the CI test gate runs (frontend vitest, frontend build, backend pytest
+if Docker is up). Catches breakages in 30s locally instead of 3 minutes after
+push.
+
+**One-time setup, per clone:**
+
+```bash
+./scripts/setup-hooks.sh
+```
+
+Sets `git config core.hooksPath .githooks` so the tracked hook fires.
+
+**Day-to-day**: just `git push` — the hook runs automatically. If it fails,
+fix and re-push. To bypass for emergencies (e.g. a doc-only push you trust
+won't touch tested paths):
+
+```bash
+git push --no-verify
+# or
+SKIP_PREFLIGHT=1 git push
+```
+
+**Run the same checks manually any time:**
+
+```bash
+./scripts/preflight.sh                  # all
+SKIP_BACKEND=1 ./scripts/preflight.sh   # frontend only (faster)
+```
+
+---
+
 ## Quick-reference table
 
 Read this top-to-bottom before your next fresh-VPS deploy. Every row is

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# pre-push hook — runs scripts/preflight.sh before allowing `git push`.
+# ==============================================================================
+# Mirrors the CI test gate so you find out about breakages in 30s locally
+# instead of waiting 3 minutes for GitHub Actions and then needing to
+# fix-forward.
+#
+# Skip with `git push --no-verify` when you're pushing a doc-only or
+# emergency change and you understand the risk.
+#
+# Activate this hook (one-time, per clone):
+#
+#     ./scripts/setup-hooks.sh
+#
+# That sets `git config core.hooksPath .githooks` so this file runs.
+# ==============================================================================
+set -e
+
+# Honor the `--no-verify` flag (git sets HUSKY=0 / standard behavior is
+# to just skip running this script — but if some integration runs us
+# anyway, this guard makes intent explicit).
+if [ "${SKIP_PREFLIGHT:-}" = "1" ]; then
+  echo "(SKIP_PREFLIGHT=1 — pre-push checks bypassed)" >&2
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec "$REPO_ROOT/scripts/preflight.sh"
