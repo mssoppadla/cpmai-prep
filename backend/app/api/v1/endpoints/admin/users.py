@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_super_admin_user
 from app.core.exceptions import AppError, NotFoundError
 from app.core.audit import audit_log
+from app.core.security import hash_password
 from app.models.subscription import Subscription
 from app.models.user import User, UserRole
 from app.schemas.auth import UserAdminOut
@@ -83,6 +85,37 @@ def change_role(user_id: int, role: UserRole,
     db.refresh(u)
     audit_log(db, admin.id, "user.role_changed",
               {"target_user_id": user_id, "from": old.value, "to": role.value})
+    sub = (db.query(Subscription)
+           .filter_by(user_id=u.id, status="active").first())
+    return _to_admin_out(u, sub)
+
+
+class _PasswordResetIn(BaseModel):
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+@router.patch("/{user_id}/password", response_model=UserAdminOut)
+def reset_password(user_id: int, payload: _PasswordResetIn,
+                   db: Session = Depends(get_db),
+                   admin: User = Depends(get_super_admin_user)):
+    """Super-admin force-resets a user's password.
+
+    Operational use case: a user lost their bootstrap password, or admin
+    needs to rotate the super-admin's own credential. The new value is
+    accepted from the operator (not generated server-side) so they can
+    type it directly into a password manager — and the response does NOT
+    echo it back, so it isn't recorded in browser DevTools history.
+
+    Audit row is written with the target user_id but NOT the password.
+    """
+    u = db.get(User, user_id)
+    if not u:
+        raise NotFoundError()
+    u.password_hash = hash_password(payload.new_password)
+    db.commit()
+    db.refresh(u)
+    audit_log(db, admin.id, "user.password_reset_by_admin",
+              {"target_user_id": user_id, "target_email": u.email})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
     return _to_admin_out(u, sub)

@@ -56,6 +56,31 @@ def get_optional_user(
     return user if user and user.is_active else None
 
 
+def get_actor(
+    authorization: str | None = Header(default=None),
+    x_anon_token: str | None = Header(default=None, alias="X-Anon-Token"),
+    db: Session = Depends(get_db),
+) -> "User | str | None":
+    """Resolve the request actor for endpoints that allow either a signed-in
+    user OR an anonymous browser-bound token (free exam attempts).
+
+    Returns:
+        User instance — if a valid bearer token is present
+        str (the X-Anon-Token value) — if no auth but the client supplies an
+            anonymous identifier; opaque to the backend, just used for session
+            ownership checks
+        None — if neither is present (caller decides how to handle)
+    """
+    payload = _decode_bearer(authorization)
+    if payload:
+        user = db.get(User, int(payload["sub"]))
+        if user and user.is_active:
+            return user
+    if x_anon_token and 8 <= len(x_anon_token) <= 64:
+        return x_anon_token
+    return None
+
+
 def get_admin_user(user: User = Depends(get_current_user)) -> User:
     if user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         raise ForbiddenError("Admin access required")

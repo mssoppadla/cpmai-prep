@@ -56,6 +56,29 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function resetPassword(u: UserAdminOut) {
+    const pw = window.prompt(
+      `Set a new password for ${u.email}.\n\n` +
+      `Type or paste it below — it will not be echoed back. ` +
+      `Hand the new password to the user out of band (no email is sent).`,
+      "",
+    );
+    if (pw == null) return;          // cancelled
+    if (pw.length < 8) {
+      setErr("New password must be at least 8 characters.");
+      return;
+    }
+    try {
+      await admin.users.resetPassword(u.id, pw);
+      // Don't echo it back. Just confirm.
+      window.alert(`Password reset for ${u.email}. Pass the new value to them directly.`);
+      await reload();
+    } catch (e) {
+      console.error("[admin/users] resetPassword", e);
+      setErr(errMsg(e));
+    }
+  }
+
   const totals = useMemo(() => {
     if (!rows) return null;
     return {
@@ -180,22 +203,33 @@ export default function AdminUsersPage() {
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {me?.role === "super_admin" && u.role !== "super_admin" && (
-                      <select
-                        defaultValue=""
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            changeRole(u, e.target.value as UserRole);
-                            e.target.value = "";
-                          }
-                        }}
-                        className="text-xs border border-slate-300 rounded px-2 py-1"
-                      >
-                        <option value="">Change role…</option>
-                        {u.role !== "user" && <option value="user">→ user</option>}
-                        {u.role !== "admin" && <option value="admin">→ admin</option>}
-                        <option value="super_admin">→ super admin</option>
-                      </select>
+                    {me?.role === "super_admin" && (
+                      <div className="flex flex-col items-end gap-1">
+                        {u.role !== "super_admin" && (
+                          <select
+                            defaultValue=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                changeRole(u, e.target.value as UserRole);
+                                e.target.value = "";
+                              }
+                            }}
+                            className="text-xs border border-slate-300 rounded px-2 py-1"
+                          >
+                            <option value="">Change role…</option>
+                            {u.role !== "user" && <option value="user">→ user</option>}
+                            {u.role !== "admin" && <option value="admin">→ admin</option>}
+                            <option value="super_admin">→ super admin</option>
+                          </select>
+                        )}
+                        <button
+                          onClick={() => resetPassword(u)}
+                          className="text-xs px-2 py-1 border border-slate-300 rounded text-slate-700 hover:bg-slate-50"
+                          title="Force-reset this user's password"
+                        >
+                          Reset password
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>

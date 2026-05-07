@@ -86,8 +86,13 @@ NEW_SHA=$(git rev-parse --short HEAD)
 SMOKE_BASE_URL="https://api.${PROD_DOMAIN}/api/v1"
 
 if [ "$START_SHA" = "$NEW_SHA" ] && [ -z "${SKIP_PULL:-}" ]; then
-  ok "Already at $NEW_SHA — nothing to deploy"
-  # Still run the smoke test, because some changes are env-only (e.g. cron, secrets).
+  ok "Already at $NEW_SHA — no code change"
+  # Even on a no-op deploy we re-run the idempotent seeder, because seed
+  # JSON content can change between deploys (e.g. new default FAQs) without
+  # any other code touching that path. Cheap, safe, never overwrites.
+  say "Running idempotent seeder against current stack..."
+  $DC exec -T backend python seeds/seed.py \
+    || warn "seeder hiccup on no-op path — re-run manually if needed"
   say "Running smoke against $SMOKE_BASE_URL..."
   BASE_URL="$SMOKE_BASE_URL" python3 scripts/smoke_admin_crud.py \
     || die "smoke failed on no-op deploy — investigate"

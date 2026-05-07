@@ -2,12 +2,19 @@
 
 Critical correctness: answers + reasoning are NEVER returned during attempt.
 Only the SubmitAttemptOut payload reveals them.
+
+Two actor types are supported:
+  - User       → signed-in attempt; session.user_id is set
+  - str (anon) → anonymous browser-bound attempt via X-Anon-Token; the
+                 service stores the token on session.anon_token. Premium
+                 sets reject anon callers up front.
 """
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.exceptions import (
-    NotFoundError, ConflictError, ForbiddenError, SubscriptionRequiredError
+    NotFoundError, ConflictError, ForbiddenError, SubscriptionRequiredError,
+    UnauthorizedError,
 )
 from app.core.audit import audit_log
 from app.services.tracking_service import emit_event
@@ -32,19 +39,38 @@ class ExamService:
         self.db = db
 
     # ------------------------------------------------------------------ start
-    def start_attempt(self, user: User, exam_set_slug: str) -> ExamAttemptOut:
+    def start_attempt(self, actor: "User | str | None",
+                      exam_set_slug: str) -> ExamAttemptOut:
+        if actor is None:
+            raise UnauthorizedError(
+                "Provide an Authorization header or X-Anon-Token to start.",
+            )
         es = self.db.query(ExamSet).filter_by(slug=exam_set_slug, is_active=True).first()
         if not es:
             raise NotFoundError("Exam set not found")
-        if es.is_premium and not self._has_active_subscription(user.id):
-            raise SubscriptionRequiredError()
+        if es.is_premium:
+            if not isinstance(actor, User):
+                raise UnauthorizedError(
+                    "Premium sets require a signed-in account. Sign in to "
+                    "subscribe and unlock.",
+                )
+            if not self._has_active_subscription(actor.id):
+                raise SubscriptionRequiredError()
         if not es.questions:
             raise ConflictError("Exam set has no questions yet.")
 
-        # Block multiple in-progress sessions for the same set.
-        existing = self.db.query(ExamSession).filter_by(
-            user_id=user.id, exam_set_id=es.id, status="in_progress",
-        ).first()
+        # Block multiple in-progress sessions for the same set, scoped to the
+        # caller (a logged-in user gets one session per set; an anon token
+        # gets one session per set per browser).
+        if isinstance(actor, User):
+            existing_q = self.db.query(ExamSession).filter_by(
+                user_id=actor.id, exam_set_id=es.id, status="in_progress",
+            )
+        else:
+            existing_q = self.db.query(ExamSession).filter_by(
+                anon_token=actor, exam_set_id=es.id, status="in_progress",
+            )
+        existing = existing_q.first()
         if existing and existing.expires_at > datetime.now(timezone.utc):
             # Backfill answer rows for any questions added to the set
             # AFTER this session started, so they're answerable now.
@@ -53,7 +79,8 @@ class ExamService:
 
         now = datetime.now(timezone.utc)
         session = ExamSession(
-            user_id=user.id,
+            user_id=actor.id if isinstance(actor, User) else None,
+            anon_token=None if isinstance(actor, User) else actor,
             exam_set_id=es.id,
             started_at=now,
             expires_at=now + timedelta(minutes=es.time_limit_minutes),
@@ -68,17 +95,21 @@ class ExamService:
             ))
         self.db.commit()
         self.db.refresh(session)
-        audit_log(self.db, user.id, "exam.attempt_started",
-                  {"exam_set_id": es.id, "session_id": session.id})
-        emit_event(self.db, "exam.started", user_id=user.id,
+        actor_user_id = actor.id if isinstance(actor, User) else None
+        audit_log(self.db, actor_user_id, "exam.attempt_started",
+                  {"exam_set_id": es.id, "session_id": session.id,
+                   "anonymous": actor_user_id is None})
+        emit_event(self.db, "exam.started", user_id=actor_user_id,
                    metadata={"exam_set_id": es.id, "exam_set_slug": es.slug,
                              "exam_session_id": session.id,
-                             "is_premium": es.is_premium})
+                             "is_premium": es.is_premium,
+                             "anonymous": actor_user_id is None})
         return self._serialize_attempt(session, es)
 
     # ------------------------------------------------------------------- get
-    def get_attempt(self, user: User, attempt_id: int) -> ExamAttemptOut:
-        session = self._load_session(user, attempt_id)
+    def get_attempt(self, actor: "User | str | None",
+                    attempt_id: int) -> ExamAttemptOut:
+        session = self._load_session(actor, attempt_id)
         # Auto-expire if time is up
         if session.status == "in_progress" and session.expires_at < datetime.now(timezone.utc):
             session.status = "expired"
@@ -87,8 +118,9 @@ class ExamService:
         return self._serialize_attempt(session, es)
 
     # ---------------------------------------------------------------- answer
-    def save_answer(self, user: User, attempt_id: int, payload: AnswerIn):
-        session = self._load_session(user, attempt_id)
+    def save_answer(self, actor: "User | str | None",
+                    attempt_id: int, payload: AnswerIn):
+        session = self._load_session(actor, attempt_id)
         if session.status != "in_progress":
             raise ConflictError(f"Cannot modify a {session.status} attempt.")
         if session.expires_at < datetime.now(timezone.utc):
@@ -121,8 +153,9 @@ class ExamService:
         self.db.commit()
 
     # ---------------------------------------------------------------- submit
-    def submit(self, user: User, attempt_id: int) -> SubmitAttemptOut:
-        session = self._load_session(user, attempt_id)
+    def submit(self, actor: "User | str | None",
+               attempt_id: int) -> SubmitAttemptOut:
+        session = self._load_session(actor, attempt_id)
         if session.status != "in_progress":
             raise ConflictError(f"Already {session.status}.")
 
@@ -208,14 +241,17 @@ class ExamService:
             tid for tid in topics if topics[tid].code == p.topic_code
         )].order if p.topic_code in {t.code for t in topics.values()} else 99)
 
-        audit_log(self.db, user.id, "exam.attempt_submitted",
-                  {"session_id": session.id, "score": score, "passed": passed})
-        emit_event(self.db, "exam.submitted", user_id=user.id,
+        actor_user_id = session.user_id  # None for anon
+        audit_log(self.db, actor_user_id, "exam.attempt_submitted",
+                  {"session_id": session.id, "score": score, "passed": passed,
+                   "anonymous": actor_user_id is None})
+        emit_event(self.db, "exam.submitted", user_id=actor_user_id,
                    metadata={"exam_set_id": es.id if es else None,
                              "exam_session_id": session.id,
                              "score": score, "passed": passed,
                              "correct": correct, "incorrect": incorrect,
-                             "unanswered": unanswered})
+                             "unanswered": unanswered,
+                             "anonymous": actor_user_id is None})
 
         return SubmitAttemptOut(
             id=session.id, score=score, passed=passed,
@@ -243,12 +279,22 @@ class ExamService:
         if added:
             self.db.commit()
 
-    def _load_session(self, user: User, attempt_id: int) -> ExamSession:
+    def _load_session(self, actor: "User | str | None",
+                      attempt_id: int) -> ExamSession:
         session = self.db.get(ExamSession, attempt_id)
         if not session:
             raise NotFoundError("Attempt not found.")
-        if session.user_id != user.id:
-            raise ForbiddenError()
+        if isinstance(actor, User):
+            if session.user_id != actor.id:
+                raise ForbiddenError()
+        elif isinstance(actor, str):
+            # Anon: must match the stored anon_token. Refuse if the session
+            # was created by a logged-in user (don't let a guest hijack via
+            # an attempt_id guess).
+            if session.user_id is not None or session.anon_token != actor:
+                raise ForbiddenError()
+        else:
+            raise UnauthorizedError("Sign in or provide X-Anon-Token.")
         return session
 
     def _has_active_subscription(self, user_id: int) -> bool:
@@ -285,9 +331,10 @@ class ExamService:
         )
 
     # ---------------------------------------------------------------- result
-    def get_result(self, user, attempt_id: int) -> SubmitAttemptOut:
+    def get_result(self, actor: "User | str | None",
+                   attempt_id: int) -> SubmitAttemptOut:
         """Cold-load a submitted attempt's result. Reconstructs reasoning view."""
-        session = self._load_session(user, attempt_id)
+        session = self._load_session(actor, attempt_id)
         if session.status != "submitted":
             raise ConflictError(f"Attempt is {session.status}, not submitted.")
 

@@ -18,6 +18,7 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 const TOKEN_KEY = "cpmai.access";
 const REFRESH_KEY = "cpmai.refresh";
+const ANON_KEY = "cpmai.anon_token";
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -32,6 +33,24 @@ function clearTokens() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_KEY);
+}
+
+/**
+ * Browser-bound anonymous identifier for guest exam attempts on free sets.
+ * Persisted in localStorage so the same browser keeps the same in-progress
+ * attempt across navigations. Servers treat it as opaque.
+ */
+function getOrCreateAnonToken(): string {
+  if (typeof window === "undefined") return "";
+  let t = window.localStorage.getItem(ANON_KEY);
+  if (!t) {
+    t = (crypto && "randomUUID" in crypto)
+      ? crypto.randomUUID()
+      // Fallback for older browsers — sufficiently unique for our purposes.
+      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+    window.localStorage.setItem(ANON_KEY, t);
+  }
+  return t;
 }
 
 export class ApiError extends Error {
@@ -64,6 +83,10 @@ export function errMsg(e: unknown): string {
 
 interface FetchOpts extends RequestInit {
   authed?: boolean;
+  /** Send X-Anon-Token alongside (or instead of) the Bearer token. Used on
+   *  exam endpoints that accept either signed-in users or anonymous guests
+   *  on free sets. Backend's get_actor prefers Bearer when both are present. */
+  withAnon?: boolean;
   json?: unknown;
 }
 
@@ -78,6 +101,10 @@ async function request<T>(path: string, opts: FetchOpts = {}): Promise<{
   if (opts.authed) {
     const t = getToken();
     if (t) headers.set("Authorization", `Bearer ${t}`);
+  }
+  if (opts.withAnon) {
+    const at = getOrCreateAnonToken();
+    if (at) headers.set("X-Anon-Token", at);
   }
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
@@ -162,29 +189,33 @@ export const exams = {
     return data;
   },
   async startAttempt(slug: string): Promise<ExamAttemptOut> {
+    // withAnon: true → if the user isn't signed in, X-Anon-Token authorizes
+    // the request for free sets (premium still rejects anon → 401).
     const { data } = await request<ExamAttemptOut>(
-      `/exam-sets/${slug}/start`, { method: "POST", authed: true }
+      `/exam-sets/${slug}/start`,
+      { method: "POST", authed: true, withAnon: true }
     );
     return data;
   },
   async getAttempt(id: number): Promise<ExamAttemptOut> {
     const { data } = await request<ExamAttemptOut>(`/exams/attempts/${id}`,
-      { authed: true });
+      { authed: true, withAnon: true });
     return data;
   },
   async saveAnswer(id: number, payload: AnswerIn): Promise<void> {
     await request(`/exams/attempts/${id}/answer`,
-      { method: "PATCH", json: payload, authed: true });
+      { method: "PATCH", json: payload, authed: true, withAnon: true });
   },
   async getResult(id: number): Promise<SubmitAttemptOut> {
     const { data } = await request<SubmitAttemptOut>(
-      `/exams/attempts/${id}/result`, { authed: true }
+      `/exams/attempts/${id}/result`, { authed: true, withAnon: true }
     );
     return data;
   },
   async submit(id: number): Promise<SubmitAttemptOut> {
     const { data } = await request<SubmitAttemptOut>(
-      `/exams/attempts/${id}/submit`, { method: "POST", authed: true }
+      `/exams/attempts/${id}/submit`,
+      { method: "POST", authed: true, withAnon: true }
     );
     return data;
   },
@@ -452,6 +483,13 @@ export const admin = {
       const { data } = await request<UserAdminOut>(
         `/admin/users/${userId}/role?role=${encodeURIComponent(role)}`,
         { method: "PATCH", authed: true });
+      return data;
+    },
+    async resetPassword(userId: number, newPassword: string) {
+      const { data } = await request<UserAdminOut>(
+        `/admin/users/${userId}/password`,
+        { method: "PATCH", authed: true,
+          json: { new_password: newPassword } });
       return data;
     },
     async delete(userId: number) {

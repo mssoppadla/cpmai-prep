@@ -1,7 +1,7 @@
 """User-facing exam set endpoints."""
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.core.deps import get_db, get_current_user, get_optional_user
+from app.core.deps import get_db, get_actor, get_optional_user
 from app.core.exceptions import NotFoundError
 from app.models.exam_set import ExamSet
 from app.models.exam_session import ExamSession
@@ -55,5 +55,11 @@ def get_set(slug: str, db: Session = Depends(get_db),
 
 @router.post("/{slug}/start", response_model=ExamAttemptOut, status_code=201)
 def start_attempt(slug: str, db: Session = Depends(get_db),
-                  user: User = Depends(get_current_user)):
-    return ExamService(db).start_attempt(user, slug)
+                  actor=Depends(get_actor)):
+    """Start (or resume) an attempt.
+
+    Accepts either a signed-in user (Bearer token) or an anonymous browser-
+    bound session (X-Anon-Token header — minted client-side). Premium sets
+    reject anonymous callers up front; free sets are open to either.
+    """
+    return ExamService(db).start_attempt(actor, slug)

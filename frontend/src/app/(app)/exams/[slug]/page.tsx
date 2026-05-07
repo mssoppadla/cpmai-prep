@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ApiError, exams as examsApi, errMsg } from "@/lib/api";
-import type { ExamAttemptOut } from "@/types/api";
+import { ApiError, auth, exams as examsApi, errMsg } from "@/lib/api";
+import type { ExamAttemptOut, UserOut } from "@/types/api";
 import {
   QuestionCard, type QuestionRanges, type Tool,
 } from "@/components/exam/QuestionCard";
@@ -38,7 +38,14 @@ export default function ExamAttemptPage() {
   const [tool, setTool] = useState<Tool>("none");
   const [reviewMode, setReviewMode] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [me, setMe] = useState<UserOut | null | undefined>(undefined);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Resolve auth state in parallel with starting the attempt — used to
+  // surface an "anonymous: result won't be saved" banner for guest users.
+  useEffect(() => {
+    auth.me().then(setMe).catch(() => setMe(null));
+  }, []);
 
   // Start the attempt on mount, restore local annotations / marked
   useEffect(() => {
@@ -168,11 +175,12 @@ export default function ExamAttemptPage() {
         {isAuth ? (
           <div className="bg-white rounded-xl border border-slate-200 p-6">
             <h1 className="text-xl font-bold text-slate-900 mb-2">
-              Sign in to start this exam
+              Sign in to start this premium set
             </h1>
             <p className="text-sm text-slate-600 mb-5">
-              Practice attempts are saved to your account so you can resume,
-              review, and track progress.
+              This set requires a signed-in account with an active
+              subscription. Free sets are available without signing in
+              (results won't be saved unless you log in).
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
               <Link
@@ -307,6 +315,22 @@ export default function ExamAttemptPage() {
         <div className="h-full bg-indigo-600 rounded-full transition-all"
              style={{ width: `${((index + 1) / attempt.questions.length) * 100}%` }} />
       </div>
+
+      {me === null && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-900 flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex-1">
+            <strong>You're attempting anonymously.</strong>{" "}
+            Your result will be visible after submit but won't be saved to a
+            dashboard. Sign in to save attempts and track progress.
+          </div>
+          <Link
+            href={`/login?next=${encodeURIComponent(`/exams/${slug}`)}`}
+            className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded hover:bg-indigo-700 self-start sm:self-auto whitespace-nowrap"
+          >
+            Sign in
+          </Link>
+        </div>
+      )}
 
       <QuestionCard
         question={q} index={index} total={attempt.questions.length}

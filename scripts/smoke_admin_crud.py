@@ -87,13 +87,21 @@ _token: str | None = None
 
 
 def http(method: str, path: str, body: dict | None = None,
-         token: str | None = None) -> tuple[int, dict | None]:
-    """Make a single HTTP call. Returns (status, decoded_json_or_none)."""
+         token: str | None = None,
+         anon_token: str | None = None) -> tuple[int, dict | None]:
+    """Make a single HTTP call. Returns (status, decoded_json_or_none).
+
+    Pass `anon_token=<uuid>` to exercise the X-Anon-Token path (free-set
+    anonymous attempts). Bearer + anon may be sent together; backend
+    prefers Bearer.
+    """
     url = path if path.startswith("http") else BASE + path
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if anon_token:
+        headers["X-Anon-Token"] = anon_token
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req) as resp:
@@ -365,12 +373,70 @@ def main() -> int:
              f"slug={free_slug} status={status}")
 
     # ------------------------------------------------------------------
+    section("Anonymous attempts (free sets only)")
+    # Round 2: free sets accept X-Anon-Token without auth; premium reject.
+    import uuid as _uuid
+    anon_tok = "smoke-" + _uuid.uuid4().hex
+    if free_slug:
+        status, body = http("POST", f"/exam-sets/{free_slug}/start",
+                            None, token=None, anon_token=anon_tok)
+        anon_attempt_ok = status in (200, 201) and body and "id" in body
+        step("anon start of free set", anon_attempt_ok,
+             f"slug={free_slug} status={status}")
+        if anon_attempt_ok:
+            attempt_id = body["id"]
+            # Resume + ownership check: same anon token can re-fetch.
+            status, _ = http("GET", f"/exams/attempts/{attempt_id}",
+                             token=None, anon_token=anon_tok)
+            step("anon can re-fetch own attempt", status == 200,
+                 f"attempt_id={attempt_id} status={status}")
+            # Foreign anon token must be rejected (no session hijack).
+            status, _ = http("GET", f"/exams/attempts/{attempt_id}",
+                             token=None, anon_token="smoke-other-" + _uuid.uuid4().hex)
+            step("foreign anon token blocked", status in (403, 404),
+                 f"status={status}")
+    if premium_slug:
+        status, body = http("POST", f"/exam-sets/{premium_slug}/start",
+                            None, token=None, anon_token=anon_tok)
+        # Premium without auth → 401 (the service rejects anon for premium
+        # before subscription check runs).
+        step("anon start of premium set rejected (401)", status == 401,
+             f"slug={premium_slug} status={status}")
+
+    # ------------------------------------------------------------------
     section("Cleanup")
     status, _ = http("DELETE", f"/admin/exam-sets/{sid}", token=_token)
     step("delete exam set", status == 204, f"status={status}")
 
     status, _ = http("DELETE", f"/admin/questions/{qid}", token=_token)
     step("delete question", status == 204, f"status={status}")
+
+    # ------------------------------------------------------------------
+    section("Super-admin password reset")
+    # Round 2: super-admin can force-reset any user's password.
+    # Find the smoke admin's own user row, set then revert.
+    status, me_body = http("GET", "/users/me", token=_token)
+    if status == 200 and me_body and "id" in me_body:
+        my_id = me_body["id"]
+        new_pw = "smoke-pw-" + _uuid.uuid4().hex[:12]
+        status, _ = http("PATCH", f"/admin/users/{my_id}/password",
+                         {"new_password": new_pw}, _token)
+        step("super-admin reset own password", status == 200,
+             f"status={status}")
+        # Verify the new password works for login.
+        status, body = http("POST", "/auth/login",
+                            {"email": EMAIL, "password": new_pw})
+        step("login with new password works",
+             status == 200 and body and "access" in body,
+             f"status={status}")
+        # Revert.
+        status, _ = http("PATCH", f"/admin/users/{my_id}/password",
+                         {"new_password": PASSWORD}, body["access"] if body else _token)
+        step("revert password to original", status == 200,
+             f"status={status}")
+    else:
+        step("super-admin password reset (skipped)", True,
+             "could not resolve self via /users/me")
 
     # ------------------------------------------------------------------
     print()

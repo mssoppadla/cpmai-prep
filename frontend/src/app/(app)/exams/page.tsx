@@ -54,9 +54,9 @@ export default function ExamSetsPage() {
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1 text-sm text-indigo-900">
             <strong>You're not signed in.</strong>{" "}
-            Mock attempts save to your account so you can resume and review.
-            Sign in (Google or password) to start a free set, or subscribe to
-            unlock the premium ones.
+            Free sets are open — start one anonymously and you'll see your
+            result immediately (just not saved to a dashboard). Sign in to
+            save attempts; subscribe to unlock premium sets.
           </div>
           <div className="flex gap-2 flex-shrink-0">
             <Link
