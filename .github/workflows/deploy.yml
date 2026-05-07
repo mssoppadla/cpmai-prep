@@ -79,8 +79,21 @@ jobs:
         run: |
           pip install -r backend/requirements.txt
           pip install pytest pytest-asyncio httpx
-      - name: Apply migrations
-        run: cd backend && alembic upgrade head
+      - name: Bootstrap schema + stamp alembic
+        # Mirrors install_app.sh / deploy.sh on a fresh DB: 0001_baseline is
+        # a no-op stamp, so we need Base.metadata.create_all() to build the
+        # schema, then stamp alembic to head. Catches model-definition
+        # breakage and ensures the test postgres looks like a freshly
+        # installed prod.
+        run: |
+          cd backend
+          python -c "
+          import app.models  # noqa: F401  -- triggers SQLAlchemy registration
+          from app.core.database import Base, engine
+          Base.metadata.create_all(bind=engine)
+          print('schema created')
+          "
+          alembic stamp head
       - name: Backend tests (strict)
         run: cd backend && pytest -q
 
