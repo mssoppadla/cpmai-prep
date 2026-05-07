@@ -47,6 +47,14 @@ docker compose version >/dev/null 2>&1 || die "docker compose plugin missing"
 
 DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
 
+# When deploy.sh itself updates this script (via git pull below), the bash
+# interpreter has already loaded the body running NOW — file changes on
+# disk don't reach the running process. So if the running deploy.sh is
+# from BEFORE the SMOKE_ADMIN backfill (commit 45918ed), this run won't
+# auto-bootstrap. Re-running deploy.sh once it's pulled fixes it; the
+# backfill block below also force-restarts the backend so the new env
+# vars are picked up immediately on no-op-path runs.
+
 # Source frontend env so build args resolve at `compose build` time.
 set -a; . ./frontend/.env.local; set +a
 
@@ -75,8 +83,22 @@ SMOKE_ADMIN_EMAIL=smoke-admin@${PROD_DOMAIN}
 SMOKE_ADMIN_PASSWORD=${SMOKE_PW}
 EOF
   chmod 0600 backend/.env
-  ok "smoke admin credentials added to backend/.env"
   unset SMOKE_PW
+  # The backend container's process env is sealed at start — it won't see
+  # the new SMOKE_ADMIN_* lines until restart. Do that now so the seeder
+  # and login probes pick them up later in this same run.
+  if $DC ps backend --status running --quiet 2>/dev/null | grep -q .; then
+    say "Restarting backend so new env vars take effect..."
+    $DC restart backend
+    for i in $(seq 1 30); do
+      if curl -fs -H "Host: api.${PROD_DOMAIN}" \
+            "http://localhost:${BACKEND_HOST_PORT}/health" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+  fi
+  ok "smoke admin credentials added; backend restarted"
 fi
 
 # Ensure the bind-mounted logs dir is writable by the container's app user
