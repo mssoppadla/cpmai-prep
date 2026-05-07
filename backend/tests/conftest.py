@@ -39,6 +39,25 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 # workflow env block — tests still need testserver regardless.
 os.environ["ALLOWED_HOSTS"] = '["localhost","127.0.0.1","testserver"]'
 
+# SQLite stores DateTime(timezone=True) as ISO text without TZ suffix when
+# the value comes from `server_default=func.now()` (CURRENT_TIMESTAMP). On
+# load that becomes a tz-NAIVE datetime — which can't be compared against
+# `datetime.now(timezone.utc)` (TypeError). Postgres in prod doesn't have
+# this issue. Patch SQLAlchemy's DateTime so loaded values from any column
+# come back as tz-aware UTC, matching prod behavior.
+from datetime import datetime as _datetime, timezone as _timezone
+from sqlalchemy import DateTime as _SADateTime
+_orig_dt_result_processor = _SADateTime.result_processor
+def _aware_utc_result_processor(self, dialect, coltype):
+    base = _orig_dt_result_processor(self, dialect, coltype)
+    def proc(value):
+        v = base(value) if base is not None else value
+        if isinstance(v, _datetime) and v.tzinfo is None:
+            v = v.replace(tzinfo=_timezone.utc)
+        return v
+    return proc
+_SADateTime.result_processor = _aware_utc_result_processor
+
 import fakeredis
 from app.core import redis as redis_module
 redis_module.redis_client = fakeredis.FakeRedis()
@@ -169,27 +188,34 @@ def sample_exam_set(db, sample_question, admin):
 
 
 @pytest.fixture
-def client(db_engine, db):
+def client(db_engine, db, monkeypatch):
     """FastAPI TestClient bound to the test SQLite engine.
 
-    Two things are required for request handlers to see the same DB rows
-    that fixtures (db, user, admin, sample_question, …) write:
+    Three things are required for request handlers — and the supporting
+    services they call — to see the same DB rows the fixtures wrote:
 
     1. The TestClient's request must use a session bound to db_engine.
        We accomplish this by registering a dependency override on get_db
        — request handlers depend on get_db, and FastAPI substitutes our
        override at injection time.
-    2. The connection pool must be StaticPool (configured on db_engine)
+    2. Modules that bypass get_db and call `SessionLocal()` directly (the
+       settings_store, llm_registry, payment_registry — non-request-bound
+       background paths) need their SessionLocal *attribute* swapped for
+       a test-engine-bound sessionmaker. monkeypatch on each module's
+       attribute reaches the imported name they actually use.
+    3. The connection pool must be StaticPool (configured on db_engine)
        so multiple sessions to `sqlite:///:memory:` see the same database
        instead of each spawning an empty in-memory DB.
 
     Also disables the slowapi rate limiter so tests can do many requests
-    in quick succession without 429ing each other.
+    in quick succession without 429ing each other, and forces the chat
+    cooldown to 0 so quota tests can fire 5 requests in a tight loop.
     """
     from fastapi.testclient import TestClient
     from app.main import app
     from app.core.deps import get_db
     from app.core.limiter import limiter
+    from app.core.settings_store import settings_store, SettingsStore
 
     Session = sessionmaker(bind=db_engine, autoflush=False, autocommit=False)
 
@@ -201,8 +227,33 @@ def client(db_engine, db):
             s.close()
 
     app.dependency_overrides[get_db] = override_get_db
+
+    # Patch SessionLocal in every module that imported it at module load.
+    # `from app.core.database import SessionLocal` binds SessionLocal as a
+    # NAME in each importing module — patching db_module's attribute
+    # doesn't reach those name bindings.
+    for mod_path in (
+        "app.core.settings_store",
+        "app.services.assistant.llm_registry",
+        "app.services.payment_registry",
+    ):
+        monkeypatch.setattr(f"{mod_path}.SessionLocal", Session, raising=False)
+
+    # Disable rate limiter for test runs (state would accumulate in real
+    # Redis in CI, breaking unrelated tests).
     was_enabled = limiter.enabled
     limiter.enabled = False
+
+    # Force chat cooldown to 0 in tests so quota tests can fire requests
+    # in a tight loop. Patch the get method on the SettingsStore class so
+    # it short-circuits this one key. All other settings still resolve
+    # normally through Redis/DB.
+    orig_get = SettingsStore.get
+    def _test_get(self, key, default=None):
+        if key == "chat.cooldown_seconds":
+            return 0
+        return orig_get(self, key, default)
+    monkeypatch.setattr(SettingsStore, "get", _test_get)
 
     try:
         yield TestClient(app)
