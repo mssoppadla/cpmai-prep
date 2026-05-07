@@ -55,6 +55,14 @@ if [ ! -f backend/.env ]; then
   fi
   ADMIN_EMAIL=$(prompt "Bootstrap admin email (e.g. admin@${PROD_DOMAIN})")
 
+  # Persist PROD_DOMAIN in a sidecar file so re-runs (and deploy.sh) can read
+  # it back without trying to parse it out of ALLOWED_HOSTS (which loses its
+  # quotes when sourced as a shell file).
+  cat > .deploy.conf <<EOF
+PROD_DOMAIN=${PROD_DOMAIN}
+EOF
+  chmod 0600 .deploy.conf
+
   SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
   FERNET=$(python3 -c 'import secrets, base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')
   ADMIN_PW=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
@@ -87,20 +95,25 @@ else
   ok "backend/.env already present (left untouched)"
 fi
 
-# Source backend/.env so we can build NEXT_PUBLIC_* for the frontend image build
+# Source backend/.env so we have GOOGLE_OAUTH_CLIENT_ID / RAZORPAY_KEY_ID
+# for the frontend env file. ALLOWED_HOSTS is JSON-shaped and bash strips
+# the quotes when sourcing — that's why we use .deploy.conf for PROD_DOMAIN.
 set -a; . ./backend/.env; set +a
+
+# Load PROD_DOMAIN — written above on first install, persisted across re-runs.
+[ -f .deploy.conf ] && { set -a; . ./.deploy.conf; set +a; }
+[ -n "${PROD_DOMAIN:-}" ] || die ".deploy.conf missing PROD_DOMAIN — re-run from a fresh state"
 
 # ------------------------------------------------------------------------------
 # 2. frontend/.env.local
 # ------------------------------------------------------------------------------
 if [ ! -f frontend/.env.local ]; then
   say "Generating frontend/.env.local"
-  PROD_DOMAIN_VALUE=$(echo "$ALLOWED_HOSTS" | sed -nE 's/.*"([^"]+)".*/\1/p' | head -1)
   cat > frontend/.env.local <<EOF
-NEXT_PUBLIC_API_URL=https://api.${PROD_DOMAIN_VALUE}/api/v1
+NEXT_PUBLIC_API_URL=https://api.${PROD_DOMAIN}/api/v1
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
 NEXT_PUBLIC_RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
-NEXTAUTH_URL=https://${PROD_DOMAIN_VALUE}
+NEXTAUTH_URL=https://${PROD_DOMAIN}
 NEXTAUTH_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
 EOF
   chmod 0600 frontend/.env.local
@@ -117,9 +130,8 @@ if [ ! -f /etc/caddy/Caddyfile.cpmai-installed ]; then
   if [ -f /etc/caddy/Caddyfile ]; then
     sudo cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%s)"
   fi
-  PROD_DOMAIN_VALUE=$(echo "$ALLOWED_HOSTS" | sed -nE 's/.*"([^"]+)".*/\1/p' | head -1)
   # Substitute the hostname in our template so it matches what they configured
-  sudo sed "s/cpmaiexamprep\.com/${PROD_DOMAIN_VALUE}/g" infra/Caddyfile \
+  sudo sed "s/cpmaiexamprep\.com/${PROD_DOMAIN}/g" infra/Caddyfile \
     | sudo tee /etc/caddy/Caddyfile >/dev/null
   sudo touch /etc/caddy/Caddyfile.cpmai-installed
   sudo systemctl reload caddy
@@ -132,6 +144,9 @@ fi
 # 4. Build + start the production stack
 # ------------------------------------------------------------------------------
 say "Building + starting production stack"
+# Source frontend/.env.local so NEXT_PUBLIC_* / NEXTAUTH_* are in the shell
+# environment when `compose build` interpolates ${VAR} build args.
+set -a; . ./frontend/.env.local; set +a
 docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ok "containers up"

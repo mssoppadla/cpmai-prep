@@ -42,6 +42,9 @@ export function AnnotatableText({
 
     function onMouseUp() {
       if (tool === "none") return;
+      // Re-narrow inside the closure: TS doesn't carry the outer `if (!el)`
+      // refinement across the function boundary.
+      if (!el) return;
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0) return;
       const r = sel.getRangeAt(0);
