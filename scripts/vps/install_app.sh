@@ -143,6 +143,14 @@ fi
 # ------------------------------------------------------------------------------
 # 4. Build + start the production stack
 # ------------------------------------------------------------------------------
+# Pre-create the bind-mounted logs directory with the in-container app user's
+# uid (999, from the backend Dockerfile's `useradd -r -g app app`). Without
+# this, Docker auto-creates the dir as root:root and the container can't
+# write to it.
+mkdir -p backend/logs
+sudo chown 999:999 backend/logs
+sudo chmod 0755 backend/logs
+
 say "Building + starting production stack"
 # Source frontend/.env.local so NEXT_PUBLIC_* / NEXTAUTH_* are in the shell
 # environment when `compose build` interpolates ${VAR} build args.
@@ -161,14 +169,44 @@ for i in $(seq 1 60); do
 done
 
 # ------------------------------------------------------------------------------
-# 5. Migrations + seeds
+# 5. Schema convergence + migrations + seeds
 # ------------------------------------------------------------------------------
-say "Running alembic upgrade head + seeder"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend \
-  bash -c 'cd /app && alembic upgrade head'
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend \
-  python seeds/seed.py
-ok "schema at head, seeds applied (idempotent)"
+# 0001_baseline is intentionally a no-op (it stamps an existing schema).
+# So on a fresh DB, bootstrap the schema via Base.metadata.create_all() before
+# running alembic. Mirrors scripts/bootstrap.sh's "Schema convergence" block.
+DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+
+HAS_USERS=$($DC exec -T postgres psql -U cpmai -d cpmai_prep -At \
+              -c "SELECT to_regclass('public.users') IS NOT NULL" 2>/dev/null \
+              | tail -1)
+HAS_ALEMBIC=$($DC exec -T postgres psql -U cpmai -d cpmai_prep -At \
+                -c "SELECT to_regclass('public.alembic_version') IS NOT NULL" 2>/dev/null \
+                | tail -1)
+
+if [ "$HAS_USERS" != "t" ]; then
+  say "Fresh DB — creating schema from SQLAlchemy models, then stamping alembic..."
+  $DC exec -T backend python -c "
+import app.models  # noqa: F401  (imports register all models on Base)
+from app.core.database import Base, engine
+Base.metadata.create_all(bind=engine)
+print('schema created')
+"
+  $DC exec -T backend bash -c 'cd /app && alembic stamp head' >/dev/null
+  ok "fresh schema created + stamped to head"
+elif [ "$HAS_ALEMBIC" != "t" ]; then
+  say "Schema present but no alembic table — stamping baseline then upgrading..."
+  $DC exec -T backend bash -c 'cd /app && alembic stamp 0003_payment_providers' >/dev/null
+  $DC exec -T backend bash -c 'cd /app && alembic upgrade head'
+  ok "stamped + upgraded to head"
+else
+  say "Running alembic upgrade head (additive only)..."
+  $DC exec -T backend bash -c 'cd /app && alembic upgrade head'
+  ok "schema is at head"
+fi
+
+say "Running idempotent seeder..."
+$DC exec -T backend python seeds/seed.py
+ok "seeds applied"
 
 # ------------------------------------------------------------------------------
 # 6. Backup cron
