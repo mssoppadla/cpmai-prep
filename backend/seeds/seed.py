@@ -31,6 +31,7 @@ from app.core.security import hash_password  # noqa: E402
 
 import app.models  # noqa: E402, F401  -- triggers SQLAlchemy registration
 from app.models.exam_set import ExamSet, ExamSetQuestion  # noqa: E402
+from app.models.faq import FaqItem  # noqa: E402
 from app.models.question import Difficulty, Question, QuestionOption  # noqa: E402
 from app.models.system_setting import SystemSetting  # noqa: E402
 from app.models.topic import Topic  # noqa: E402
@@ -69,6 +70,24 @@ def seed_topics(db) -> int:
         added += 1
     db.commit()
     return added
+
+
+def seed_faqs(db) -> int:
+    """Insert default FAQs only if the FAQ table is empty.
+
+    Once an admin has authored even one FAQ via /admin/faqs, this seeder
+    leaves the table alone — same "fresh-only" rule as questions/exam_sets.
+    """
+    if db.query(FaqItem).first():
+        return 0
+    rows = _load("faqs_default.json")
+    for r in rows:
+        db.add(FaqItem(
+            question=r["question"], answer=r["answer"],
+            display_order=r.get("display_order", 100), is_active=True,
+        ))
+    db.commit()
+    return len(rows)
 
 
 def seed_super_admin(db) -> str | None:
@@ -158,6 +177,10 @@ def main() -> None:
         n_topics = seed_topics(db)
         print(f"  topics: {n_topics} added "
               f"({db.query(Topic).count()} total)")
+
+        n_faqs = seed_faqs(db)
+        print(f"  faqs: {n_faqs} added "
+              f"({db.query(FaqItem).count()} total)")
 
         admin_email = seed_super_admin(db)
         if admin_email:

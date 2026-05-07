@@ -50,6 +50,22 @@ DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
 # Source frontend env so build args resolve at `compose build` time.
 set -a; . ./frontend/.env.local; set +a
 
+# Source .deploy.conf — sets PROD_DOMAIN + host-port overrides. The
+# docker-compose.prod.yml interpolates BACKEND_HOST_PORT / FRONTEND_HOST_PORT,
+# and our health probes / smoke target read PROD_DOMAIN.
+[ -f .deploy.conf ] && { set -a; . ./.deploy.conf; set +a; }
+[ -n "${PROD_DOMAIN:-}" ] || die ".deploy.conf missing PROD_DOMAIN — run install_app.sh first"
+: "${BACKEND_HOST_PORT:=8000}"
+: "${FRONTEND_HOST_PORT:=3000}"
+export BACKEND_HOST_PORT FRONTEND_HOST_PORT
+
+# Ensure the bind-mounted logs dir is writable by the container's app user
+# (uid 999, set by backend Dockerfile's `useradd -r`). Idempotent: chown is
+# fine on a directory that already has the right owner.
+mkdir -p backend/logs
+sudo chown 999:999 backend/logs 2>/dev/null || true
+sudo chmod 0755 backend/logs 2>/dev/null || true
+
 START_TS=$(date +%s)
 START_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
@@ -67,11 +83,14 @@ fi
 
 NEW_SHA=$(git rev-parse --short HEAD)
 
+SMOKE_BASE_URL="https://api.${PROD_DOMAIN}/api/v1"
+
 if [ "$START_SHA" = "$NEW_SHA" ] && [ -z "${SKIP_PULL:-}" ]; then
   ok "Already at $NEW_SHA — nothing to deploy"
   # Still run the smoke test, because some changes are env-only (e.g. cron, secrets).
-  say "Running smoke against current stack..."
-  python3 scripts/smoke_admin_crud.py || die "smoke failed on no-op deploy — investigate"
+  say "Running smoke against $SMOKE_BASE_URL..."
+  BASE_URL="$SMOKE_BASE_URL" python3 scripts/smoke_admin_crud.py \
+    || die "smoke failed on no-op deploy — investigate"
   ok "Smoke green — exiting clean"
   exit 0
 fi
@@ -110,20 +129,23 @@ $DC up -d --no-deps --build backend frontend
 ok "containers up"
 
 # ------------------------------------------------------------------------------
-# 6. Wait for health
+# 6. Wait for health (use Host header so TrustedHost middleware accepts it)
 # ------------------------------------------------------------------------------
-say "Waiting for backend health..."
+say "Waiting for backend health on localhost:${BACKEND_HOST_PORT}..."
 for i in $(seq 1 60); do
-  if curl -fs http://localhost:8000/health >/dev/null 2>&1; then
+  if curl -fs -H "Host: api.${PROD_DOMAIN}" \
+        "http://localhost:${BACKEND_HOST_PORT}/health" >/dev/null 2>&1; then
     ok "backend healthy"; break
   fi
   sleep 1
   if [ "$i" = 60 ]; then die "backend never became healthy — $DC logs backend"; fi
 done
 
-say "Waiting for frontend..."
+say "Waiting for frontend on localhost:${FRONTEND_HOST_PORT}..."
 for i in $(seq 1 30); do
-  if curl -fs -o /dev/null -w "%{http_code}" http://localhost:3000 | grep -qE "^(200|301|302|307|308)$"; then
+  if curl -fs -o /dev/null -w "%{http_code}" \
+        "http://localhost:${FRONTEND_HOST_PORT}" \
+        | grep -qE "^(200|301|302|307|308)$"; then
     ok "frontend responding"; break
   fi
   sleep 1
@@ -131,11 +153,37 @@ for i in $(seq 1 30); do
 done
 
 # ------------------------------------------------------------------------------
-# 7. Migrations + seeder (additive, idempotent)
+# 7. Schema convergence + migrations + seeder (additive, idempotent)
 # ------------------------------------------------------------------------------
-say "Running alembic upgrade head..."
-$DC exec -T backend bash -c 'cd /app && alembic upgrade head'
-ok "schema at head"
+# Mirrors install_app.sh — handles the case where deploy.sh is somehow run on a
+# DB that's missing the alembic_version table or the baseline schema. On a
+# normal redeploy this is a no-op (alembic upgrade head finds nothing new).
+HAS_USERS=$($DC exec -T postgres psql -U cpmai -d cpmai_prep -At \
+              -c "SELECT to_regclass('public.users') IS NOT NULL" 2>/dev/null \
+              | tail -1)
+HAS_ALEMBIC=$($DC exec -T postgres psql -U cpmai -d cpmai_prep -At \
+                -c "SELECT to_regclass('public.alembic_version') IS NOT NULL" 2>/dev/null \
+                | tail -1)
+if [ "$HAS_USERS" != "t" ]; then
+  say "Fresh DB detected — bootstrapping schema before alembic..."
+  $DC exec -T backend python -c "
+import app.models  # noqa: F401
+from app.core.database import Base, engine
+Base.metadata.create_all(bind=engine)
+print('schema created')
+"
+  $DC exec -T backend bash -c 'cd /app && alembic stamp head' >/dev/null
+  ok "schema bootstrapped + stamped"
+elif [ "$HAS_ALEMBIC" != "t" ]; then
+  say "Existing schema, no alembic table — stamping baseline + upgrading..."
+  $DC exec -T backend bash -c 'cd /app && alembic stamp 0003_payment_providers' >/dev/null
+  $DC exec -T backend bash -c 'cd /app && alembic upgrade head'
+  ok "stamped + upgraded"
+else
+  say "Running alembic upgrade head (additive only)..."
+  $DC exec -T backend bash -c 'cd /app && alembic upgrade head'
+  ok "schema at head"
+fi
 
 say "Running idempotent seeder..."
 $DC exec -T backend python seeds/seed.py
@@ -152,10 +200,10 @@ python3 scripts/preserve_users_check.py verify || {
 }
 
 # ------------------------------------------------------------------------------
-# 9. Smoke
+# 9. Smoke — runs against the public URL (validates DNS → Caddy → backend → DB)
 # ------------------------------------------------------------------------------
-say "Running smoke against the upgraded stack..."
-python3 scripts/smoke_admin_crud.py || {
+say "Running smoke against $SMOKE_BASE_URL..."
+BASE_URL="$SMOKE_BASE_URL" python3 scripts/smoke_admin_crud.py || {
   warn "smoke FAILED — site may be broken"
   warn "rollback with: ./scripts/vps/restore.sh /var/backups/cpmai-prep/<latest>.sql.gz"
   die "deploy aborted"

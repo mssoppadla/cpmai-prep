@@ -15,6 +15,12 @@ file explains *when* to run *which* and what to expect.
 > Treat the VPS IP, hostname, and SSH details as **operator secrets** — keep
 > them in a private password manager, not in any file in this repo.
 
+> **First time on a Hostinger or similar VPS that gives you grief?**
+> See [vps-deployment-lessons.md](vps-deployment-lessons.md) for the specific
+> issues we hit on the first install and how the scripts now prevent them.
+> Most "weird" failures (port collisions, env-file permissions, Caddy log dir
+> ownership, alembic baseline being a no-op) are documented there.
+
 ---
 
 ## Topology

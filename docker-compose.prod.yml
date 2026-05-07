@@ -30,8 +30,10 @@ services:
       # without docker exec. Logs are JSONL — see backend/app/core/logging.py.
       - ./backend/logs:/app/logs
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    # Bind to loopback only — Caddy proxies from 127.0.0.1:8000.
-    ports: ["127.0.0.1:8000:8000"]
+    # Bind to loopback only — Caddy proxies internally. Host port is
+    # configurable via BACKEND_HOST_PORT (in .deploy.conf) for VPS
+    # environments where the default 8000 collides with a host service.
+    ports: ["127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"]
 
   frontend:
     build:
@@ -48,7 +50,8 @@ services:
         NEXTAUTH_SECRET:              ${NEXTAUTH_SECRET}
     restart: always
     # Loopback only — Caddy fronts the public TLS endpoint.
-    ports: ["127.0.0.1:3000:3000"]
+    # FRONTEND_HOST_PORT (.deploy.conf) overrides the default 3000.
+    ports: ["127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"]
     volumes: []                      # image is canonical, no source mount
     command: npm run start
     depends_on:

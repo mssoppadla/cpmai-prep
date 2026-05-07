@@ -55,11 +55,17 @@ if [ ! -f backend/.env ]; then
   fi
   ADMIN_EMAIL=$(prompt "Bootstrap admin email (e.g. admin@${PROD_DOMAIN})")
 
-  # Persist PROD_DOMAIN in a sidecar file so re-runs (and deploy.sh) can read
-  # it back without trying to parse it out of ALLOWED_HOSTS (which loses its
-  # quotes when sourced as a shell file).
+  # Persist deploy-time config in a sidecar file so re-runs (and deploy.sh)
+  # can read it back without trying to parse JSON out of ALLOWED_HOSTS.
+  #
+  # BACKEND_HOST_PORT / FRONTEND_HOST_PORT default to 8000/3000 (the standard
+  # docker-compose ports). Override here if your VPS reserves those ports
+  # (e.g. Hostinger images sometimes block 8000). Caddy proxies to whatever
+  # host port you set, so users see no difference.
   cat > .deploy.conf <<EOF
 PROD_DOMAIN=${PROD_DOMAIN}
+BACKEND_HOST_PORT=8000
+FRONTEND_HOST_PORT=3000
 EOF
   chmod 0600 .deploy.conf
 
@@ -100,9 +106,14 @@ fi
 # the quotes when sourcing — that's why we use .deploy.conf for PROD_DOMAIN.
 set -a; . ./backend/.env; set +a
 
-# Load PROD_DOMAIN — written above on first install, persisted across re-runs.
+# Load PROD_DOMAIN + host port overrides — written above on first install,
+# persisted across re-runs. docker-compose.prod.yml interpolates the *_PORT
+# values for its loopback bindings.
 [ -f .deploy.conf ] && { set -a; . ./.deploy.conf; set +a; }
 [ -n "${PROD_DOMAIN:-}" ] || die ".deploy.conf missing PROD_DOMAIN — re-run from a fresh state"
+: "${BACKEND_HOST_PORT:=8000}"
+: "${FRONTEND_HOST_PORT:=3000}"
+export BACKEND_HOST_PORT FRONTEND_HOST_PORT
 
 # ------------------------------------------------------------------------------
 # 2. frontend/.env.local
@@ -130,8 +141,12 @@ if [ ! -f /etc/caddy/Caddyfile.cpmai-installed ]; then
   if [ -f /etc/caddy/Caddyfile ]; then
     sudo cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%s)"
   fi
-  # Substitute the hostname in our template so it matches what they configured
-  sudo sed "s/cpmaiexamprep\.com/${PROD_DOMAIN}/g" infra/Caddyfile \
+  # Substitute hostname AND upstream ports so the Caddyfile reverse-proxies
+  # to whatever ports the docker stack is using on this VPS.
+  sudo sed -e "s/cpmaiexamprep\.com/${PROD_DOMAIN}/g" \
+           -e "s/reverse_proxy localhost:3000/reverse_proxy localhost:${FRONTEND_HOST_PORT}/g" \
+           -e "s/reverse_proxy localhost:8000/reverse_proxy localhost:${BACKEND_HOST_PORT}/g" \
+           infra/Caddyfile \
     | sudo tee /etc/caddy/Caddyfile >/dev/null
   sudo touch /etc/caddy/Caddyfile.cpmai-installed
   sudo systemctl reload caddy
@@ -159,9 +174,11 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ok "containers up"
 
-# Wait for backend health
+# Wait for backend health on the configured host port. Use the api.* hostname
+# in the Host header so FastAPI's TrustedHost middleware accepts the request.
 for i in $(seq 1 60); do
-  if curl -fs http://localhost:8000/health >/dev/null 2>&1; then
+  if curl -fs -H "Host: api.${PROD_DOMAIN}" \
+        "http://localhost:${BACKEND_HOST_PORT}/health" >/dev/null 2>&1; then
     ok "backend healthy"; break
   fi
   sleep 1
@@ -209,24 +226,32 @@ $DC exec -T backend python seeds/seed.py
 ok "seeds applied"
 
 # ------------------------------------------------------------------------------
-# 6. Backup cron
+# 6. Backup cron — non-fatal
 # ------------------------------------------------------------------------------
-CRON_LINE="30 2 * * * cd ${APP_DIR} && ./scripts/vps/backup.sh >> /var/log/cpmai-prep-backup.log 2>&1"
-if ! crontab -l 2>/dev/null | grep -F "${APP_DIR}/scripts/vps/backup.sh" >/dev/null; then
-  say "Installing daily backup cron (02:30 server time)"
-  ( crontab -l 2>/dev/null; echo "${CRON_LINE}" ) | crontab -
-  sudo touch /var/log/cpmai-prep-backup.log
-  sudo chown "$(whoami)" /var/log/cpmai-prep-backup.log
-  ok "cron installed"
-else
-  ok "backup cron already installed"
-fi
+# Wrapped so a transient failure here doesn't abort the whole install with
+# `set -e`. Worst case the operator runs `./scripts/vps/backup.sh` manually
+# from cron later — the install itself is still good.
+{
+  CRON_LINE="30 2 * * * cd ${APP_DIR} && ./scripts/vps/backup.sh >> /var/log/cpmai-prep-backup.log 2>&1"
+  if ! crontab -l 2>/dev/null | grep -F "${APP_DIR}/scripts/vps/backup.sh" >/dev/null; then
+    say "Installing daily backup cron (02:30 server time)"
+    ( crontab -l 2>/dev/null; echo "${CRON_LINE}" ) | crontab -
+    sudo touch /var/log/cpmai-prep-backup.log
+    sudo chown "$(whoami)" /var/log/cpmai-prep-backup.log
+    ok "cron installed"
+  else
+    ok "backup cron already installed"
+  fi
+} || warn "cron install hit an issue — re-run manually or add via crontab -e"
 
 # ------------------------------------------------------------------------------
-# 7. Smoke
+# 7. Smoke — runs against the public URL so it validates the full chain
+#    (DNS → Caddy TLS → backend → DB), not just localhost.
 # ------------------------------------------------------------------------------
-say "Running smoke against the live stack"
-python3 scripts/smoke_admin_crud.py || die "smoke failed — investigate before going live"
+say "Running smoke against https://api.${PROD_DOMAIN}/api/v1"
+BASE_URL="https://api.${PROD_DOMAIN}/api/v1" \
+  python3 scripts/smoke_admin_crud.py \
+    || die "smoke failed — investigate before going live"
 
 echo
 echo "============================================================"

@@ -1,0 +1,27 @@
+[
+  {
+    "question": "What is the CPMAI certification?",
+    "answer": "CPMAI (Cognitive Project Management for AI) is a vendor-neutral certification covering a 6-phase methodology for managing AI and data science projects from business problem definition through model operations. Earning CPMAI signals you can lead AI initiatives end-to-end, not just build models.",
+    "display_order": 10
+  },
+  {
+    "question": "Who is this prep platform for?",
+    "answer": "Anyone preparing for the CPMAI exam: project managers moving into AI delivery, data scientists earning a PM-side credential, and consultants who want a structured way to learn the methodology. The mock exams mirror the format and difficulty distribution of the real CPMAI test.",
+    "display_order": 20
+  },
+  {
+    "question": "How does the AI tutor help?",
+    "answer": "After every question you answer, the AI tutor explains the correct option, walks through the wrong ones, and ties the reasoning back to the relevant CPMAI phase. You can also ask follow-up questions in plain English. Premium plans get extended quota and deeper analysis.",
+    "display_order": 30
+  },
+  {
+    "question": "What's the difference between free and premium sets?",
+    "answer": "Free sets give you a complete, timed CPMAI exam simulation with detailed reasoning on every answer. Premium unlocks advanced sets, the full question bank, deeper performance analytics across phases, and a higher AI-tutor quota. Cancel any time.",
+    "display_order": 40
+  },
+  {
+    "question": "Are my attempts saved? Can I resume?",
+    "answer": "Yes. Once you sign in, every attempt — answers, marked questions, time elapsed — is saved to your account. You can leave mid-exam and come back; the timer keeps counting against the original session window. After submission, you get a full review screen with per-question breakdowns.",
+    "display_order": 50
+  }
+]
