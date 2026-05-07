@@ -63,5 +63,30 @@
     "key": "payment.cache_ttl_seconds",
     "value": 30,
     "description": "Payment provider config cache TTL"
+  },
+  {
+    "key": "landing.lead_section_heading",
+    "value": "Start with our free CPMAI study guide",
+    "description": "Heading shown above the lead-capture form on the landing page"
+  },
+  {
+    "key": "landing.lead_cta_text",
+    "value": "Get the free guide",
+    "description": "Button label on the lead-capture form"
+  },
+  {
+    "key": "landing.lead_post_submit_route",
+    "value": "/exams",
+    "description": "Where to send the visitor after a successful lead form submission"
+  },
+  {
+    "key": "landing.premium_upsell_title",
+    "value": "Get the full bank",
+    "description": "Heading on the upsell card on the learner dashboard"
+  },
+  {
+    "key": "landing.premium_upsell_body",
+    "value": "Premium unlocks all advanced sets, AI tutor with extended quota, and detailed performance analytics.",
+    "description": "Body of the upsell card on the learner dashboard"
   }
 ]
