@@ -43,20 +43,30 @@ os.environ["ALLOWED_HOSTS"] = '["localhost","127.0.0.1","testserver"]'
 # the value comes from `server_default=func.now()` (CURRENT_TIMESTAMP). On
 # load that becomes a tz-NAIVE datetime — which can't be compared against
 # `datetime.now(timezone.utc)` (TypeError). Postgres in prod doesn't have
-# this issue. Patch SQLAlchemy's DateTime so loaded values from any column
-# come back as tz-aware UTC, matching prod behavior.
+# this issue.
+#
+# We patch BOTH SQLAlchemy's generic DateTime *and* the SQLite-dialect
+# DATETIME type because SQLite's subclass overrides `result_processor`
+# with its own ISO parser — without the second patch, the parent-class
+# patch is shadowed for SQLite columns.
 from datetime import datetime as _datetime, timezone as _timezone
 from sqlalchemy import DateTime as _SADateTime
-_orig_dt_result_processor = _SADateTime.result_processor
-def _aware_utc_result_processor(self, dialect, coltype):
-    base = _orig_dt_result_processor(self, dialect, coltype)
-    def proc(value):
-        v = base(value) if base is not None else value
-        if isinstance(v, _datetime) and v.tzinfo is None:
-            v = v.replace(tzinfo=_timezone.utc)
-        return v
-    return proc
-_SADateTime.result_processor = _aware_utc_result_processor
+from sqlalchemy.dialects.sqlite.base import DATETIME as _SQLiteDATETIME
+
+def _wrap_result_processor_to_force_utc(target_cls):
+    orig = target_cls.result_processor
+    def patched(self, dialect, coltype):
+        base = orig(self, dialect, coltype)
+        def proc(value):
+            v = base(value) if base is not None else value
+            if isinstance(v, _datetime) and v.tzinfo is None:
+                v = v.replace(tzinfo=_timezone.utc)
+            return v
+        return proc
+    target_cls.result_processor = patched
+
+_wrap_result_processor_to_force_utc(_SADateTime)
+_wrap_result_processor_to_force_utc(_SQLiteDATETIME)
 
 import fakeredis
 from app.core import redis as redis_module
