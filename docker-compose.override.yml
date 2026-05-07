@@ -1,0 +1,32 @@
+# Auto-loaded by `docker compose up` for development.
+#
+# NOT loaded when prod is explicitly invoked via:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+# because explicit -f flags disable auto-loading of the override file.
+#
+# What this adds for dev:
+#   • Host ports for postgres / redis (so local DB tools can connect)
+#   • Source bind-mounts for backend + frontend (live reload)
+#   • Dev commands: uvicorn --reload + next dev
+#   • Frontend uses the dev Dockerfile (no production build step)
+services:
+  postgres:
+    ports: ["5433:5432"]   # host 5433 → container 5432 (avoids clash with native Postgres)
+
+  redis:
+    ports: ["6379:6379"]
+
+  backend:
+    ports: ["8000:8000"]
+    volumes: ["./backend:/app"]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile      # explicit: dev image, not Dockerfile.prod
+    ports: ["3000:3000"]
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules         # anonymous volume so host's empty node_modules doesn't shadow image's
+    command: npm run dev
