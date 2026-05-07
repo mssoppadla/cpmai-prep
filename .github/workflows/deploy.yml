@@ -74,11 +74,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements-dev.txt
       - name: Install backend deps
-        run: |
-          pip install -r backend/requirements.txt
-          pip install pytest pytest-asyncio httpx
+        # requirements-dev.txt pulls in requirements.txt + pytest + fakeredis +
+        # httpx + freezegun (everything conftest.py and the integration tests
+        # need). Pinning via the file keeps CI consistent with local dev.
+        run: pip install -r backend/requirements-dev.txt
       - name: Bootstrap schema + stamp alembic
         # Mirrors install_app.sh / deploy.sh on a fresh DB: 0001_baseline is
         # a no-op stamp, so we need Base.metadata.create_all() to build the
