@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { auth, content as contentApi, exams as examsApi, errMsg } from "@/lib/api";
+import { SiteHeader } from "@/components/layout/SiteHeader";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 import type {
   ExamSetSummaryOut, LandingCopy, UserDashboardOut,
 } from "@/types/api";
@@ -71,10 +73,26 @@ export default function LearnerDashboard() {
   }, [router]);
 
   if (err) {
-    return <div className="p-8 text-rose-600">{err}</div>;
+    return (
+      <>
+        <SiteHeader />
+        <main className="min-h-[40vh] max-w-3xl mx-auto p-8 text-rose-600">
+          {err}
+        </main>
+        <SiteFooter />
+      </>
+    );
   }
   if (!data || !sets) {
-    return <div className="p-8 text-slate-500">Loading…</div>;
+    return (
+      <>
+        <SiteHeader />
+        <main className="min-h-[40vh] max-w-3xl mx-auto p-8 text-slate-500">
+          Loading…
+        </main>
+        <SiteFooter />
+      </>
+    );
   }
 
   const sub = data.subscription;
@@ -86,29 +104,21 @@ export default function LearnerDashboard() {
   const canPremium  = sub.active;
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
-          <div>
-            <div className="font-bold text-slate-900">CPMAI Prep</div>
-            <div className="text-xs text-slate-500">Learner Dashboard</div>
+    <>
+      <SiteHeader />
+      <main className="min-h-screen bg-slate-50">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between text-sm border-b border-slate-200 bg-white">
+          <div className="text-slate-500">
+            <span className="font-semibold text-slate-700">Learner Dashboard</span>
+            <span className="hidden sm:inline"> · {data.user.email}</span>
           </div>
-          <div className="flex items-center gap-3 text-sm">
-            <Link href="/#faq-heading"
-                  className="text-slate-600 hover:text-indigo-600">
-              Home / FAQs
-            </Link>
-            <span className="text-slate-300" aria-hidden>·</span>
-            <span className="text-slate-600 hidden sm:inline">{data.user.email}</span>
-            <button
-              onClick={async () => { await auth.logout(); router.push("/"); }}
-              className="text-indigo-600 hover:underline"
-            >
-              Sign out
-            </button>
-          </div>
+          <button
+            onClick={async () => { await auth.logout(); router.push("/"); }}
+            className="text-indigo-600 hover:underline"
+          >
+            Sign out
+          </button>
         </div>
-      </header>
 
       <section className="max-w-5xl mx-auto px-6 py-8">
         <h1 className="text-2xl font-bold text-slate-900">
@@ -197,7 +207,9 @@ export default function LearnerDashboard() {
           </div>
         )}
       </section>
-    </main>
+      </main>
+      <SiteFooter />
+    </>
   );
 }
 

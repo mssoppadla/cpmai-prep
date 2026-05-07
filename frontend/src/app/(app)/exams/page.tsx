@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { auth, exams as examsApi, errMsg } from "@/lib/api";
+import { SiteHeader } from "@/components/layout/SiteHeader";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { ExamSetSummaryOut, UserOut } from "@/types/api";
 import { ExamSetCard } from "@/components/exam/ExamSetCard";
 
@@ -24,22 +26,9 @@ export default function ExamSetsPage() {
   }, []);
 
   return (
-    <main className="max-w-5xl mx-auto px-6 py-10">
-      <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
-        <Link href="/" className="hover:text-indigo-600">← Home / FAQs</Link>
-        {me === undefined ? (
-          <span aria-hidden className="opacity-0">…</span>
-        ) : me ? (
-          <Link href="/dashboard" className="hover:text-indigo-600">
-            My dashboard →
-          </Link>
-        ) : (
-          <Link href="/login?next=%2Fexams" className="hover:text-indigo-600">
-            Sign in
-          </Link>
-        )}
-      </div>
-
+    <>
+      <SiteHeader active="exams" />
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
       <header className="mb-6">
         <h1 className="text-3xl font-bold text-slate-900">Mock Exams</h1>
         <p className="text-slate-600 mt-2">
@@ -89,6 +78,8 @@ export default function ExamSetsPage() {
           {sets.map((s) => <ExamSetCard key={s.id} set={s} />)}
         </div>
       )}
-    </main>
+      </main>
+      <SiteFooter />
+    </>
   );
 }

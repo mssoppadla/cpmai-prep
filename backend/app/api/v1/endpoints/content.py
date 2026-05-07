@@ -28,6 +28,36 @@ def list_faqs(db: Session = Depends(get_db)):
     return rows
 
 
+@router.get("/site")
+def site_chrome():
+    """Site-wide header/footer config — admin-editable via /admin/settings.
+
+    Empty-string values are intentionally allowed; the frontend hides UI
+    elements (social links, support email) when they're empty so admins can
+    progressively reveal channels.
+    """
+    return {
+        "brand_name": settings_store.get_str(
+            "site.brand_name", "CPMAI Prep",
+        ),
+        "tagline": settings_store.get_str(
+            "site.tagline",
+            "Pass the CPMAI certification on your first attempt.",
+        ),
+        "support_email": settings_store.get_str("site.support_email", ""),
+        "linkedin_url": settings_store.get_str("site.linkedin_url", ""),
+        "youtube_url": settings_store.get_str("site.youtube_url", ""),
+        "twitter_url": settings_store.get_str("site.twitter_url", ""),
+        "copyright_text": settings_store.get_str(
+            "site.copyright_text",
+            "© 2026 CPMAI Prep. All rights reserved.",
+        ),
+        "show_pricing_link": bool(
+            settings_store.get("site.show_pricing_link", True),
+        ),
+    }
+
+
 @router.get("/landing")
 def landing_copy():
     """Admin-editable landing-page text bits.

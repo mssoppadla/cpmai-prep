@@ -4,6 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { auth, ApiError, errMsg } from "@/lib/api";
 import { GoogleSignInButton } from "@/lib/google-auth";
+import { SiteHeader } from "@/components/layout/SiteHeader";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { UserRole } from "@/types/api";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
@@ -18,15 +20,19 @@ function destinationFor(role: UserRole, override: string | null): string {
 // rest of the page can prerender. Hence the LoginForm/LoginPage split.
 export default function LoginPage() {
   return (
-    <Suspense fallback={<LoginFallback />}>
-      <LoginForm />
-    </Suspense>
+    <>
+      <SiteHeader />
+      <Suspense fallback={<LoginFallback />}>
+        <LoginForm />
+      </Suspense>
+      <SiteFooter />
+    </>
   );
 }
 
 function LoginFallback() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <main className="min-h-[60vh] flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <div className="h-5 w-24 bg-slate-200 rounded animate-pulse mb-3" />
         <div className="h-4 w-40 bg-slate-100 rounded animate-pulse" />
@@ -75,7 +81,7 @@ function LoginForm() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <main className="min-h-[60vh] flex items-center justify-center bg-slate-50 px-4 py-12">
       <div className="w-full max-w-sm bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <h1 className="text-xl font-bold text-slate-900 mb-1">Sign in</h1>
         <p className="text-sm text-slate-600 mb-5">
@@ -135,9 +141,6 @@ function LoginForm() {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <div className="mt-4 text-xs text-slate-500 text-center">
-          <Link href="/" className="hover:text-indigo-600">← Back to landing</Link>
-        </div>
       </div>
     </main>
   );

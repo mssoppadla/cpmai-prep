@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { exams as examsApi, ApiError } from "@/lib/api";
+import { SiteHeader } from "@/components/layout/SiteHeader";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { SubmitAttemptOut } from "@/types/api";
 import { QuestionResultCard } from "@/components/exam/QuestionResultCard";
 
@@ -31,25 +33,39 @@ export default function ResultsPage() {
 
   if (error) {
     return (
-      <main className="max-w-2xl mx-auto px-6 py-10">
-        <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-lg">
-          {error}
-        </div>
-        <Link href="/exams" className="inline-block mt-4 text-indigo-600 hover:underline">
-          ← Back to exam sets
-        </Link>
-      </main>
+      <>
+        <SiteHeader active="exams" />
+        <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-lg">
+            {error}
+          </div>
+          <Link href="/exams" className="inline-block mt-4 text-indigo-600 hover:underline">
+            ← Back to exam sets
+          </Link>
+        </main>
+        <SiteFooter />
+      </>
     );
   }
   if (!result) {
-    return <main className="max-w-2xl mx-auto px-6 py-10 text-slate-500">Loading...</main>;
+    return (
+      <>
+        <SiteHeader active="exams" />
+        <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-10 text-slate-500">
+          Loading...
+        </main>
+        <SiteFooter />
+      </>
+    );
   }
 
   const minutes = Math.floor(result.time_taken_seconds / 60);
   const seconds = result.time_taken_seconds % 60;
 
   return (
-    <main className="max-w-3xl mx-auto px-6 py-10">
+    <>
+      <SiteHeader active="exams" />
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
       <div className={`rounded-2xl p-8 mb-8 text-white ${
         result.passed
           ? "bg-gradient-to-br from-emerald-500 to-emerald-700"
@@ -113,6 +129,8 @@ export default function ResultsPage() {
           Try another set →
         </Link>
       </div>
-    </main>
+      </main>
+      <SiteFooter />
+    </>
   );
 }

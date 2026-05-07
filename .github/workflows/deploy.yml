@@ -106,6 +106,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend deps
         run: cd frontend && npm ci
+      - name: Frontend tests (strict — vitest)
+        run: cd frontend && npm test
       - name: Frontend build (strict)
         env:
           # Build-time placeholders — real values are baked in on the VPS.

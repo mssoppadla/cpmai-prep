@@ -88,5 +88,45 @@
     "key": "landing.premium_upsell_body",
     "value": "Premium unlocks all advanced sets, AI tutor with extended quota, and detailed performance analytics.",
     "description": "Body of the upsell card on the learner dashboard"
+  },
+  {
+    "key": "site.brand_name",
+    "value": "CPMAI Prep",
+    "description": "Brand name shown in the top-left of every page"
+  },
+  {
+    "key": "site.tagline",
+    "value": "Pass the CPMAI certification on your first attempt.",
+    "description": "Short tagline shown in the footer under the brand"
+  },
+  {
+    "key": "site.support_email",
+    "value": "",
+    "description": "Public contact email shown in footer (leave blank to hide)"
+  },
+  {
+    "key": "site.linkedin_url",
+    "value": "",
+    "description": "LinkedIn profile URL for footer (leave blank to hide)"
+  },
+  {
+    "key": "site.youtube_url",
+    "value": "",
+    "description": "YouTube channel URL for footer (leave blank to hide)"
+  },
+  {
+    "key": "site.twitter_url",
+    "value": "",
+    "description": "Twitter/X profile URL for footer (leave blank to hide)"
+  },
+  {
+    "key": "site.copyright_text",
+    "value": "© 2026 CPMAI Prep. All rights reserved.",
+    "description": "Bottom-of-footer copyright line"
+  },
+  {
+    "key": "site.show_pricing_link",
+    "value": true,
+    "description": "Show Pricing link in the top nav (set false until plans are public)"
   }
 ]

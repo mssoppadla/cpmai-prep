@@ -238,6 +238,18 @@ export interface LandingCopy {
   premium_upsell_body: string;
 }
 
+/** Admin-editable site-wide chrome (header + footer). */
+export interface SiteChrome {
+  brand_name: string;
+  tagline: string;
+  support_email: string;
+  linkedin_url: string;
+  youtube_url: string;
+  twitter_url: string;
+  copyright_text: string;
+  show_pricing_link: boolean;
+}
+
 export interface ContactRow {
   kind: "lead" | "user";
   id: number;

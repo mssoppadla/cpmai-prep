@@ -8,7 +8,7 @@ import type {
   ExamAttemptOut, AnswerIn, SubmitAttemptOut,
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
-  FaqOut, FaqAdminOut, FaqIn, LandingCopy,
+  FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
   QuestionAdminIn, QuestionAdminOut, ExamSetLinkedQuestion,
   SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
@@ -274,6 +274,10 @@ export const content = {
   },
   async landing(): Promise<LandingCopy> {
     const { data } = await request<LandingCopy>("/content/landing");
+    return data;
+  },
+  async site(): Promise<SiteChrome> {
+    const { data } = await request<SiteChrome>("/content/site");
     return data;
   },
 };
