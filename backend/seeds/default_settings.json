@@ -65,6 +65,11 @@
     "description": "Payment provider config cache TTL"
   },
   {
+    "key": "pricing.stack_offer_with_discount",
+    "value": false,
+    "description": "If true: offer code stacks on top of discount_price. If false: discount_price wins when set; offer applies to base_price only when no discount."
+  },
+  {
     "key": "landing.lead_section_heading",
     "value": "Start with our free CPMAI study guide",
     "description": "Heading shown above the lead-capture form on the landing page"

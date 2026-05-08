@@ -12,6 +12,10 @@ import type {
   QuestionAdminIn, QuestionAdminOut, ExamSetLinkedQuestion,
   SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
+  PlanPublicOut, PlanAdminOut, PlanCreate, PlanUpdate,
+  OfferCodeAdminOut, OfferCodeCreate, OfferCodeUpdate,
+  PriceQuoteOut, CreateOrderIn, CreateOrderOut,
+  VerifyPaymentIn, VerifyPaymentOut,
 } from "@/types/api";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -236,6 +240,37 @@ export const assistant = {
       reset_at: headers.get("X-Chat-Quota-Reset") ?? "",
     };
     return { response: data, quota };
+  },
+};
+
+// ---------- Pricing (public) ----------------------------------------------
+export const pricing = {
+  async listPlans(): Promise<PlanPublicOut[]> {
+    const { data } = await request<PlanPublicOut[]>("/pricing/plans");
+    return data;
+  },
+  async quote(plan_slug: string, offer_code?: string): Promise<PriceQuoteOut> {
+    const { data } = await request<PriceQuoteOut>("/pricing/quote", {
+      method: "POST",
+      json: { plan_slug, offer_code: offer_code || null },
+    });
+    return data;
+  },
+};
+
+// ---------- Payments (public, auth-required) -------------------------------
+export const payments = {
+  async createOrder(payload: CreateOrderIn): Promise<CreateOrderOut> {
+    const { data } = await request<CreateOrderOut>("/payments/orders", {
+      method: "POST", authed: true, json: payload,
+    });
+    return data;
+  },
+  async verify(payload: VerifyPaymentIn): Promise<VerifyPaymentOut> {
+    const { data } = await request<VerifyPaymentOut>("/payments/verify", {
+      method: "POST", authed: true, json: payload,
+    });
+    return data;
   },
 };
 
@@ -498,6 +533,48 @@ export const admin = {
     },
     async delete(userId: number) {
       await request(`/admin/users/${userId}`,
+        { method: "DELETE", authed: true });
+    },
+  },
+  plans: {
+    async list(): Promise<PlanAdminOut[]> {
+      const { data } = await request<PlanAdminOut[]>(
+        "/admin/plans", { authed: true });
+      return data;
+    },
+    async create(p: PlanCreate): Promise<PlanAdminOut> {
+      const { data } = await request<PlanAdminOut>(
+        "/admin/plans", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: PlanUpdate): Promise<PlanAdminOut> {
+      const { data } = await request<PlanAdminOut>(
+        `/admin/plans/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async delete(id: number): Promise<void> {
+      await request(`/admin/plans/${id}`, { method: "DELETE", authed: true });
+    },
+  },
+  offerCodes: {
+    async list(): Promise<OfferCodeAdminOut[]> {
+      const { data } = await request<OfferCodeAdminOut[]>(
+        "/admin/offer-codes", { authed: true });
+      return data;
+    },
+    async create(p: OfferCodeCreate): Promise<OfferCodeAdminOut> {
+      const { data } = await request<OfferCodeAdminOut>(
+        "/admin/offer-codes", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: OfferCodeUpdate): Promise<OfferCodeAdminOut> {
+      const { data } = await request<OfferCodeAdminOut>(
+        `/admin/offer-codes/${id}`,
+        { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async delete(id: number): Promise<void> {
+      await request(`/admin/offer-codes/${id}`,
         { method: "DELETE", authed: true });
     },
   },
