@@ -86,9 +86,12 @@ def create_order(payload: CreateOrderIn,
                     "Offer code is no longer available.", status_code=409)
             offer_code_id_for_release = applied.id
 
-    discount = quote.effective_before_offer_paise - quote.final_price_paise \
-               if quote.offer_applied \
-               else (quote.base_price_paise - quote.final_price_paise)
+    # discount_paise on Payment captures everything knocked off the
+    # base — both plan-level discount_price AND offer-code reductions.
+    # GST is NOT a discount, so it's not subtracted here. Compare base
+    # against the post-offer SUBTOTAL (pre-GST), not final_price_paise
+    # (which now includes GST).
+    discount = quote.base_price_paise - quote.subtotal_paise
     db.add(Payment(
         user_id=user.id, plan_id=quote.plan_id,
         razorpay_order_id=order["id"],
@@ -104,7 +107,8 @@ def create_order(payload: CreateOrderIn,
     emit_event(db, "payment.order_created", user_id=user.id,
                metadata={"order_id": order["id"], "plan_slug": quote.plan_slug,
                           "offer_code": quote.offer_code,
-                          "amount_paise": quote.final_price_paise})
+                          "amount_paise": quote.final_price_paise,
+                          "gst_paise": quote.gst_paise})
 
     return CreateOrderOut(
         order_id=order["id"],
@@ -113,6 +117,9 @@ def create_order(payload: CreateOrderIn,
         plan_slug=quote.plan_slug, plan_name=quote.plan_name,
         base_amount=quote.base_price_paise,
         discount_amount=max(0, discount),
+        subtotal_amount=quote.subtotal_paise,
+        gst_percent=quote.gst_percent,
+        gst_amount=quote.gst_paise,
         offer_code=quote.offer_code,
         offer_applied=quote.offer_applied,
         offer_reason=quote.offer_reason,

@@ -301,13 +301,16 @@ export interface CreateOrderIn {
 }
 export interface CreateOrderOut {
   order_id: string;
-  amount: number;
+  amount: number;             // final amount (post-discount + GST)
   currency: string;
   razorpay_key_id: string;
   plan_slug: string;
   plan_name: string;
   base_amount: number;
   discount_amount: number;
+  subtotal_amount: number;    // post-discount, pre-GST
+  gst_percent: number;
+  gst_amount: number;
   offer_code: string | null;
   offer_applied: boolean;
   offer_reason: string | null;
@@ -430,6 +433,12 @@ export interface PriceQuoteOut {
   offer_applied: boolean;
   offer_reason: string | null;
   offer_discount_paise: number;
+  // Pre-GST subtotal (post-offer). UI shows this as the "Subtotal" line.
+  subtotal_paise: number;
+  // GST line — gst_percent==0 means "no GST line shown".
+  gst_percent: number;
+  gst_paise: number;
+  // final_price_paise = subtotal_paise + gst_paise. What the user pays.
   final_price_paise: number;
   stack_offer_with_discount: boolean;
 }

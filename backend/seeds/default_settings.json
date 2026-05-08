@@ -70,6 +70,11 @@
     "description": "If true: offer code stacks on top of discount_price. If false: discount_price wins when set; offer applies to base_price only when no discount."
   },
   {
+    "key": "pricing.gst_percent",
+    "value": 18,
+    "description": "GST percentage applied on top of the post-offer subtotal. Computed server-side and shown as a separate line in the order summary. Set to 0 to disable."
+  },
+  {
     "key": "landing.lead_section_heading",
     "value": "Start with our free CPMAI study guide",
     "description": "Heading shown above the lead-capture form on the landing page"

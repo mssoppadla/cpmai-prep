@@ -70,3 +70,22 @@ def test_quote_invalid_offer_is_soft_fail(client, db):
     assert body["offer_applied"] is False
     assert body["offer_reason"]
     assert body["final_price_paise"] == 100000
+
+
+def test_quote_returns_gst_breakdown_when_admin_enables_it(client, db, monkeypatch):
+    """With pricing.gst_percent=18 set, /pricing/quote returns the
+    subtotal/gst/final split end-to-end."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: (
+            18 if k == "pricing.gst_percent"
+            else False if k == "pricing.stack_offer_with_discount"
+            else default))
+    _seed_plan(db, base=100_000)
+    r = client.post("/api/v1/pricing/quote", json={"plan_slug": "exam-bundle"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["subtotal_paise"] == 100_000
+    assert body["gst_percent"] == 18
+    assert body["gst_paise"] == 18_000
+    assert body["final_price_paise"] == 118_000

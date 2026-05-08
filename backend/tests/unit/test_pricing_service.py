@@ -295,3 +295,111 @@ def test_blank_offer_code_treated_as_no_offer(db, stack_off):
     assert q.offer_applied is False
     assert q.offer_code is None
     assert q.final_price_paise == 10_000
+
+
+# ============================================================== GST
+@pytest.fixture
+def gst_18(monkeypatch):
+    """GST=18%, stack toggle off — for the standard Indian flow tests."""
+    from app.core import settings_store as ss_module
+    def fake_get(self, k, default=None):
+        if k == "pricing.gst_percent": return 18
+        if k == "pricing.stack_offer_with_discount": return False
+        return default
+    monkeypatch.setattr(ss_module.SettingsStore, "get", fake_get)
+
+
+def test_gst_added_when_no_offer_or_discount(db, gst_18):
+    _make_plan(db, base=100_000)            # ₹1,000
+    q = PricingService(db).quote("exam-bundle")
+    assert q.subtotal_paise == 100_000
+    assert q.gst_percent == 18
+    assert q.gst_paise == 18_000           # 18% of ₹1,000 = ₹180
+    assert q.final_price_paise == 118_000
+
+
+def test_gst_added_after_plan_discount(db, gst_18):
+    _make_plan(db, base=100_000, discount=80_000)
+    q = PricingService(db).quote("exam-bundle")
+    # GST applies on the post-discount subtotal, not the base.
+    assert q.subtotal_paise == 80_000
+    assert q.gst_paise == 14_400          # 18% of ₹800 = ₹144
+    assert q.final_price_paise == 94_400
+
+
+def test_gst_added_after_offer(db, gst_18):
+    _make_plan(db, base=100_000)
+    _make_offer(db, code="SAVE10", kind="percent", value=10)
+    q = PricingService(db).quote("exam-bundle", "save10")
+    assert q.offer_applied is True
+    assert q.subtotal_paise == 90_000     # 10% off ₹1,000 = ₹900
+    assert q.gst_paise == 16_200          # 18% of ₹900 = ₹162
+    assert q.final_price_paise == 106_200
+
+
+def test_gst_zero_means_no_gst_line(db, monkeypatch):
+    """When admin sets gst_percent=0, gst fields are 0 and final == subtotal."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: (
+            0 if k == "pricing.gst_percent"
+            else False if k == "pricing.stack_offer_with_discount"
+            else default))
+    _make_plan(db, base=100_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_percent == 0
+    assert q.gst_paise == 0
+    assert q.final_price_paise == q.subtotal_paise == 100_000
+
+
+def test_gst_truncation_not_rounding(db, monkeypatch):
+    """At odd amounts, integer truncation drops fractional paise.
+    `subtotal=999, gst=18%` → 999*18//100 = 179 (not 180)."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: (
+            18 if k == "pricing.gst_percent"
+            else False if k == "pricing.stack_offer_with_discount"
+            else default))
+    _make_plan(db, base=999)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_paise == 179
+    assert q.final_price_paise == 1178
+
+
+def test_gst_clamped_to_0_to_100(db, monkeypatch):
+    """Admin types 250% by mistake → service clamps to 100, never errors."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: (
+            250 if k == "pricing.gst_percent"
+            else False if k == "pricing.stack_offer_with_discount"
+            else default))
+    _make_plan(db, base=10_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_percent == 100            # clamped from 250
+    assert q.final_price_paise == 20_000   # 10k subtotal + 10k GST
+
+
+def test_gst_invalid_value_treated_as_zero(db, monkeypatch):
+    """Garbage in settings (string, None) doesn't crash — defaults to 0."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: (
+            "not-a-number" if k == "pricing.gst_percent"
+            else False if k == "pricing.stack_offer_with_discount"
+            else default))
+    _make_plan(db, base=10_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_percent == 0
+    assert q.final_price_paise == 10_000
+
+
+def test_gst_zero_subtotal_means_zero_gst(db, gst_18):
+    """100% off → subtotal=0 → GST on zero is zero, final stays zero."""
+    _make_plan(db, base=10_000)
+    _make_offer(db, code="ALL", kind="percent", value=100)
+    q = PricingService(db).quote("exam-bundle", "all")
+    assert q.subtotal_paise == 0
+    assert q.gst_paise == 0
+    assert q.final_price_paise == 0

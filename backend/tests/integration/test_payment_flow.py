@@ -192,6 +192,28 @@ def test_verify_persists_offer_redemption(client, db, user, fake_provider):
     assert red.discount_paise == 1_000
 
 
+def test_order_charges_gst_inclusive_amount(client, db, user, fake_provider, monkeypatch):
+    """GST is the price the user actually pays. The amount sent to
+    Razorpay's order.create call must be subtotal + GST, not subtotal."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: (
+            18 if k == "pricing.gst_percent"
+            else False if k == "pricing.stack_offer_with_discount"
+            else default))
+    _seed_plan(db, base_price_paise=100_000)
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders", headers=h, json={
+        "plan_slug": "exam-bundle"})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["amount"] == 118_000              # 100k + 18% GST
+    assert body["subtotal_amount"] == 100_000
+    assert body["gst_percent"] == 18
+    assert body["gst_amount"] == 18_000
+    assert fake_provider.last_order_amount == 118_000
+
+
 def test_verify_renew_extends_expiry(client, db, user, fake_provider):
     plan = _seed_plan(db, base_price_paise=10_000, duration_days=365)
     h = auth_header(client, user.email)

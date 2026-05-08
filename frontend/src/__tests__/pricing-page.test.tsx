@@ -28,6 +28,8 @@ const QUOTE_NO_OFFER = {
   effective_before_offer_paise: 100_000,
   offer_code: null, offer_applied: false, offer_reason: null,
   offer_discount_paise: 0,
+  subtotal_paise: 100_000,
+  gst_percent: 0, gst_paise: 0,
   final_price_paise: 100_000, stack_offer_with_discount: false,
 };
 
@@ -35,7 +37,15 @@ const QUOTE_WITH_OFFER = {
   ...QUOTE_NO_OFFER,
   offer_code: "SAVE10", offer_applied: true,
   offer_reason: null, offer_discount_paise: 10_000,
+  subtotal_paise: 90_000,
   final_price_paise: 90_000,
+};
+
+const QUOTE_WITH_GST = {
+  ...QUOTE_NO_OFFER,
+  subtotal_paise: 100_000,
+  gst_percent: 18, gst_paise: 18_000,
+  final_price_paise: 118_000,
 };
 
 let pushed: string[] = [];
@@ -122,6 +132,22 @@ describe("/pricing page", () => {
     fireEvent.click(btn);
     await waitFor(() => {
       expect(pushed.some(p => p.startsWith("/login"))).toBe(true);
+    });
+  });
+
+  it("renders the GST line when the quote includes GST", async () => {
+    global.fetch = buildFetch(QUOTE_WITH_GST);
+    render(<PricingPage />);
+    // Subtotal + GST(18%) + new total all show.
+    await waitFor(() => {
+      expect(screen.getByText("Subtotal")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/GST \(18%\)/)).toBeInTheDocument();
+    });
+    // Total should reflect the GST-inclusive amount (₹1180.00 from 100k+18k paise).
+    await waitFor(() => {
+      expect(screen.getAllByText(/₹1180\.00/).length).toBeGreaterThan(0);
     });
   });
 });
