@@ -7,6 +7,13 @@ preview) goes through here so frontend and backend never disagree.
 Returned `PriceQuote` is intentionally a plain dataclass — easy to
 serialise to JSON, easy to assert on in tests, never holds session.
 
+Computation order:
+
+  1. effective_before_offer = discount_price (if set) else base_price
+  2. apply offer code (subject to the stacking toggle below) → subtotal
+  3. add GST on the subtotal → final price (what the user pays / Razorpay
+     order amount)
+
 Stacking semantics (governed by `pricing.stack_offer_with_discount`):
 
   • Off (default):
@@ -18,7 +25,13 @@ Stacking semantics (governed by `pricing.stack_offer_with_discount`):
       - Effective price starts at `discount_price` if present else
         `base_price`. The offer code is then applied on top.
 
-Final price is clamped to >= 0 in both modes.
+GST (`pricing.gst_percent`, default 18) is applied on the post-offer
+subtotal. Set the percent to 0 to disable GST entirely (no line item
+shown). Indian rounding convention: integer paise truncation
+(`subtotal * pct // 100`) — sufficient at typical price points;
+revisit if precise-rupee invoicing is ever required.
+
+Subtotal is clamped to >= 0; GST on a zero subtotal is zero.
 """
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -52,7 +65,15 @@ class PriceQuote:
     offer_reason: Optional[str]   # human-readable why-not when applied=False
     offer_discount_paise: int     # 0 when applied=False
 
-    # Final price the user pays
+    # Subtotal (post-offer, pre-GST) — what GST is computed against.
+    subtotal_paise: int
+
+    # GST breakdown — gst_percent==0 means "no GST line shown".
+    gst_percent: int
+    gst_paise: int
+
+    # Final price the user pays (= subtotal + gst). This is the amount
+    # passed to Razorpay's order create call.
     final_price_paise: int
 
     # The combine-toggle that was in effect at quote time. Stored on
@@ -97,7 +118,7 @@ class PricingService:
                 effective_before_offer=effective_before_offer,
                 offer_code=None, offer_applied=False, offer_reason=None,
                 offer_discount=0,
-                final_price=effective_before_offer,
+                subtotal=effective_before_offer,
                 stack=stack,
             )
 
@@ -111,7 +132,7 @@ class PricingService:
                 offer_code=normalised_code, offer_applied=False,
                 offer_reason="Code not found.",
                 offer_discount=0,
-                final_price=effective_before_offer,
+                subtotal=effective_before_offer,
                 stack=stack,
             )
 
@@ -123,7 +144,7 @@ class PricingService:
                 offer_code=normalised_code, offer_applied=False,
                 offer_reason=ineligibility,
                 offer_discount=0,
-                final_price=effective_before_offer,
+                subtotal=effective_before_offer,
                 stack=stack,
             )
 
@@ -136,7 +157,7 @@ class PricingService:
                 offer_reason=("Plan discount is already applied; offer "
                               "codes do not stack with discounts."),
                 offer_discount=0,
-                final_price=effective_before_offer,
+                subtotal=effective_before_offer,
                 stack=stack,
             )
 
@@ -144,7 +165,7 @@ class PricingService:
         target = (effective_before_offer if stack
                   else plan.base_price_paise)
         discount = self._compute_discount_paise(code, target)
-        final = max(0, effective_before_offer - discount) if stack \
+        subtotal = max(0, effective_before_offer - discount) if stack \
                 else max(0, plan.base_price_paise - discount)
 
         return self._build_quote(
@@ -152,7 +173,7 @@ class PricingService:
             effective_before_offer=effective_before_offer,
             offer_code=code.code, offer_applied=True, offer_reason=None,
             offer_discount=discount,
-            final_price=final,
+            subtotal=subtotal,
             stack=stack,
         )
 
@@ -230,9 +251,25 @@ class PricingService:
         return bool(v)
 
     @staticmethod
-    def _build_quote(*, plan: Plan, effective_before_offer: int,
+    def _gst_percent() -> int:
+        """0..100 admin-configurable GST. Clamped defensively in case an
+        admin types something out-of-range into Runtime Settings."""
+        try:
+            v = int(settings_store.get("pricing.gst_percent", 0) or 0)
+        except (TypeError, ValueError):
+            v = 0
+        return max(0, min(100, v))
+
+    @classmethod
+    def _build_quote(cls, *, plan: Plan, effective_before_offer: int,
                      offer_code, offer_applied, offer_reason,
-                     offer_discount, final_price, stack) -> PriceQuote:
+                     offer_discount, subtotal, stack) -> PriceQuote:
+        gst_percent = cls._gst_percent()
+        # Integer truncation matches "drop fractional paise" — sufficient
+        # for sub-rupee accuracy at our price points. If we ever issue
+        # GSTIN-bearing invoices we'll need exact rounding rules.
+        gst_paise = (subtotal * gst_percent) // 100
+        final_price = subtotal + gst_paise
         return PriceQuote(
             plan_id=plan.id, plan_slug=plan.slug, plan_name=plan.name,
             currency=plan.currency,
@@ -243,6 +280,9 @@ class PricingService:
             offer_applied=offer_applied,
             offer_reason=offer_reason,
             offer_discount_paise=offer_discount,
+            subtotal_paise=subtotal,
+            gst_percent=gst_percent,
+            gst_paise=gst_paise,
             final_price_paise=final_price,
             stack_offer_with_discount=stack,
         )

@@ -17,6 +17,15 @@ class PriceQuoteOut(BaseModel):
     offer_reason: Optional[str]
     offer_discount_paise: int
 
+    # Pre-GST subtotal (post-offer). UI uses this as the "Subtotal" line.
+    subtotal_paise: int
+
+    # GST line. gst_percent==0 means "no GST line shown".
+    gst_percent: int
+    gst_paise: int
+
+    # final_price_paise = subtotal_paise + gst_paise. This is what the
+    # user pays and what gets passed to Razorpay's order.create call.
     final_price_paise: int
     stack_offer_with_discount: bool
 

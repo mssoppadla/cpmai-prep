@@ -11,13 +11,16 @@ class CreateOrderIn(BaseModel):
 
 class CreateOrderOut(BaseModel):
     order_id: str
-    amount: int                  # final amount in paise (post-discount)
+    amount: int                  # final amount in paise (post-discount + GST)
     currency: str
     razorpay_key_id: str
     plan_slug: str
     plan_name: str
     base_amount: int
     discount_amount: int
+    subtotal_amount: int         # post-discount, pre-GST
+    gst_percent: int
+    gst_amount: int
     offer_code: Optional[str]
     offer_applied: bool
     offer_reason: Optional[str]

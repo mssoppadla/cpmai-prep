@@ -286,6 +286,14 @@ export default function PricingPage() {
                            value={`-₹${rupees(quote.offer_discount_paise)}`}
                            muted />
                     )}
+                    {quote && quote.gst_percent > 0 && (
+                      <>
+                        <Row label="Subtotal"
+                             value={`₹${rupees(quote.subtotal_paise)}`} muted />
+                        <Row label={`GST (${quote.gst_percent}%)`}
+                             value={`+₹${rupees(quote.gst_paise)}`} muted />
+                      </>
+                    )}
                     <Row strong label="Total to pay"
                          value={quote
                             ? `₹${rupees(quote.final_price_paise)}`
