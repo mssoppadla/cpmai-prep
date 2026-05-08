@@ -25,6 +25,7 @@ import LoginPage from "@/app/login/page";
 import LearnerDashboard from "@/app/dashboard/page";
 import ExamSetsListPage from "@/app/(app)/exams/page";
 import ResultsPage from "@/app/(app)/exams/results/[id]/page";
+import PricingPage from "@/app/pricing/page";
 
 const BRAND = "CPMAI Prep";
 const COPY = "© 2026 CPMAI Prep. All rights reserved.";
@@ -85,6 +86,24 @@ describe("page chrome — every public page wraps SiteHeader + SiteFooter", () =
     }) as typeof fetch;
 
     render(<ResultsPage />);
+    await expectHeaderAndFooter();
+  });
+
+  it("/pricing", async () => {
+    // Pricing page calls /pricing/plans on mount — return an empty list
+    // so the page renders the empty-state body. Chrome should still wrap.
+    const baseFetch = global.fetch;
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/pricing/plans")) {
+        return new Response("[]", {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      }
+      return baseFetch(input, init);
+    }) as typeof fetch;
+
+    render(<PricingPage />);
     await expectHeaderAndFooter();
   });
 });

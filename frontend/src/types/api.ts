@@ -294,15 +294,144 @@ export interface LeadAdminOut {
 }
 
 // ---------- Payments -------------------------------------------------------
-export interface CreateOrderIn { plan: "pro" | "enterprise"; amount_paise: number }
+export interface CreateOrderIn {
+  plan_slug: string;
+  offer_code?: string | null;
+  referrer?: string | null;
+}
 export interface CreateOrderOut {
-  order_id: string; amount: number; currency: string; razorpay_key_id: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  razorpay_key_id: string;
+  plan_slug: string;
+  plan_name: string;
+  base_amount: number;
+  discount_amount: number;
+  offer_code: string | null;
+  offer_applied: boolean;
+  offer_reason: string | null;
 }
 export interface VerifyPaymentIn {
   order_id: string;
   payment_id: string;
   signature: string;
-  plan: "pro" | "enterprise";
+}
+export interface VerifyPaymentOut {
+  status: "active";
+  plan_slug: string;
+  expires_at: string;
+}
+
+// ---------- Plans / Offers / Pricing --------------------------------------
+export type BundleType = "exam_bundle" | "course_bundle" | "custom";
+
+export interface PlanExamSetRef { id: number; slug: string; name: string }
+
+export interface PlanPublicOut {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  bundle_type: string;
+  base_price_paise: number;
+  discount_price_paise: number | null;
+  currency: string;
+  duration_days: number;
+  perks: Record<string, unknown>;
+  exam_sets: PlanExamSetRef[];
+}
+
+export interface PlanAdminOut extends PlanPublicOut {
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlanCreate {
+  name: string;
+  slug: string;
+  description?: string | null;
+  bundle_type: BundleType;
+  base_price_paise: number;
+  discount_price_paise?: number | null;
+  currency?: string;
+  duration_days?: number;
+  perks?: Record<string, unknown>;
+  is_active?: boolean;
+  display_order?: number;
+  exam_set_ids?: number[];
+}
+
+export interface PlanUpdate {
+  name?: string;
+  description?: string | null;
+  bundle_type?: BundleType;
+  base_price_paise?: number;
+  discount_price_paise?: number | null;
+  duration_days?: number;
+  perks?: Record<string, unknown>;
+  is_active?: boolean;
+  display_order?: number;
+  exam_set_ids?: number[];
+}
+
+export type DiscountType = "percent" | "flat";
+
+export interface OfferCodeAdminOut {
+  id: number;
+  code: string;
+  description: string | null;
+  discount_type: DiscountType;
+  discount_value: number;
+  valid_from: string | null;
+  valid_until: string | null;
+  max_redemptions: number | null;
+  used_count: number;
+  applies_to_plan_ids: number[] | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OfferCodeCreate {
+  code: string;
+  description?: string | null;
+  discount_type: DiscountType;
+  discount_value: number;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  max_redemptions?: number | null;
+  applies_to_plan_ids?: number[] | null;
+  is_active?: boolean;
+}
+
+export interface OfferCodeUpdate {
+  description?: string | null;
+  discount_type?: DiscountType;
+  discount_value?: number;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  max_redemptions?: number | null;
+  applies_to_plan_ids?: number[] | null;
+  is_active?: boolean;
+}
+
+export interface PriceQuoteOut {
+  plan_id: number;
+  plan_slug: string;
+  plan_name: string;
+  currency: string;
+  base_price_paise: number;
+  discount_price_paise: number | null;
+  effective_before_offer_paise: number;
+  offer_code: string | null;
+  offer_applied: boolean;
+  offer_reason: string | null;
+  offer_discount_paise: number;
+  final_price_paise: number;
+  stack_offer_with_discount: boolean;
 }
 
 // ---------- Assistant ------------------------------------------------------

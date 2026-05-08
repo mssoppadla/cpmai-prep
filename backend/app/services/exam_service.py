@@ -24,6 +24,7 @@ from app.models.exam_session import ExamSession, ExamAttemptAnswer
 from app.models.question import Question, QuestionOption
 from app.models.topic import Topic
 from app.models.subscription import Subscription
+from app.models.plan import PlanExamSet
 from app.schemas.exam import (
     ExamAttemptOut, AnswerIn, SubmitAttemptOut, PhaseBreakdown,
 )
@@ -54,7 +55,7 @@ class ExamService:
                     "Premium sets require a signed-in account. Sign in to "
                     "subscribe and unlock.",
                 )
-            if not self._has_active_subscription(actor.id):
+            if not self._can_access_exam_set(actor.id, es.id):
                 raise SubscriptionRequiredError()
         if not es.questions:
             raise ConflictError("Exam set has no questions yet.")
@@ -298,9 +299,46 @@ class ExamService:
         return session
 
     def _has_active_subscription(self, user_id: int) -> bool:
+        """Legacy any-active-sub check. Preserved for non-paywall code paths."""
         return bool(self.db.query(Subscription).filter_by(
             user_id=user_id, status="active",
         ).first())
+
+    def _can_access_exam_set(self, user_id: int, exam_set_id: int) -> bool:
+        """Paywall check: does the user have access to this premium set?
+
+        Two paths grant access:
+          1. Any active subscription with `plan_id IS NULL` (legacy
+             pre-plan rows — kept for backward compatibility).
+          2. An active, non-expired subscription whose Plan includes
+             this exam_set_id via plan_exam_sets.
+
+        `expires_at IS NULL` is treated as "no expiry" (legacy).
+        """
+        from sqlalchemy import or_
+        now = datetime.now(timezone.utc)
+        not_expired = or_(Subscription.expires_at.is_(None),
+                          Subscription.expires_at > now)
+        subs = (self.db.query(Subscription)
+                .filter(Subscription.user_id == user_id,
+                        Subscription.status == "active",
+                        not_expired)
+                .all())
+        if not subs:
+            return False
+        # Legacy: any sub without a plan_id grants blanket access (mirrors
+        # the historic _has_active_subscription behaviour for rows that
+        # predate the plans system).
+        if any(s.plan_id is None for s in subs):
+            return True
+        # Plan-based: at least one active sub points to a Plan that
+        # includes this exam set.
+        plan_ids = [s.plan_id for s in subs if s.plan_id is not None]
+        link = (self.db.query(PlanExamSet)
+                .filter(PlanExamSet.plan_id.in_(plan_ids),
+                        PlanExamSet.exam_set_id == exam_set_id)
+                .first())
+        return link is not None
 
     def _serialize_attempt(self, session: ExamSession, es: ExamSet) -> ExamAttemptOut:
         # Build lookup for current user answers
