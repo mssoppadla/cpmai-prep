@@ -58,8 +58,19 @@ def create_order(payload: CreateOrderIn,
     receipt = (f"u_{user.id}_p_{quote.plan_id}_"
                f"{int(datetime.now().timestamp())}_"
                f"{secrets.token_hex(4)}")
-    order = provider.create_order(quote.final_price_paise, receipt=receipt,
-                                   currency=quote.currency)
+    # Wrap any gateway error in a clean AppError so CORS headers + JSON
+    # body are preserved. Razorpay's SDK raises subclasses of Exception
+    # for auth failures, network errors, validation issues — none of
+    # which our caller can act on except by re-entering credentials.
+    try:
+        order = provider.create_order(
+            quote.final_price_paise, receipt=receipt,
+            currency=quote.currency)
+    except Exception as e:
+        raise AppError(
+            f"Payment gateway rejected the order: {e}. "
+            "Verify the active provider's keys in admin → Payment Providers.",
+            status_code=502)
 
     # Reserve a redemption seat NOW so concurrent buyers can't both grab
     # the last copy of a code with max_redemptions=1. Released if the

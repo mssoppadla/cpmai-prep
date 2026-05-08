@@ -13,12 +13,27 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Script from "next/script";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { pricing, payments, auth, errMsg } from "@/lib/api";
 import type {
-  PlanPublicOut, PriceQuoteOut, UserOut,
+  PlanPublicOut, PriceQuoteOut, UserOut, CreateOrderOut,
 } from "@/types/api";
+
+declare global {
+  interface Window { Razorpay?: new (opts: RazorpayOptions) => RazorpayInstance }
+}
+interface RazorpayInstance { open(): void; on(event: string, cb: (resp: unknown) => void): void }
+interface RazorpayOptions {
+  key: string; amount: number; currency: string; order_id: string;
+  name?: string; description?: string;
+  prefill?: { email?: string; name?: string };
+  theme?: { color?: string };
+  handler: (resp: { razorpay_payment_id: string; razorpay_order_id: string;
+                     razorpay_signature: string }) => void;
+  modal?: { ondismiss?: () => void };
+}
 
 
 function rupees(paise: number) { return (paise / 100).toFixed(2); }
@@ -83,37 +98,69 @@ export default function PricingPage() {
   async function checkout() {
     if (!quote || !selectedPlan) return;
     if (!user) {
-      // Phase 1: bounce to login. Phase 2: force Google login specifically.
       router.push(`/login?next=${encodeURIComponent("/pricing")}`);
       return;
     }
+    if (!window.Razorpay) {
+      setErr("Razorpay checkout script hasn't loaded yet. Refresh and try again.");
+      return;
+    }
+
     setCheckoutBusy(true); setErr(null);
+    let order: CreateOrderOut;
     try {
-      const order = await payments.createOrder({
+      order = await payments.createOrder({
         plan_slug: selectedPlan.slug,
         offer_code: offerCode || null,
         referrer: referrer || null,
       });
-      // Razorpay popup wiring (real Razorpay handler is loaded via script
-      // tag injected by the Razorpay docs flow). For the v1 cut we just
-      // surface the order_id so QA can validate the round-trip; the
-      // popup wiring will be added with the SDK script in a follow-up.
-      alert(
-        `Order created: ${order.order_id}\n` +
-        `Amount: ₹${rupees(order.amount)}\n` +
-        `Plan: ${order.plan_name}\n` +
-        (order.offer_applied
-          ? `Offer "${order.offer_code}" applied.`
-          : (order.offer_reason ?? "")));
     } catch (e) {
-      setErr(errMsg(e));
-    } finally {
-      setCheckoutBusy(false);
+      setErr(errMsg(e)); setCheckoutBusy(false); return;
     }
+
+    // Open Razorpay's hosted checkout. On success, post the signed
+    // payment back to /payments/verify — that's where Subscription is
+    // actually created. Cancel/dismiss leaves the order in 'created'
+    // state; webhook hardening (phase 3) will reconcile it.
+    const rzp = new window.Razorpay({
+      key: order.razorpay_key_id,
+      amount: order.amount,
+      currency: order.currency,
+      order_id: order.order_id,
+      name: order.plan_name,
+      description: `${selectedPlan.duration_days}-day access`,
+      prefill: { email: user.email, name: user.name ?? undefined },
+      theme: { color: "#4f46e5" },
+      handler: async (resp) => {
+        try {
+          const verified = await payments.verify({
+            order_id: resp.razorpay_order_id,
+            payment_id: resp.razorpay_payment_id,
+            signature: resp.razorpay_signature,
+          });
+          // Subscription is now active. Send them straight to the
+          // exam list — paywall now lets them through.
+          router.push(`/exams?paid=${encodeURIComponent(verified.plan_slug)}`);
+        } catch (e) {
+          setErr(`Payment captured but verification failed: ${errMsg(e)}. ` +
+                  "Refresh and your subscription should appear; if not, contact support.");
+        } finally {
+          setCheckoutBusy(false);
+        }
+      },
+      modal: { ondismiss: () => setCheckoutBusy(false) },
+    });
+    rzp.open();
   }
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
+      {/* Razorpay's hosted checkout SDK. Loaded once per page render —
+          only when the user actually hits /pricing, not site-wide.
+          afterInteractive: load after the page is interactive but
+          before the user can realistically click "Pay". */}
+      <Script src="https://checkout.razorpay.com/v1/checkout.js"
+              strategy="afterInteractive" />
       <SiteHeader active="pricing" />
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-10">
         <h1 className="text-3xl font-bold text-slate-900">Pricing</h1>
