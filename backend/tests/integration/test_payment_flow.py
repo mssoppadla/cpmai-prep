@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from app.models.plan import Plan, PlanExamSet
 from app.models.subscription import Subscription
 from app.models.offer import OfferCode, OfferRedemption
-from app.models.payment import Payment
+from app.models.payment import Payment, WebhookEvent
 from app.services.payment_registry import PaymentRegistry
 from tests.conftest import auth_header
 
@@ -240,3 +240,179 @@ def test_verify_renew_extends_expiry(client, db, user, fake_provider):
     db.refresh(sub_after_1)
     delta = (sub_after_1.expires_at - first_expiry).days
     assert 364 <= delta <= 366
+
+
+# =================================================== webhook hardening
+import json
+
+
+def _captured_event(order_id: str, payment_id: str = "pay_w_1",
+                     event_id: str = "evt_w_1") -> dict:
+    """Shape of a Razorpay 'payment.captured' webhook payload."""
+    return {
+        "id": event_id,
+        "event": "payment.captured",
+        "payload": {
+            "payment": {"entity": {
+                "id": payment_id, "order_id": order_id, "status": "captured",
+            }},
+        },
+    }
+
+
+def _failed_event(order_id: str, event_id: str = "evt_w_2") -> dict:
+    return {
+        "id": event_id,
+        "event": "payment.failed",
+        "payload": {
+            "payment": {"entity": {
+                "id": "pay_w_failed", "order_id": order_id, "status": "failed",
+            }},
+        },
+    }
+
+
+def _post_webhook(client, event: dict):
+    return client.post("/api/v1/payments/webhook",
+                       data=json.dumps(event),
+                       headers={"X-Razorpay-Signature": "fake-webhook-sig",
+                                 "Content-Type": "application/json"})
+
+
+def test_webhook_payment_captured_activates_subscription_without_verify(
+        client, db, user, fake_provider):
+    """Dropped-tab scenario: order created, user closes browser before
+    /verify fires. Webhook must still grant access."""
+    plan = _seed_plan(db, base_price_paise=10_000)
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders", headers=h,
+                    json={"plan_slug": "exam-bundle"})
+    oid = r.json()["order_id"]
+
+    # No /verify call — user closed the tab.
+    r2 = _post_webhook(client, _captured_event(oid))
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["action"] == "activated"
+
+    sub = (db.query(Subscription)
+           .filter_by(user_id=user.id, plan_id=plan.id, status="active")
+           .first())
+    assert sub is not None
+    assert sub.expires_at is not None
+
+
+def test_webhook_after_verify_is_a_no_op(client, db, user, fake_provider):
+    """Verify already activated → webhook arriving second changes nothing.
+    No duplicate Subscription, no duplicate OfferRedemption."""
+    _seed_plan(db, base_price_paise=10_000)
+    db.add(OfferCode(code="STACK", discount_type="percent",
+                     discount_value=10, is_active=True))
+    db.commit()
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders", headers=h, json={
+        "plan_slug": "exam-bundle", "offer_code": "stack"})
+    oid = r.json()["order_id"]
+
+    # Step 1: verify activates.
+    client.post("/api/v1/payments/verify", headers=h, json={
+        "order_id": oid, "payment_id": "p1",
+        "signature": f"sig:{oid}:p1"})
+    subs_before = db.query(Subscription).filter_by(user_id=user.id).count()
+    redemptions_before = db.query(OfferRedemption).count()
+
+    # Step 2: webhook arrives later — should be a no-op.
+    r2 = _post_webhook(client, _captured_event(oid, payment_id="p1"))
+    assert r2.status_code == 200
+
+    assert db.query(Subscription).filter_by(user_id=user.id).count() == subs_before
+    assert db.query(OfferRedemption).count() == redemptions_before
+
+
+def test_webhook_duplicate_event_id_is_ignored(client, db, user, fake_provider):
+    """Razorpay retries webhooks. Same event_id arriving twice must
+    only be processed once."""
+    _seed_plan(db, base_price_paise=10_000)
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders", headers=h,
+                    json={"plan_slug": "exam-bundle"})
+    oid = r.json()["order_id"]
+
+    r1 = _post_webhook(client, _captured_event(oid, event_id="evt_dup"))
+    assert r1.status_code == 200
+    r2 = _post_webhook(client, _captured_event(oid, event_id="evt_dup"))
+    assert r2.status_code == 200
+    assert r2.json().get("duplicate") is True
+
+
+def test_webhook_payment_failed_releases_offer_seat(
+        client, db, user, fake_provider):
+    """payment.failed must roll back the redemption seat the order-create
+    reserved. Otherwise capped offers leak inventory on failed payments."""
+    _seed_plan(db, base_price_paise=10_000)
+    db.add(OfferCode(code="ONCE", discount_type="percent",
+                     discount_value=10,
+                     max_redemptions=1, used_count=0, is_active=True))
+    db.commit()
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders", headers=h, json={
+        "plan_slug": "exam-bundle", "offer_code": "once"})
+    oid = r.json()["order_id"]
+    code = db.query(OfferCode).filter_by(code="ONCE").first()
+    assert code.used_count == 1, "order-create should have reserved the seat"
+
+    r2 = _post_webhook(client, _failed_event(oid))
+    assert r2.status_code == 200
+    assert r2.json()["action"] == "failed"
+
+    db.refresh(code)
+    assert code.used_count == 0, "failed payment should release the seat"
+
+    pay = db.query(Payment).filter_by(razorpay_order_id=oid).first()
+    assert pay.status == "failed"
+
+
+def test_webhook_unknown_order_persists_event_but_does_nothing(
+        client, db, fake_provider):
+    """A webhook for an order we don't know about (e.g. arrived before
+    our DB write committed, or for a different merchant) shouldn't
+    crash. Persist for audit, take no state action."""
+    r = _post_webhook(client, _captured_event("order_does_not_exist"))
+    assert r.status_code == 200
+    assert r.json()["action"] == "ignored"
+    assert db.query(WebhookEvent).count() == 1
+
+
+def test_webhook_invalid_signature_400(client, db, fake_provider):
+    """Anything posted to /webhook without a matching HMAC is rejected
+    before parsing — protects against spoofed events."""
+    r = client.post("/api/v1/payments/webhook",
+                    data=json.dumps({"id": "x", "event": "payment.captured"}),
+                    headers={"X-Razorpay-Signature": "wrong",
+                              "Content-Type": "application/json"})
+    assert r.status_code == 400
+
+
+def test_verify_after_webhook_activated_returns_active(
+        client, db, user, fake_provider):
+    """If webhook beats verify (rare but possible), verify must still
+    return a successful 200 with the existing subscription's expiry —
+    otherwise the frontend would show an error and the user wouldn't
+    redirect to /exams."""
+    plan = _seed_plan(db, base_price_paise=10_000)
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders", headers=h,
+                    json={"plan_slug": "exam-bundle"})
+    oid = r.json()["order_id"]
+
+    # Webhook arrives first.
+    _post_webhook(client, _captured_event(oid))
+
+    # Then verify catches up.
+    r2 = client.post("/api/v1/payments/verify", headers=h, json={
+        "order_id": oid, "payment_id": "p1",
+        "signature": f"sig:{oid}:p1"})
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["status"] == "active"
+    assert body["plan_slug"] == "exam-bundle"
