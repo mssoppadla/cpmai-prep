@@ -1,33 +1,42 @@
 """Payment endpoints — plan-driven (server is the only price authority).
 
-Flow:
+Lifecycle:
   1. POST /payments/orders {plan_slug, offer_code?, referrer?}
      → server computes price via PricingService, creates Razorpay order,
        persists Payment(plan_id, base, discount, offer_code, referrer).
   2. POST /payments/verify {order_id, payment_id, signature}
-     → verify HMAC; flip Payment.status='captured';
-       create/extend Subscription(plan_id, expires_at = paid_at + plan.duration_days);
-       record OfferRedemption row if an offer was used.
-  3. POST /payments/webhook  → idempotent dedupe (hardening in phase 3).
+     → fast-path for the in-browser flow. Verify signature, then call
+       activate_subscription_for_payment() so the user lands on /exams
+       with access immediately.
+  3. POST /payments/webhook  → authoritative out-of-band callback from
+       Razorpay. Handles dropped tabs, network blips, anything that
+       prevents step 2 from firing. Routes by event type to the SAME
+       activation function as verify (idempotent).
+
+Verify and webhook share `app.services.payment_lifecycle` so they can't
+drift. If both fire (the common case), the second call is a no-op
+because activate_subscription_for_payment short-circuits when the
+subscription_id is already set.
 """
 import json
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
 from app.core.exceptions import AppError, NotFoundError
-from app.core.audit import audit_log
 from app.core.limiter import limiter
 from app.models.user import User
 from app.models.payment import Payment, WebhookEvent
-from app.models.subscription import Subscription
-from app.models.plan import Plan
-from app.models.offer import OfferCode, OfferRedemption
+from app.models.offer import OfferCode
 from app.schemas.payment import (
     CreateOrderIn, CreateOrderOut, VerifyPaymentIn, VerifyPaymentOut,
 )
 from app.services.payment_registry import PaymentRegistry
+from app.services.payment_lifecycle import (
+    activate_subscription_for_payment, mark_payment_failed,
+    find_payment_for_event,
+)
 from app.services.pricing_service import PricingService
 from app.services.tracking_service import emit_event
 
@@ -73,10 +82,8 @@ def create_order(payload: CreateOrderIn,
             status_code=502)
 
     # Reserve a redemption seat NOW so concurrent buyers can't both grab
-    # the last copy of a code with max_redemptions=1. Released if the
-    # user never completes verify (manual cleanup; webhook hardening
-    # phase will do this automatically on payment.failed).
-    offer_code_id_for_release = None
+    # the last copy of a code with max_redemptions=1. The webhook handler
+    # releases the seat on payment.failed (see payment_lifecycle.py).
     if quote.offer_applied:
         applied = (db.query(OfferCode)
                    .filter_by(code=quote.offer_code).first())
@@ -84,7 +91,6 @@ def create_order(payload: CreateOrderIn,
             if not pricing.reserve_offer_redemption(applied.id):
                 raise AppError(
                     "Offer code is no longer available.", status_code=409)
-            offer_code_id_for_release = applied.id
 
     # discount_paise on Payment captures everything knocked off the
     # base — both plan-level discount_price AND offer-code reductions.
@@ -130,6 +136,12 @@ def create_order(payload: CreateOrderIn,
 def verify_payment(payload: VerifyPaymentIn,
                    user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
+    """Fast-path activation for the in-browser flow.
+
+    Verifies the HMAC signature Razorpay gave the popup, then delegates
+    to the same activation function the webhook uses. Re-running this
+    after the webhook already activated is a no-op.
+    """
     provider = PaymentRegistry.get_active()
     if not provider.verify_payment_signature(
         payload.order_id, payload.payment_id, payload.signature):
@@ -139,66 +151,16 @@ def verify_payment(payload: VerifyPaymentIn,
         razorpay_order_id=payload.order_id, user_id=user.id).first()
     if not payment:
         raise NotFoundError("Order not found.")
-    if payment.plan_id is None:
-        raise AppError("Payment is missing a plan_id.", status_code=500)
 
-    plan = db.get(Plan, payment.plan_id)
-    if plan is None:
-        raise AppError("Plan no longer exists.", status_code=500)
+    # Persist the razorpay_payment_id ASAP — webhook may not include it
+    # under the same path, and analytics queries join on it.
+    if not payment.razorpay_payment_id:
+        payment.razorpay_payment_id = payload.payment_id
+        db.flush()
 
-    payment.razorpay_payment_id = payload.payment_id
-    payment.status = "captured"
-
-    now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(days=plan.duration_days)
-
-    # Extend an active subscription if one already exists for this plan
-    # (e.g. user buys early-renewal). Otherwise create a fresh row.
-    sub = (db.query(Subscription)
-           .filter_by(user_id=user.id, plan_id=plan.id, status="active")
-           .first())
-    if sub:
-        # Take the later of (current expiry, now) and add the plan
-        # duration on top — so renewing a still-active sub adds full
-        # duration rather than overlapping.
-        anchor = sub.expires_at if (sub.expires_at and sub.expires_at > now) else now
-        sub.expires_at = anchor + timedelta(days=plan.duration_days)
-        sub.current_period_end = sub.expires_at
-    else:
-        sub = Subscription(
-            user_id=user.id, plan=plan.slug, plan_id=plan.id,
-            status="active",
-            current_period_start=now, current_period_end=expires_at,
-            expires_at=expires_at,
-        )
-        db.add(sub); db.flush()
-    payment.subscription_id = sub.id
-
-    # Persist the redemption (if any) — append-only audit row.
-    if payment.offer_code:
-        applied = (db.query(OfferCode)
-                   .filter_by(code=payment.offer_code).first())
-        if applied:
-            already = (db.query(OfferRedemption)
-                       .filter_by(offer_code_id=applied.id,
-                                   payment_id=payment.id).first())
-            if not already:
-                db.add(OfferRedemption(
-                    offer_code_id=applied.id, user_id=user.id,
-                    plan_id=plan.id, payment_id=payment.id,
-                    discount_paise=payment.discount_paise or 0,
-                ))
-
-    db.commit()
-    emit_event(db, "payment.success", user_id=user.id,
-               metadata={"plan_slug": plan.slug,
-                         "amount_paise": payment.amount_paise,
-                         "offer_code": payment.offer_code})
-    audit_log(db, user.id, "payment.success",
-              {"plan_slug": plan.slug, "order_id": payload.order_id,
-               "amount_paise": payment.amount_paise})
+    sub = activate_subscription_for_payment(db, payment)
     return VerifyPaymentOut(
-        status="active", plan_slug=plan.slug, expires_at=sub.expires_at,
+        status="active", plan_slug=sub.plan, expires_at=sub.expires_at,
     )
 
 
@@ -207,6 +169,19 @@ def verify_payment(payload: VerifyPaymentIn,
 async def webhook(request: Request,
                   x_razorpay_signature: str = Header(default=""),
                   db: Session = Depends(get_db)):
+    """Razorpay-side authoritative settlement.
+
+    Fires regardless of whether the user kept the browser tab open. Same
+    activation path as /verify, so dropped-tab purchases still grant
+    access. Idempotent on event_id (we dedupe via WebhookEvent) AND on
+    state (activate function short-circuits on already-active).
+
+    Event types handled:
+      payment.captured → activate subscription
+      order.paid       → activate subscription (alias)
+      payment.failed   → mark Payment failed, release offer-code seat
+      *                → log only (audit trail, no state change)
+    """
     body = await request.body()
     provider = PaymentRegistry.get_active()
     if not provider.verify_webhook_signature(body, x_razorpay_signature):
@@ -224,7 +199,28 @@ async def webhook(request: Request,
     if db.query(WebhookEvent).filter_by(event_id=event_id).first():
         return {"received": True, "duplicate": True}
 
+    event_type = event.get("event") or ""
+    payment = find_payment_for_event(db, event)
+    action = "ignored"
+
+    if payment is not None:
+        # Capture razorpay_payment_id from the webhook payload too —
+        # belt-and-braces, in case verify never fired.
+        rzp_pid = (event.get("payload", {})
+                   .get("payment", {})
+                   .get("entity", {}).get("id"))
+        if rzp_pid and not payment.razorpay_payment_id:
+            payment.razorpay_payment_id = rzp_pid
+            db.flush()
+
+        if event_type in ("payment.captured", "order.paid"):
+            activate_subscription_for_payment(db, payment)
+            action = "activated"
+        elif event_type == "payment.failed":
+            mark_payment_failed(db, payment)
+            action = "failed"
+
     db.add(WebhookEvent(event_id=event_id, payload=event,
                         processed_at=datetime.now(timezone.utc)))
     db.commit()
-    return {"received": True}
+    return {"received": True, "event_type": event_type, "action": action}
