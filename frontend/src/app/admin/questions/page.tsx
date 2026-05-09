@@ -102,6 +102,20 @@ export default function QuestionsListPage() {
                     {q.domain && (
                       <div className="text-xs text-slate-500 mt-1">{q.domain}</div>
                     )}
+                    {/* Cross-set visibility — admin can see at a glance
+                        which sets a question already lives in. Empty
+                        list = unattached (omit the row entirely). */}
+                    {q.in_sets && q.in_sets.length > 0 && (
+                      <div className="text-xs text-slate-500 mt-1">
+                        In:{" "}
+                        {q.in_sets.map(s => (
+                          <span key={s.id}
+                                className="inline-block bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded mr-1">
+                            {s.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600">
                     {topicCode(q.topic_id)}

@@ -126,8 +126,18 @@ export interface QuestionAdminIn {
   options: QuestionOptionIn[];
   is_active?: boolean;
 }
+export interface QuestionInSetRef {
+  id: number;
+  slug: string;
+  name: string;
+}
+
 export interface QuestionAdminOut extends QuestionAdminIn {
   id: number;
+  /** Sets this question is currently tagged into (display-order). Used
+   *  in admin to spot duplicates before tagging into yet another set.
+   *  Server-populated via a bulk JOIN — empty list = unattached. */
+  in_sets: QuestionInSetRef[];
   created_at: string;
   updated_at: string;
 }
