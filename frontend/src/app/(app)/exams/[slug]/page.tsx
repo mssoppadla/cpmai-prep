@@ -107,16 +107,34 @@ export default function ExamAttemptPage() {
     ).length;
   }, [attempt]);
 
-  const handleSelect = useCallback(async (letter: string | null) => {
+  // Wire-shape ↔ array helpers. `user_answers[qid]` is either a single
+  // letter ("B"), a comma-joined sorted multi list ("A,C"), or null.
+  // The QuestionCard always works in array shape.
+  function wireToArr(v: string | null | undefined): string[] {
+    if (!v) return [];
+    return v.split(",").filter(Boolean);
+  }
+  function arrToWire(letters: string[]): string | null {
+    return letters.length === 0 ? null
+      : [...letters].sort().join(",");
+  }
+
+  const handleSelect = useCallback(async (letters: string[]) => {
     if (!attempt) return;
     const q = attempt.questions[index];
-    const next = { ...attempt, user_answers: { ...attempt.user_answers, [q.id]: letter } };
+    const wire = arrToWire(letters);
+    const next = { ...attempt, user_answers: { ...attempt.user_answers, [q.id]: wire } };
     setAttempt(next);
     try {
-      await examsApi.saveAnswer(attempt.id, {
-        question_id: q.id, selected_letter: letter,
-        marked_for_review: marked[q.id] ?? false,
-      });
+      // Send the right field for the question's type — server enforces
+      // the shape (mismatch returns 409).
+      const payload =
+        q.question_type === "multi_choice"
+          ? { question_id: q.id, selected_letters: letters,
+              marked_for_review: marked[q.id] ?? false }
+          : { question_id: q.id, selected_letter: letters[0] ?? null,
+              marked_for_review: marked[q.id] ?? false };
+      await examsApi.saveAnswer(attempt.id, payload);
     } catch (e) {
       console.error("[exam] saveAnswer", e);
       setError(toApiErr(e));
@@ -129,11 +147,14 @@ export default function ExamAttemptPage() {
     const next = { ...marked, [q.id]: !(marked[q.id] ?? false) };
     setMarked(next);
     try {
-      await examsApi.saveAnswer(attempt.id, {
-        question_id: q.id,
-        selected_letter: attempt.user_answers[q.id] ?? null,
-        marked_for_review: next[q.id],
-      });
+      const arr = wireToArr(attempt.user_answers[q.id]);
+      const payload =
+        q.question_type === "multi_choice"
+          ? { question_id: q.id, selected_letters: arr,
+              marked_for_review: next[q.id] }
+          : { question_id: q.id, selected_letter: arr[0] ?? null,
+              marked_for_review: next[q.id] };
+      await examsApi.saveAnswer(attempt.id, payload);
     } catch (e) {
       console.error("[exam] saveAnswer mark", e);
       setError(toApiErr(e));
@@ -275,7 +296,7 @@ export default function ExamAttemptPage() {
   }
 
   const q = attempt.questions[index];
-  const selected = attempt.user_answers[q.id] ?? null;
+  const selected = wireToArr(attempt.user_answers[q.id]);
   const markedForReview = marked[q.id] ?? false;
   const qRanges = annotations[q.id] ?? {};
 

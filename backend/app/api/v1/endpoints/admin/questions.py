@@ -5,7 +5,7 @@ from app.core.deps import get_db, get_admin_user
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.audit import audit_log
 from app.models.user import User
-from app.models.question import Question, QuestionOption
+from app.models.question import Question, QuestionOption, QuestionType
 from app.schemas.question import QuestionAdminIn, QuestionAdminOut
 
 router = APIRouter()
@@ -14,12 +14,23 @@ router = APIRouter()
 def _validate(payload: QuestionAdminIn):
     if not 2 <= len(payload.options) <= 6:
         raise ValidationError("Question must have 2-6 options")
-    correct = [o for o in payload.options if o.is_correct]
-    if len(correct) != 1:
-        raise ValidationError("Exactly one option must be marked correct.")
     letters = [o.option_letter for o in payload.options]
     if len(set(letters)) != len(letters):
         raise ValidationError("Option letters must be unique within a question.")
+    correct_count = sum(1 for o in payload.options if o.is_correct)
+    if payload.question_type == QuestionType.SINGLE_CHOICE:
+        if correct_count != 1:
+            raise ValidationError(
+                "Single-choice questions must have exactly one correct option.")
+    else:  # MULTI_CHOICE
+        if correct_count < 2:
+            raise ValidationError(
+                "Multi-choice questions must have at least 2 correct options. "
+                "If only one is correct, set the question type to single_choice.")
+        if correct_count == len(payload.options):
+            raise ValidationError(
+                "Multi-choice questions must have at least one INCORRECT "
+                "option (otherwise the question is unanswerable wrong).")
 
 
 @router.get("", response_model=list[QuestionAdminOut])
@@ -52,7 +63,9 @@ def create_question(payload: QuestionAdminIn,
         stem=payload.stem, topic_id=payload.topic_id,
         domain=payload.domain, task=payload.task,
         enablers=payload.enablers, remarks=payload.remarks,
-        difficulty=payload.difficulty, explanation=payload.explanation,
+        difficulty=payload.difficulty,
+        question_type=payload.question_type,
+        explanation=payload.explanation,
         is_active=payload.is_active, created_by=admin.id,
     )
     q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
@@ -69,7 +82,8 @@ def update_question(question_id: int, payload: QuestionAdminIn,
     if not q: raise NotFoundError()
     _validate(payload)
     for f in ("stem", "topic_id", "domain", "task", "enablers",
-              "remarks", "difficulty", "explanation", "is_active"):
+              "remarks", "difficulty", "question_type",
+              "explanation", "is_active"):
         setattr(q, f, getattr(payload, f))
     # Replace options: clear old rows and flush before inserting new ones,
     # otherwise the unique (question_id, option_letter) constraint trips

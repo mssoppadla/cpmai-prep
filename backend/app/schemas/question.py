@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from app.models.question import Difficulty
+from app.models.question import Difficulty, QuestionType
 
 
 class QuestionOptionIn(BaseModel):
@@ -31,6 +31,8 @@ class QuestionAttemptView(BaseModel):
     domain: str | None = None
     task: str | None = None
     difficulty: Difficulty
+    # Frontend uses this to render radio (single) vs checkbox (multi).
+    question_type: QuestionType = QuestionType.SINGLE_CHOICE
     options: list[QuestionOptionOut]
     class Config: from_attributes = True
 
@@ -44,6 +46,7 @@ class QuestionResultView(BaseModel):
     enablers: list[str] = []
     remarks: str | None = None
     difficulty: Difficulty
+    question_type: QuestionType = QuestionType.SINGLE_CHOICE
     explanation: str | None = None
     options: list[QuestionOptionResultOut]
     is_user_correct: bool
@@ -57,6 +60,9 @@ class QuestionAdminIn(BaseModel):
     enablers: list[str] = []
     remarks: str | None = None
     difficulty: Difficulty = Difficulty.MEDIUM
+    # Defaults to single_choice for backward compatibility — admins
+    # who don't set the field get the historical behaviour.
+    question_type: QuestionType = QuestionType.SINGLE_CHOICE
     explanation: str | None = None
     options: list[QuestionOptionIn]
     is_active: bool = True

@@ -12,11 +12,14 @@ interface Props {
   question: QuestionAttemptView;
   index: number;
   total: number;
-  selected: string | null;
+  /** Set of currently-picked option letters. Single-choice questions
+   *  hold 0 or 1 letter; multi-choice hold any number. Empty = unanswered. */
+  selected: string[];
   markedForReview: boolean;
   tool: Tool;
   ranges: QuestionRanges;
-  onSelect: (letter: string | null) => void;
+  /** Always called with the new full set after a click. */
+  onSelect: (next: string[]) => void;
   onToggleReview: () => void;
   onRangesChange: (next: QuestionRanges) => void;
 }
@@ -24,14 +27,15 @@ interface Props {
 /**
  * Question + options card.
  *
- * The stem text and each option's text are rendered through
- * AnnotatableText, which lets the learner drag-select text and apply
- * highlight or strike via the toolbox in the page header.
+ * Stem text + each option's text render through AnnotatableText, which
+ * lets the learner drag-select to highlight or strike via the toolbox.
  *
- * Picking an answer happens via the radio-button column on the left of
- * each option. The text itself is selectable (so highlighting works
- * cleanly) and clicking it does NOT toggle the answer — the user picks
- * the letter pill on the left.
+ * Picking an answer happens via the letter pill on the left of each
+ * option. The pill is a radio-button look for single-choice questions
+ * (one selection at a time, click again to deselect) and a square
+ * checkbox look for multi-choice (independent toggles, multiple ok).
+ * Clicking the option text itself does NOT toggle — that surface is
+ * reserved for text selection / annotation.
  */
 export function QuestionCard({
   question, index, total, selected, markedForReview,
@@ -44,15 +48,37 @@ export function QuestionCard({
     [ranges, onRangesChange],
   );
 
+  const isMulti = question.question_type === "multi_choice";
+
+  function clickOption(letter: string, isSelected: boolean) {
+    if (isMulti) {
+      // Toggle this letter in the set independently of the others.
+      const next = isSelected
+        ? selected.filter((l) => l !== letter)
+        : [...selected, letter];
+      onSelect(next);
+    } else {
+      // Single-choice: clicking selected = deselect; otherwise replace.
+      onSelect(isSelected ? [] : [letter]);
+    }
+  }
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6">
       <div className="flex items-center justify-between mb-4 text-sm text-slate-500">
         <span>Question {index + 1} of {total}</span>
-        {question.domain && (
-          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded">
-            {question.domain}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {isMulti && (
+            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium">
+              Pick all that apply
+            </span>
+          )}
+          {question.domain && (
+            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded">
+              {question.domain}
+            </span>
+          )}
+        </div>
       </div>
 
       <h2 className="text-lg font-semibold text-slate-900 leading-relaxed mb-6">
@@ -66,7 +92,7 @@ export function QuestionCard({
 
       <div className="space-y-2">
         {question.options.map((opt) => {
-          const isSelected = selected === opt.option_letter;
+          const isSelected = selected.includes(opt.option_letter);
           const targetKey = `option-${opt.option_letter}`;
           return (
             <div
@@ -79,13 +105,18 @@ export function QuestionCard({
             >
               <button
                 type="button"
-                onClick={() => onSelect(isSelected ? null : opt.option_letter)}
+                onClick={() => clickOption(opt.option_letter, isSelected)}
                 aria-label={`Select option ${opt.option_letter}`}
-                className={`w-6 h-6 rounded-full border-2 flex items-center
-                            justify-center mt-0.5 font-bold text-xs flex-shrink-0
-                            transition ${isSelected
-                              ? "bg-indigo-600 border-indigo-600 text-white"
-                              : "border-slate-300 text-slate-500 hover:border-slate-500"}`}
+                aria-pressed={isSelected}
+                role={isMulti ? "checkbox" : "radio"}
+                aria-checked={isSelected}
+                className={`w-6 h-6 ${isMulti ? "rounded" : "rounded-full"}
+                            border-2 flex items-center justify-center mt-0.5
+                            font-bold text-xs flex-shrink-0 transition ${
+                              isSelected
+                                ? "bg-indigo-600 border-indigo-600 text-white"
+                                : "border-slate-300 text-slate-500 hover:border-slate-500"
+                            }`}
               >
                 {opt.option_letter}
               </button>

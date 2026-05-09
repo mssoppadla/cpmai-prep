@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, Boolean, ForeignKey, DateTime,
+    Column, Integer, String, Boolean, ForeignKey, DateTime, JSON,
     UniqueConstraint, CheckConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -38,7 +38,14 @@ class ExamAttemptAnswer(Base):
                              ForeignKey("exam_sessions.id", ondelete="CASCADE"),
                              nullable=False, index=True)
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=False)
+    # For single_choice questions: a single option_letter (e.g. "B").
+    # For multi_choice questions: NULL here, see selected_letters below.
     selected_letter = Column(String(2))
+    # For multi_choice questions: a JSON array of letters (e.g. ["A","C"]).
+    # NULL means "not answered" or "single_choice question — read
+    # selected_letter instead". Empty list means "answered with no
+    # selection" (admin-curiosity, scores as 0).
+    selected_letters = Column(JSON)
     is_correct = Column(Boolean)
     marked_for_review = Column(Boolean, default=False, nullable=False)
     answered_at = Column(DateTime(timezone=True))
