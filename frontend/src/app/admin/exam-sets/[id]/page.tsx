@@ -16,6 +16,9 @@ export default function ExamSetEditorPage() {
   const [allQ, setAllQ] = useState<QuestionAdminOut[]>([]);
   const [topics, setTopics] = useState<Array<{ id: number; code: string; name: string }>>([]);
   const [search, setSearch] = useState("");
+  // Picker filter: limit candidate questions by their tag-state across
+  // OTHER sets. Server applies the filter; we re-fetch when it changes.
+  const [taggedFilter, setTaggedFilter] = useState<"" | "any" | "none">("");
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [orderDirty, setOrderDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -24,9 +27,11 @@ export default function ExamSetEditorPage() {
 
   async function reload() {
     try {
+      const params: { limit: number; tagged?: "any" | "none" } = { limit: 500 };
+      if (taggedFilter) params.tagged = taggedFilter;
       const [sets, qs, ts, ls] = await Promise.all([
         admin.examSets.list(),
-        admin.questions.list({ limit: 500 }),
+        admin.questions.list(params),
         contentApi.topics(),
         admin.examSets.listLinkedQuestions(setId),
       ]);
@@ -47,7 +52,7 @@ export default function ExamSetEditorPage() {
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setId]);
+  }, [setId, taggedFilter]);
 
   function topicCode(qid: number): string {
     const q = allQ.find((x) => x.id === qid);
@@ -296,12 +301,28 @@ export default function ExamSetEditorPage() {
         <p className="text-sm text-slate-600 mb-3">
           Pick from the question bank. Already-linked questions are filtered out.
         </p>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search question stem…"
-          className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none mb-3"
-        />
+        <div className="flex flex-wrap gap-2 mb-3">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search question stem…"
+            className="flex-1 min-w-[200px] px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+          />
+          {/* Tag-state filter — re-fetches the bank from the server.
+              "Tagged elsewhere" is the most useful pre-add audit
+              ("don't accidentally double-tag a popular question");
+              "Untagged" surfaces orphans waiting for a home. */}
+          <select
+            value={taggedFilter}
+            onChange={(e) => setTaggedFilter(e.target.value as "" | "any" | "none")}
+            className="px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+            title="Filter the question bank by tag-state across all sets"
+          >
+            <option value="">Any tag-state</option>
+            <option value="any">Tagged in another set</option>
+            <option value="none">Untagged (orphan)</option>
+          </select>
+        </div>
         <div className="border border-slate-200 rounded-lg max-h-96 overflow-y-auto">
           {filtered.length === 0 ? (
             <div className="p-6 text-center text-slate-500 text-sm">

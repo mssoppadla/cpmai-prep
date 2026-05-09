@@ -71,12 +71,33 @@ def list_questions(db: Session = Depends(get_db),
                    topic_id: int | None = None,
                    domain: str | None = None,
                    q: str | None = None,
+                   tagged: str | None = Query(
+                       None,
+                       pattern="^(any|none)$",
+                       description="Filter by tag-state: 'any' = in ≥1 set, "
+                                    "'none' = in zero sets, omit = no filter.",
+                   ),
                    limit: int = Query(50, le=1000),
                    offset: int = 0):
+    """List questions with optional filters.
+
+    `tagged` is the picker-helper added with the cross-set visibility
+    feature: an admin browsing the bank wants to find orphans
+    ("untagged" — never linked to any set) or to deliberately surface
+    questions already living elsewhere. Implemented via a correlated
+    EXISTS subquery so it composes cleanly with topic/domain/search
+    filters and doesn't pull data through Python.
+    """
     query = db.query(Question)
     if topic_id: query = query.filter(Question.topic_id == topic_id)
     if domain:   query = query.filter(Question.domain.ilike(f"%{domain}%"))
     if q:        query = query.filter(Question.stem.ilike(f"%{q}%"))
+    if tagged:
+        link_exists = (db.query(ExamSetQuestion.question_id)
+                       .filter(ExamSetQuestion.question_id == Question.id)
+                       .exists())
+        query = query.filter(link_exists if tagged == "any"
+                              else ~link_exists)
     rows = query.order_by(Question.id.desc()).offset(offset).limit(limit).all()
     return _attach_in_sets(db, rows)
 
