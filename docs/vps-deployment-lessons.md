@@ -143,6 +143,8 @@ a one-time `.deploy.conf` line).
 | # | Symptom | Cause | Auto-fix | Manual action |
 |---|---|---|---|---|
 | 35 | Smoke green but browser hits "Failed to fetch" on the same endpoints | `curl` (used by smoke) ignores CORS. Only real browsers enforce it. CORS misconfig (#16) only surfaced in browser | Documented as a follow-up gap — manual browser-flow probe in the test plan | After every release that adds a new API request header or origin, do a quick incognito-window check on the public URL |
+| 36 | Admin "Test" button on a Razorpay payment provider says `✗ razorpay package not installed` even after a clean rebuild | razorpay 1.4.2's `client.py` does `import pkg_resources`. setuptools 80 dropped that module. RazorpayProvider's catch-block was rewriting the real `ModuleNotFoundError` into a misleading "package not installed" string | `requirements.txt` pins `setuptools<80`. RazorpayProvider error message now surfaces the real `ImportError` class + message instead of a fixed-string. Unit test (`test_razorpay_sdk_imports.py`) catches a future regression on first install | None on next deploy — the rebuilt image picks up the pin |
+| 37 | Disk fills over time with orphaned `cpmai-prep-backend` / `cpmai-prep-frontend` images (each ~500 MB) | Each `docker compose build` overwrites the `:latest` tag and leaves the previous image dangling. Without explicit cleanup, every deploy keeps a copy | `deploy.sh` ends with `docker image prune -af --filter "until=168h"` + `docker builder prune -af --filter "until=168h"`. 7-day retention preserves a manual-rollback target | If disk pressure spikes between deploys, run `docker system df` to see what's consuming space; one-shot cleanup with `docker image prune -af` (drops the retention window) |
 
 ---
 

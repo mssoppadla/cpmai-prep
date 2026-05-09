@@ -9,6 +9,11 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 argon2-cffi==23.1.0
 python-multipart==0.0.12
+# razorpay 1.4.2's client.py imports `pkg_resources`, which setuptools >=80
+# removed. Pinning <80 keeps the SDK importable. Bumping razorpay to 2.x
+# would also fix this but changes a few method signatures — revisit when
+# we have time to QA the contract change.
+setuptools<80
 razorpay==1.4.2
 httpx==0.27.2
 python-dotenv==1.0.1

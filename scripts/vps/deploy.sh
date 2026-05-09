@@ -256,6 +256,25 @@ BASE_URL="$SMOKE_BASE_URL" python3 scripts/smoke_admin_crud.py || {
   die "deploy aborted"
 }
 
+# ------------------------------------------------------------------------------
+# 10. Reclaim disk — drop dangling images + builder cache older than the
+#     rollback window. Each `compose build` overwrites :latest and orphans
+#     the previous tag; left unchecked these accumulate at ~500MB/each
+#     and eventually fill the VPS disk.
+#
+# Retention: 168h (7 days) — long enough to manually `docker tag` an
+# older image back to :latest and `compose up -d` if a regression ships.
+# `-a` removes any unused image (not just dangling), but currently-running
+# containers' images are NEVER removed by `image prune`. Same for builder
+# cache — only inactive cache mounts get reclaimed.
+# ------------------------------------------------------------------------------
+say "Reclaiming disk: pruning images + builder cache older than 7d..."
+PRUNED_IMG=$(docker image prune -af --filter "until=168h" 2>&1 \
+              | awk '/Total reclaimed/ {print $NF}' || echo "0B")
+PRUNED_BLD=$(docker builder prune -af --filter "until=168h" 2>&1 \
+              | awk '/Total reclaimed/ {print $NF}' || echo "0B")
+ok "reclaimed: images=${PRUNED_IMG:-0B}  builder=${PRUNED_BLD:-0B}"
+
 ELAPSED=$(( $(date +%s) - START_TS ))
 echo
 echo "${G}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${X}"
