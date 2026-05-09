@@ -58,7 +58,25 @@ def update_set(set_id: int, payload: ExamSetAdminIn,
                admin: User = Depends(get_admin_user)):
     es = db.get(ExamSet, set_id)
     if not es: raise NotFoundError()
-    for f, v in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # Pre-check the unique columns so the admin gets a friendly,
+    # field-named 409 instead of a generic IntegrityError-fallback.
+    # We only collide-check when the value is actually changing — an
+    # admin re-saving the same row with no edits to slug/name should
+    # pass.
+    if "slug" in data and data["slug"] != es.slug:
+        clash = (db.query(ExamSet)
+                 .filter(ExamSet.slug == data["slug"], ExamSet.id != set_id)
+                 .first())
+        if clash:
+            raise ConflictError(f"Slug '{data['slug']}' already in use.")
+    if "name" in data and data["name"] != es.name:
+        clash = (db.query(ExamSet)
+                 .filter(ExamSet.name == data["name"], ExamSet.id != set_id)
+                 .first())
+        if clash:
+            raise ConflictError(f"Name '{data['name']}' already in use.")
+    for f, v in data.items():
         setattr(es, f, v)
     db.commit(); db.refresh(es)
     audit_log(db, admin.id, "exam_set.updated", {"id": es.id})

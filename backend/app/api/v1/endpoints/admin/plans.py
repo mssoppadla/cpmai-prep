@@ -73,6 +73,14 @@ def update_plan(plan_id: int, payload: PlanUpdate,
     if not plan: raise NotFoundError()
     data = payload.model_dump(exclude_unset=True)
 
+    # Pre-check unique fields so the admin gets a field-named 409
+    # instead of the generic IntegrityError fallback. Only collide-
+    # check when the value is actually changing.
+    if "name" in data and data["name"] != plan.name:
+        if (db.query(Plan)
+            .filter(Plan.name == data["name"], Plan.id != plan_id).first()):
+            raise ConflictError(f"Name '{data['name']}' already in use.")
+
     # Cross-field check: don't let a partial update produce a discount
     # that's >= base. Resolve final values first, then validate.
     new_base = data.get("base_price_paise", plan.base_price_paise)
