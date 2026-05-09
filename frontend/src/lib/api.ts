@@ -319,7 +319,15 @@ export const content = {
 
 export const admin = {
   questions: {
-    async list(p?: { topic_id?: number; q?: string; limit?: number; offset?: number }) {
+    async list(p?: {
+      topic_id?: number;
+      q?: string;
+      /** "any" → only questions tagged into ≥1 set; "none" → orphans only;
+       *  omit → no filter. */
+      tagged?: "any" | "none";
+      limit?: number;
+      offset?: number;
+    }) {
       const { data } = await request<QuestionAdminOut[]>(
         `/admin/questions${qs(p)}`, { authed: true });
       return data;

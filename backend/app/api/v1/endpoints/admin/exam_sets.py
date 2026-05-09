@@ -13,6 +13,7 @@ from app.schemas.exam_set import (
 )
 from app.models.question import Question
 from app.schemas.question import QuestionAdminOut
+from app.api.v1.endpoints.admin.questions import _attach_in_sets
 
 router = APIRouter()
 
@@ -94,16 +95,19 @@ def list_linked_questions(set_id: int,
     links = (db.query(ExamSetQuestion)
              .filter_by(exam_set_id=set_id)
              .order_by(ExamSetQuestion.position).all())
-    out: list[ExamSetLinkedQuestion] = []
-    for link in links:
-        q = db.get(Question, link.question_id)
-        if q is None:
-            continue
-        out.append(ExamSetLinkedQuestion(
-            position=link.position,
-            question=QuestionAdminOut.model_validate(q),
-        ))
-    return out
+    # Bulk-load the actual Question rows in one shot, then hydrate their
+    # in_sets via _attach_in_sets — same N+1 protection as the bare
+    # /admin/questions endpoint.
+    qid_to_pos = {l.question_id: l.position for l in links}
+    questions = (db.query(Question)
+                 .filter(Question.id.in_(qid_to_pos.keys())).all())
+    enriched = _attach_in_sets(db, questions)
+    by_id = {qo.id: qo for qo in enriched}
+    return [
+        ExamSetLinkedQuestion(position=qid_to_pos[l.question_id],
+                                question=by_id[l.question_id])
+        for l in links if l.question_id in by_id
+    ]
 
 
 @router.post("/{set_id}/questions", status_code=204)

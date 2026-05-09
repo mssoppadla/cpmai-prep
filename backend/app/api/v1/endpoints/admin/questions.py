@@ -1,11 +1,13 @@
 """Admin question CRUD with strict validation."""
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_admin_user
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.audit import audit_log
 from app.models.user import User
 from app.models.question import Question, QuestionOption, QuestionType
+from app.models.exam_set import ExamSet, ExamSetQuestion
 from app.schemas.question import QuestionAdminIn, QuestionAdminOut
 
 router = APIRouter()
@@ -33,25 +35,78 @@ def _validate(payload: QuestionAdminIn):
                 "option (otherwise the question is unanswerable wrong).")
 
 
+def _attach_in_sets(db: Session, questions: list[Question]) -> list[QuestionAdminOut]:
+    """Hydrate `in_sets` on each question without N+1 queries.
+
+    One bulk SELECT pulls every (question_id, set_id, slug, name) link
+    for the questions in the response, then we group them in Python.
+    O(1) DB roundtrips regardless of result-set size.
+
+    Returns a list of QuestionAdminOut in the SAME order as `questions`.
+    """
+    if not questions:
+        return []
+    qids = [q.id for q in questions]
+    rows = db.execute(
+        select(ExamSetQuestion.question_id,
+                ExamSet.id, ExamSet.slug, ExamSet.name)
+        .join(ExamSet, ExamSet.id == ExamSetQuestion.exam_set_id)
+        .where(ExamSetQuestion.question_id.in_(qids))
+        .order_by(ExamSet.display_order, ExamSet.id)
+    ).all()
+    grouped: dict[int, list[dict]] = {qid: [] for qid in qids}
+    for qid, sid, slug, name in rows:
+        grouped[qid].append({"id": sid, "slug": slug, "name": name})
+    return [
+        QuestionAdminOut.model_validate(
+            {**QuestionAdminOut.model_validate(q).model_dump(),
+              "in_sets": grouped.get(q.id, [])}
+        )
+        for q in questions
+    ]
+
+
 @router.get("", response_model=list[QuestionAdminOut])
 def list_questions(db: Session = Depends(get_db),
                    topic_id: int | None = None,
                    domain: str | None = None,
                    q: str | None = None,
+                   tagged: str | None = Query(
+                       None,
+                       pattern="^(any|none)$",
+                       description="Filter by tag-state: 'any' = in ≥1 set, "
+                                    "'none' = in zero sets, omit = no filter.",
+                   ),
                    limit: int = Query(50, le=1000),
                    offset: int = 0):
+    """List questions with optional filters.
+
+    `tagged` is the picker-helper added with the cross-set visibility
+    feature: an admin browsing the bank wants to find orphans
+    ("untagged" — never linked to any set) or to deliberately surface
+    questions already living elsewhere. Implemented via a correlated
+    EXISTS subquery so it composes cleanly with topic/domain/search
+    filters and doesn't pull data through Python.
+    """
     query = db.query(Question)
     if topic_id: query = query.filter(Question.topic_id == topic_id)
     if domain:   query = query.filter(Question.domain.ilike(f"%{domain}%"))
     if q:        query = query.filter(Question.stem.ilike(f"%{q}%"))
-    return query.order_by(Question.id.desc()).offset(offset).limit(limit).all()
+    if tagged:
+        link_exists = (db.query(ExamSetQuestion.question_id)
+                       .filter(ExamSetQuestion.question_id == Question.id)
+                       .exists())
+        query = query.filter(link_exists if tagged == "any"
+                              else ~link_exists)
+    rows = query.order_by(Question.id.desc()).offset(offset).limit(limit).all()
+    return _attach_in_sets(db, rows)
 
 
 @router.get("/{question_id}", response_model=QuestionAdminOut)
 def get_question(question_id: int, db: Session = Depends(get_db)):
     q = db.get(Question, question_id)
     if not q: raise NotFoundError()
-    return q
+    return _attach_in_sets(db, [q])[0]
 
 
 @router.post("", response_model=QuestionAdminOut, status_code=201)
@@ -71,7 +126,8 @@ def create_question(payload: QuestionAdminIn,
     q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
     db.add(q); db.commit(); db.refresh(q)
     audit_log(db, admin.id, "question.created", {"id": q.id})
-    return q
+    # New question is unattached — in_sets defaults to [].
+    return _attach_in_sets(db, [q])[0]
 
 
 @router.patch("/{question_id}", response_model=QuestionAdminOut)
@@ -93,7 +149,7 @@ def update_question(question_id: int, payload: QuestionAdminIn,
     q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
     db.commit(); db.refresh(q)
     audit_log(db, admin.id, "question.updated", {"id": q.id})
-    return q
+    return _attach_in_sets(db, [q])[0]
 
 
 @router.delete("/{question_id}", status_code=204)

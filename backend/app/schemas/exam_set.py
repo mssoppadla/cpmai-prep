@@ -46,6 +46,17 @@ class ReorderIn(BaseModel):
     items: list[ReorderItem]
 
 
+class ExamSetRef(BaseModel):
+    """Lightweight pointer to an exam set — used wherever a foreign
+    object needs to render "in: Set 1, Set 5" without bringing the
+    full ExamSet payload across the wire. Same shape as PlanExamSetRef
+    in schemas/plan.py; kept duplicated rather than cross-imported to
+    avoid creating a circular dep between schemas modules."""
+    id: int
+    slug: str
+    name: str
+
+
 class ExamSetLinkedQuestion(BaseModel):
     """A question linked to an exam set, with its position. Admin view."""
     position: int
