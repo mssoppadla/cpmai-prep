@@ -1,0 +1,17 @@
+# gitleaks fingerprints to suppress.
+#
+# Format (per gitleaks docs):
+#     <commit-sha>:<file>:<rule>:<startLine>
+#
+# Why each entry is here matters — never add a line without a comment
+# explaining why the finding is a false positive AND what would re-trigger
+# a real leak (so we don't accidentally normalise hiding real secrets).
+
+# 1. Test-only Fernet key baked into the CI workflow's env block.
+#    Replaced at HEAD with a per-job stdlib generator (see
+#    .github/workflows/deploy.yml's "Generate test ENCRYPTION_KEY" step),
+#    but the historical commit still carries the literal — gitleaks
+#    flags it on full-history scans. The key was never used in prod
+#    (test-only path) and is now invalidated since the step generates a
+#    fresh one per run.
+6efcd29bea3ac385f6707bf9a5076871207aec8f:.github/workflows/deploy.yml:generic-api-key:63

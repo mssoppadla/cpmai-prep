@@ -60,13 +60,24 @@ jobs:
       DATABASE_URL: postgresql+psycopg2://cpmai:cpmai_test@localhost:5432/cpmai_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: test_secret_key_not_used_in_prod
-      ENCRYPTION_KEY: zUpGn87pjmPcsQzZK9BjpO3IBevEh0nB-Vw0c5pBQS4=
       APP_ENV: test
       # Pydantic-settings parses list[str] fields as JSON when sourced from
       # env. Provide them in JSON-array form, not comma-separated.
       ALLOWED_HOSTS: '["localhost","127.0.0.1"]'
       CORS_ORIGINS: '["http://localhost:3000"]'
     steps:
+      # ENCRYPTION_KEY is intentionally NOT in the env block above —
+      # gitleaks flags any Fernet-shaped string baked into source as a
+      # generic-api-key leak (correctly so, since real prod keys look
+      # identical). Generate a fresh one per run; it's used only for
+      # this job's pytest and discarded with the runner.
+      #
+      # Format matches Fernet's expectation: urlsafe base64 of 32 random
+      # bytes. Uses Python stdlib (always present on Ubuntu runners) so
+      # this step has no dependency on setup-python or pip installs.
+      - name: Generate test ENCRYPTION_KEY (per-job, ephemeral)
+        run: |
+          python3 -c "import secrets, base64; print('ENCRYPTION_KEY=' + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
 
       # ---------- Backend ----------
