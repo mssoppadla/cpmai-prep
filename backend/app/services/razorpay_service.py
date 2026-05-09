@@ -17,7 +17,16 @@ class RazorpayProvider:
         try:
             import razorpay
         except ImportError as e:
-            raise RuntimeError("razorpay package not installed") from e
+            # ImportError covers both the SDK being absent AND any of its
+            # transitive deps failing to import (e.g. setuptools >=80
+            # broke razorpay 1.x's `import pkg_resources`). Surface the
+            # real exception so the admin's "Test" button doesn't lie.
+            raise RuntimeError(
+                f"Razorpay SDK failed to load: {type(e).__name__}: {e}. "
+                "Rebuild the backend image (deploy.sh runs `compose build "
+                "--pull` automatically); if it persists, check that "
+                "requirements.txt's setuptools pin is intact."
+            ) from e
         self.client = razorpay.Client(auth=(key_id, key_secret))
         self.key_id = key_id
         self._key_secret = key_secret
