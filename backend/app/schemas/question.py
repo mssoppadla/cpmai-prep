@@ -62,6 +62,21 @@ class QuestionAdminIn(BaseModel):
     is_active: bool = True
 
 
+class _ExamSetRefForQuestion(BaseModel):
+    """Mirrors ExamSetRef in schemas/exam_set.py. Defined here to avoid
+    a circular import (exam_set.py already imports QuestionAdminOut).
+    Same shape — admin UI treats them interchangeably."""
+    id: int
+    slug: str
+    name: str
+
+
 class QuestionAdminOut(QuestionAdminIn):
     id: int
+    # Sets this question is currently tagged into. Surfaced in admin so
+    # the operator can spot duplicates ("this question is already in
+    # Set 1, Set 5") before adding it to yet another set. Empty list
+    # means the question is unattached. Populated by the endpoint via
+    # a bulk join to avoid N+1 queries.
+    in_sets: list[_ExamSetRefForQuestion] = []
     class Config: from_attributes = True

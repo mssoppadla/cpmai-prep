@@ -256,6 +256,18 @@ export default function ExamSetEditorPage() {
                       </>
                     )}
                   </div>
+                  {/* Cross-set visibility: list every other set this
+                      question is also tagged into. Helps the operator
+                      decide whether to keep it linked here or dedupe. */}
+                  {l.question.in_sets && l.question.in_sets.length > 1 && (
+                    <div className="text-xs text-amber-700 mt-1">
+                      Also in:{" "}
+                      {l.question.in_sets
+                        .filter(s => s.id !== setId)
+                        .map(s => s.name)
+                        .join(", ")}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
                   <Link
@@ -329,6 +341,16 @@ export default function ExamSetEditorPage() {
                         {" · "}
                         <span className="capitalize">{q.difficulty}</span>
                       </div>
+                      {/* Picker context — surface where this question
+                          ALREADY lives so the admin doesn't tag a
+                          duplicate by accident. The picker filters out
+                          questions already in THIS set, so any in_sets
+                          entries here are by definition other sets. */}
+                      {q.in_sets && q.in_sets.length > 0 && (
+                        <div className="text-xs text-amber-700 mt-1">
+                          Already in: {q.in_sets.map(s => s.name).join(", ")}
+                        </div>
+                      )}
                     </div>
                   </li>
                 );
