@@ -7,6 +7,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.exceptions import RequestValidationError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -74,6 +75,25 @@ async def handle_rate_limit(request: Request, exc: RateLimitExceeded):
     return JSONResponse(status_code=429, content={"error": {
         "code": "rate_limited",
         "message": "Too many requests. Please slow down.",
+        "request_id": getattr(request.state, "request_id", None),
+    }})
+
+
+@app.exception_handler(IntegrityError)
+async def handle_integrity_error(request: Request, exc: IntegrityError):
+    """Catch DB-level uniqueness/FK violations and return a clean 409.
+
+    Endpoints SHOULD pre-check uniqueness so the user gets a field-named
+    message ("Slug 'foo' already in use"), but races and missed checks
+    happen — without this fallback, the user sees an opaque 500 with a
+    SQLAlchemy traceback. The body deliberately does NOT include the
+    raw SQL or constraint internals; if the operator wants those they
+    can read the request_id off the structured logs.
+    """
+    return JSONResponse(status_code=409, content={"error": {
+        "code": "conflict",
+        "message": ("This change conflicts with existing data — most often "
+                     "a unique field (slug, code, email) is already in use."),
         "request_id": getattr(request.state, "request_id", None),
     }})
 
