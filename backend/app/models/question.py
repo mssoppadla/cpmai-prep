@@ -50,9 +50,26 @@ class Question(Base):
     difficulty  = Column(SQLEnum(Difficulty), default=Difficulty.MEDIUM, nullable=False)
     # See QuestionType. Default preserves single-choice behaviour for every
     # row authored before this column existed.
-    question_type = Column(SQLEnum(QuestionType, name="question_type_enum"),
-                           default=QuestionType.SINGLE_CHOICE,
-                           nullable=False, index=True)
+    #
+    # `values_callable` is critical: without it, SQLAlchemy stores the
+    # Python enum's NAME (`SINGLE_CHOICE`) but the migration created the
+    # Postgres ENUM with the VALUES (`single_choice`). The two would
+    # diverge, and `SELECT … question_type` would raise LookupError
+    # because the read path can't map the lowercase string back to a
+    # name. With values_callable, both write AND read use `.value` —
+    # which matches the migration's CREATE TYPE.
+    #
+    # Local SQLite tests never caught this because SQLite has no native
+    # enum and SQLAlchemy creates the column from the model directly
+    # (round-trip is internally consistent there regardless of the
+    # callable). Postgres prod is the only place the migration's DDL
+    # actually defines the enum values.
+    question_type = Column(
+        SQLEnum(QuestionType, name="question_type_enum",
+                values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=QuestionType.SINGLE_CHOICE,
+        nullable=False, index=True,
+    )
     explanation = Column(Text)
 
     is_active   = Column(Boolean, default=True, nullable=False, index=True)
