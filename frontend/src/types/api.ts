@@ -10,6 +10,7 @@
 
 export type UserRole = "user" | "admin" | "super_admin";
 export type Difficulty = "easy" | "medium" | "hard";
+export type QuestionType = "single_choice" | "multi_choice";
 export type AttemptStatus = "in_progress" | "submitted" | "expired";
 export type LeadSource =
   | "landing_hero" | "newsletter" | "exit_intent" | "gated_download"
@@ -84,6 +85,7 @@ export interface QuestionAttemptView {
   domain: string | null;
   task: string | null;
   difficulty: Difficulty;
+  question_type: QuestionType;
   options: QuestionOptionOut[];
 }
 export interface QuestionOptionResultOut extends QuestionOptionOut {
@@ -100,6 +102,7 @@ export interface QuestionResultView {
   enablers: string[];
   remarks: string | null;
   difficulty: Difficulty;
+  question_type: QuestionType;
   explanation: string | null;
   options: QuestionOptionResultOut[];
   is_user_correct: boolean;
@@ -118,6 +121,7 @@ export interface QuestionAdminIn {
   enablers?: string[];
   remarks?: string | null;
   difficulty?: Difficulty;
+  question_type?: QuestionType;
   explanation?: string | null;
   options: QuestionOptionIn[];
   is_active?: boolean;
@@ -168,7 +172,10 @@ export interface ExamAttemptOut {
 }
 export interface AnswerIn {
   question_id: number;
-  selected_letter: string | null;
+  /** Single-choice questions: option letter or null. */
+  selected_letter?: string | null;
+  /** Multi-choice questions: list of letters. Empty list = unanswered. */
+  selected_letters?: string[] | null;
   marked_for_review?: boolean;
 }
 export interface PhaseBreakdown {

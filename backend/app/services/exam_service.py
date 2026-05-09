@@ -21,7 +21,7 @@ from app.services.tracking_service import emit_event
 from app.models.user import User
 from app.models.exam_set import ExamSet, ExamSetQuestion
 from app.models.exam_session import ExamSession, ExamAttemptAnswer
-from app.models.question import Question, QuestionOption
+from app.models.question import Question, QuestionOption, QuestionType
 from app.models.topic import Topic
 from app.models.subscription import Subscription
 from app.models.plan import PlanExamSet
@@ -33,6 +33,25 @@ from app.schemas.question import (
     QuestionAttemptView, QuestionOptionOut,
     QuestionResultView, QuestionOptionResultOut,
 )
+
+
+# ----------------------------------------------------- selection helpers
+# These small helpers unify single_choice and multi_choice handling so
+# the scoring loops below stay readable. Both paths converge on a `set`
+# of option letters — `selected == correct_set` becomes the one rule.
+
+def _user_selected_set(ans, question) -> set[str]:
+    """The set of option letters the user picked. Empty = unanswered."""
+    if question.question_type == QuestionType.MULTI_CHOICE:
+        return set(ans.selected_letters or [])
+    if ans.selected_letter:
+        return {ans.selected_letter}
+    return set()
+
+
+def _correct_set(question) -> set[str]:
+    """The set of option letters the question's author marked is_correct."""
+    return {o.option_letter for o in question.options if o.is_correct}
 
 
 class ExamService:
@@ -148,7 +167,29 @@ class ExamService:
             )
             self.db.add(ans)
             self.db.flush()
-        ans.selected_letter = payload.selected_letter
+        # Persist into the column matching the question's type. Mismatch
+        # between payload shape and question type is a 400 — better to
+        # surface a programmer error than silently coerce.
+        question = self.db.get(Question, payload.question_id)
+        if question is None:
+            raise NotFoundError("Question not found.")
+        if question.question_type == QuestionType.MULTI_CHOICE:
+            if payload.selected_letter is not None:
+                raise ConflictError(
+                    "This is a multi-choice question; send `selected_letters` "
+                    "(a list), not `selected_letter`.")
+            # Normalize: dedupe + sort so storage is canonical.
+            letters = (sorted(set(payload.selected_letters))
+                       if payload.selected_letters else None)
+            ans.selected_letter = None
+            ans.selected_letters = letters
+        else:  # SINGLE_CHOICE
+            if payload.selected_letters is not None:
+                raise ConflictError(
+                    "This is a single-choice question; send `selected_letter` "
+                    "(a string), not `selected_letters`.")
+            ans.selected_letter = payload.selected_letter
+            ans.selected_letters = None
         ans.marked_for_review = payload.marked_for_review
         ans.answered_at = datetime.now(timezone.utc)
         self.db.commit()
@@ -165,14 +206,6 @@ class ExamService:
         questions = es.questions
         question_map = {q.id: q for q in questions}
 
-        # Build correctness map
-        correct_letters: dict[int, str] = {}
-        for q in questions:
-            for opt in q.options:
-                if opt.is_correct:
-                    correct_letters[q.id] = opt.option_letter
-                    break
-
         correct = 0; incorrect = 0; unanswered = 0
         results: list[QuestionResultView] = []
         phase_counts: dict[int, dict] = {}
@@ -181,12 +214,12 @@ class ExamService:
             q = question_map.get(ans.question_id)
             if not q:
                 continue
-            user_letter = ans.selected_letter
-            correct_letter = correct_letters.get(q.id)
-            is_correct = user_letter is not None and user_letter == correct_letter
+            selected = _user_selected_set(ans, q)
+            correct_set = _correct_set(q)
+            is_correct = bool(selected) and selected == correct_set
             ans.is_correct = is_correct
 
-            if user_letter is None:
+            if not selected:
                 unanswered += 1
             elif is_correct:
                 correct += 1
@@ -204,13 +237,15 @@ class ExamService:
                 id=q.id, stem=q.stem, topic_id=q.topic_id,
                 domain=q.domain, task=q.task,
                 enablers=q.enablers or [], remarks=q.remarks,
-                difficulty=q.difficulty, explanation=q.explanation,
+                difficulty=q.difficulty,
+                question_type=q.question_type,
+                explanation=q.explanation,
                 is_user_correct=is_correct,
                 options=[
                     QuestionOptionResultOut(
                         option_letter=o.option_letter, text=o.text,
                         is_correct=o.is_correct, reasoning=o.reasoning,
-                        selected_by_user=(o.option_letter == user_letter),
+                        selected_by_user=(o.option_letter in selected),
                     )
                     for o in q.options
                 ],
@@ -341,8 +376,23 @@ class ExamService:
         return link is not None
 
     def _serialize_attempt(self, session: ExamSession, es: ExamSet) -> ExamAttemptOut:
-        # Build lookup for current user answers
-        user_answers = {a.question_id: a.selected_letter for a in session.answers}
+        # Per-question current selection. Single-choice → letter | None.
+        # Multi-choice → comma-joined sorted letters | None (so the wire
+        # type stays `dict[int, str | None]` and the frontend just splits
+        # on ',' for multi questions). Empty selection → None either way.
+        question_by_id = {q.id: q for q in es.questions}
+        user_answers: dict[int, str | None] = {}
+        for a in session.answers:
+            q = question_by_id.get(a.question_id)
+            if q is None:
+                user_answers[a.question_id] = None
+                continue
+            if q.question_type == QuestionType.MULTI_CHOICE:
+                letters = a.selected_letters or []
+                user_answers[a.question_id] = (",".join(sorted(letters))
+                                                if letters else None)
+            else:
+                user_answers[a.question_id] = a.selected_letter
 
         # Strip correct/reasoning from options before sending
         questions: list[QuestionAttemptView] = []
@@ -350,6 +400,7 @@ class ExamService:
             questions.append(QuestionAttemptView(
                 id=q.id, stem=q.stem, topic_id=q.topic_id,
                 domain=q.domain, task=q.task, difficulty=q.difficulty,
+                question_type=q.question_type,
                 options=[QuestionOptionOut(option_letter=o.option_letter, text=o.text)
                          for o in q.options],
             ))
@@ -386,8 +437,8 @@ class ExamService:
         for ans in session.answers:
             q = question_map.get(ans.question_id)
             if not q: continue
-            user_letter = ans.selected_letter
-            if user_letter is None:
+            selected = _user_selected_set(ans, q)
+            if not selected:
                 unanswered += 1
             elif ans.is_correct:
                 correct += 1
@@ -403,13 +454,15 @@ class ExamService:
                 id=q.id, stem=q.stem, topic_id=q.topic_id,
                 domain=q.domain, task=q.task,
                 enablers=q.enablers or [], remarks=q.remarks,
-                difficulty=q.difficulty, explanation=q.explanation,
+                difficulty=q.difficulty,
+                question_type=q.question_type,
+                explanation=q.explanation,
                 is_user_correct=bool(ans.is_correct),
                 options=[
                     QuestionOptionResultOut(
                         option_letter=o.option_letter, text=o.text,
                         is_correct=o.is_correct, reasoning=o.reasoning,
-                        selected_by_user=(o.option_letter == user_letter),
+                        selected_by_user=(o.option_letter in selected),
                     )
                     for o in q.options
                 ],

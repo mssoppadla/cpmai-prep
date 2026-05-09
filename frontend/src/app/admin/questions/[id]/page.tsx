@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { admin, content as contentApi, ApiError, errMsg } from "@/lib/api";
-import type { Difficulty, QuestionAdminIn, QuestionOptionIn } from "@/types/api";
+import type {
+  Difficulty, QuestionAdminIn, QuestionOptionIn, QuestionType,
+} from "@/types/api";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const blankOption = (i: number): QuestionOptionIn => ({
@@ -19,7 +21,9 @@ export default function QuestionEditorPage() {
   const [form, setForm] = useState<QuestionAdminIn>({
     stem: "", topic_id: 0,
     domain: "", task: "", enablers: [], remarks: "",
-    difficulty: "medium", explanation: "",
+    difficulty: "medium",
+    question_type: "single_choice",
+    explanation: "",
     options: [blankOption(0), blankOption(1), blankOption(2), blankOption(3)],
     is_active: true,
   });
@@ -41,6 +45,7 @@ export default function QuestionEditorPage() {
             enablers: q.enablers ?? [],
             remarks: q.remarks ?? "",
             difficulty: q.difficulty ?? "medium",
+            question_type: q.question_type ?? "single_choice",
             explanation: q.explanation ?? "",
             options: q.options.map(o => ({
               option_letter: o.option_letter, text: o.text,
@@ -60,9 +65,34 @@ export default function QuestionEditorPage() {
     }));
   }
   function setCorrect(i: number) {
+    // Single-choice: radio behavior — picking one un-picks the rest.
     setForm(f => ({
       ...f, options: f.options.map((o, j) => ({ ...o, is_correct: j === i })),
     }));
+  }
+  function toggleCorrect(i: number) {
+    // Multi-choice: checkbox behavior — flips one option independently.
+    setForm(f => ({
+      ...f, options: f.options.map((o, j) =>
+        j === i ? { ...o, is_correct: !o.is_correct } : o),
+    }));
+  }
+  function setQuestionType(qt: QuestionType) {
+    setForm(f => {
+      // When switching TO single_choice, demote all-correct down to
+      // the first checked one (or the first option) so the form is
+      // immediately valid. When switching TO multi_choice, leave the
+      // existing correctness flags untouched — admin will adjust.
+      if (qt === "single_choice") {
+        let firstChecked = f.options.findIndex(o => o.is_correct);
+        if (firstChecked === -1) firstChecked = 0;
+        return {
+          ...f, question_type: qt,
+          options: f.options.map((o, j) => ({ ...o, is_correct: j === firstChecked })),
+        };
+      }
+      return { ...f, question_type: qt };
+    });
   }
   function addOption() {
     if (form.options.length >= 6) return;
@@ -102,7 +132,15 @@ export default function QuestionEditorPage() {
   }
 
   const correctCount = form.options.filter(o => o.is_correct).length;
-  const validOptions = correctCount === 1
+  const isMulti = form.question_type === "multi_choice";
+  // Validation mirrors the backend rules so the Save button reflects
+  // server-side acceptance.
+  //   single: exactly 1 correct
+  //   multi:  >= 2 correct AND >= 1 incorrect
+  const correctnessOk = isMulti
+    ? (correctCount >= 2 && correctCount < form.options.length)
+    : (correctCount === 1);
+  const validOptions = correctnessOk
     && form.options.every(o => o.text.trim().length > 0)
     && new Set(form.options.map(o => o.option_letter)).size === form.options.length;
   const canSave = form.stem.length >= 10 && form.topic_id > 0 && validOptions;
@@ -162,6 +200,17 @@ export default function QuestionEditorPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
+              Question type
+            </label>
+            <select value={form.question_type ?? "single_choice"}
+                    onChange={(e) => setQuestionType(e.target.value as QuestionType)}
+                    className={input}>
+              <option value="single_choice">Single choice (one correct, radio)</option>
+              <option value="multi_choice">Multi choice (≥2 correct, checkboxes)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
               Domain (optional)
             </label>
             <input value={form.domain ?? ""}
@@ -215,8 +264,9 @@ export default function QuestionEditorPage() {
             <div>
               <label className="block text-sm font-medium text-slate-700">Options</label>
               <p className="text-xs text-slate-500">
-                Mark exactly one as correct. Reasoning is shown after submit
-                (correct → why, incorrect → why wrong).
+                {isMulti
+                  ? "Mark every correct option. ≥2 must be correct AND ≥1 must be wrong. Learners pick all that apply (checkboxes); scoring is exact-set match."
+                  : "Mark exactly one as correct. Reasoning is shown after submit (correct → why, incorrect → why wrong)."}
               </p>
             </div>
             <button onClick={addOption} disabled={form.options.length >= 6}
@@ -225,10 +275,12 @@ export default function QuestionEditorPage() {
               + Add option
             </button>
           </div>
-          {correctCount !== 1 && (
+          {!correctnessOk && (
             <div className="bg-amber-50 border border-amber-200 text-amber-800
                             text-xs p-2 rounded mb-3">
-              Exactly one option must be marked correct (currently: {correctCount}).
+              {isMulti
+                ? `Multi-choice needs ≥2 correct AND ≥1 wrong (currently ${correctCount} correct of ${form.options.length}).`
+                : `Exactly one option must be marked correct (currently: ${correctCount}).`}
             </div>
           )}
           <div className="space-y-3">
@@ -243,9 +295,15 @@ export default function QuestionEditorPage() {
                     {opt.option_letter}
                   </span>
                   <label className="flex items-center gap-1 text-xs text-slate-700">
-                    <input type="radio" name="correct"
-                           checked={opt.is_correct ?? false}
-                           onChange={() => setCorrect(i)} />
+                    {isMulti ? (
+                      <input type="checkbox"
+                             checked={opt.is_correct ?? false}
+                             onChange={() => toggleCorrect(i)} />
+                    ) : (
+                      <input type="radio" name="correct"
+                             checked={opt.is_correct ?? false}
+                             onChange={() => setCorrect(i)} />
+                    )}
                     Correct
                   </label>
                   <div className="flex-1" />
