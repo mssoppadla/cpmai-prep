@@ -47,11 +47,18 @@ export default function QuestionsListPage() {
             and reasoning — shown to learners only after they submit.
           </p>
         </div>
-        <Link href="/admin/questions/new"
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
-                         rounded-lg hover:bg-indigo-700">
-          + New Question
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/admin/questions/bulk"
+                className="px-4 py-2 bg-white text-slate-700 border border-slate-300
+                           text-sm font-medium rounded-lg hover:bg-slate-50">
+            ↥ Bulk upload
+          </Link>
+          <Link href="/admin/questions/new"
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
+                           rounded-lg hover:bg-indigo-700">
+            + New Question
+          </Link>
+        </div>
       </header>
 
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex gap-2 flex-wrap">

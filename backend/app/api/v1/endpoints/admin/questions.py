@@ -1,5 +1,6 @@
-"""Admin question CRUD with strict validation."""
-from fastapi import APIRouter, Depends, Query
+"""Admin question CRUD with strict validation + bulk Excel upload."""
+from fastapi import APIRouter, Depends, Query, UploadFile, File
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_admin_user
@@ -8,9 +9,15 @@ from app.core.audit import audit_log
 from app.models.user import User
 from app.models.question import Question, QuestionOption, QuestionType
 from app.models.exam_set import ExamSet, ExamSetQuestion
+from app.models.topic import Topic
 from app.schemas.question import QuestionAdminIn, QuestionAdminOut
+from app.services import question_excel
 
 router = APIRouter()
+
+# 5 MB file-size cap — protects the request lifecycle from accidental
+# huge uploads. Per-row cap (500) is enforced inside the parser.
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
 def _validate(payload: QuestionAdminIn):
@@ -100,6 +107,115 @@ def list_questions(db: Session = Depends(get_db),
                               else ~link_exists)
     rows = query.order_by(Question.id.desc()).offset(offset).limit(limit).all()
     return _attach_in_sets(db, rows)
+
+
+# IMPORTANT: declare static routes (`/bulk-template`, `/bulk-upload`)
+# BEFORE the dynamic `/{question_id}` route. FastAPI matches routes in
+# declaration order; otherwise `bulk-template` is interpreted as a
+# question_id and tries to coerce to int → 422.
+@router.get("/bulk-template", include_in_schema=True)
+def bulk_template(admin: User = Depends(get_admin_user)):
+    """Return an .xlsx admins fill in to upload many questions at once.
+
+    Includes pre-filled example rows + data-validation dropdowns for
+    enum-shaped columns (difficulty, question_type, topic_code, every
+    *_is_correct) so admins can't typo those values.
+    """
+    blob = question_excel.build_template()
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="cpmai-questions-template.xlsx"',
+        },
+    )
+
+
+@router.post("/bulk-upload")
+async def bulk_upload(file: UploadFile = File(...),
+                      db: Session = Depends(get_db),
+                      admin: User = Depends(get_admin_user)):
+    """Parse an admin-supplied .xlsx and create questions from it.
+
+    Per-row partial success: valid rows commit, invalid rows come back
+    in the `errors` array with row number + reason so the admin can
+    fix the failing rows in their sheet and re-upload only those.
+
+    Validates each row through the SAME `_validate(payload)` function
+    `POST /admin/questions` uses — bulk path can't drift from single.
+    Wraps every row in a savepoint so one bad insert doesn't poison
+    the rest.
+    """
+    # File size guard — read in one shot since we capped at 5MB.
+    blob = await file.read()
+    if len(blob) > MAX_UPLOAD_BYTES:
+        raise ValidationError(
+            f"File too large ({len(blob)} bytes). Max {MAX_UPLOAD_BYTES} bytes "
+            f"(~{MAX_UPLOAD_BYTES // (1024*1024)} MB) per upload.")
+    if len(blob) == 0:
+        raise ValidationError("Uploaded file is empty.")
+
+    parsed = question_excel.parse_workbook(blob)
+
+    # Resolve topic_code → topic_id once per upload (single query, no N+1).
+    topics_by_code = {t.code.upper(): t.id
+                      for t in db.query(Topic).all()}
+
+    created_ids: list[int] = []
+    errors: list[dict] = list(parsed.errors)
+
+    for row_num, payload, topic_code in parsed.valid:
+        topic_id = topics_by_code.get(topic_code.upper())
+        if topic_id is None:
+            errors.append({"row": row_num, "field": "topic_code",
+                            "message": (f"unknown topic_code {topic_code!r} — "
+                                         f"valid: {sorted(topics_by_code.keys())}")})
+            continue
+        # Bind the resolved topic and run the EXACT SAME validator
+        # /admin/questions POST uses — no drift between paths.
+        payload.topic_id = topic_id
+        try:
+            _validate(payload)
+        except ValidationError as e:
+            errors.append({"row": row_num, "field": "validation",
+                            "message": e.detail if isinstance(e.detail, str)
+                                       else e.detail.get("message", str(e.detail))})
+            continue
+
+        # Wrap each insert in a savepoint so a single DB-level failure
+        # (e.g. an integrity constraint we didn't anticipate) doesn't
+        # roll back the entire upload.
+        sp = db.begin_nested()
+        try:
+            q = Question(
+                stem=payload.stem, topic_id=payload.topic_id,
+                domain=payload.domain, task=payload.task,
+                enablers=payload.enablers, remarks=payload.remarks,
+                difficulty=payload.difficulty,
+                question_type=payload.question_type,
+                explanation=payload.explanation,
+                is_active=payload.is_active, created_by=admin.id,
+            )
+            q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
+            db.add(q)
+            db.flush()
+            created_ids.append(q.id)
+            sp.commit()
+        except Exception as e:
+            sp.rollback()
+            errors.append({"row": row_num, "field": "db",
+                            "message": f"insert failed: {type(e).__name__}: {e}"})
+
+    db.commit()
+    audit_log(db, admin.id, "question.bulk_upload",
+              {"created": len(created_ids), "errors": len(errors),
+               "filename": file.filename})
+
+    return {
+        "created": len(created_ids),
+        "created_ids": created_ids,
+        "errors": errors,
+    }
 
 
 @router.get("/{question_id}", response_model=QuestionAdminOut)

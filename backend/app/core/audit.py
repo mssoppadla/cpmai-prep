@@ -16,10 +16,15 @@ def audit_log(db: Session, user_id: int | None, action: str,
               metadata: dict | None = None, *,
               ip: str | None = None, user_agent: str | None = None,
               request_id: str | None = None) -> None:
+    # NB: model attribute is `metadata_json` (the DB column is named
+    # `metadata` via Column("metadata", ...) — `metadata` itself can't
+    # be a Python attribute on a SQLAlchemy DeclarativeBase since the
+    # name collides with the registry's metadata). Passing `metadata=`
+    # would be silently dropped here; use the actual Python attr name.
     db.add(AuditLog(
         user_id=user_id, action=action,
         ip=ip, user_agent=user_agent, request_id=request_id,
-        metadata=metadata or {},
+        metadata_json=metadata or {},
     ))
     db.commit()
     _log.info("audit", action=action, user_id=user_id, **(metadata or {}))
