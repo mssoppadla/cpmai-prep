@@ -332,6 +332,44 @@ export const admin = {
         `/admin/questions${qs(p)}`, { authed: true });
       return data;
     },
+    /** Download the .xlsx template admins fill in for bulk uploads.
+     *  Returns the raw blob so the caller can save-as locally. */
+    async downloadBulkTemplate(): Promise<Blob> {
+      const token = typeof window !== "undefined"
+        ? window.localStorage.getItem("cpmai.access") : null;
+      const r = await fetch(`${BASE}/admin/questions/bulk-template`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) throw new ApiError(r.status, {
+        code: "download_failed",
+        message: `Template download failed (HTTP ${r.status}).`,
+      });
+      return r.blob();
+    },
+    /** Upload a filled .xlsx. Returns per-row breakdown:
+     *    { created: N, created_ids: number[], errors: [{row, field, message}] }
+     *  Caller should surface errors to the admin so they can fix the
+     *  failing rows in their sheet and re-upload only those. */
+    async bulkUpload(file: File): Promise<{
+      created: number;
+      created_ids: number[];
+      errors: Array<{ row: number; field: string; message: string }>;
+    }> {
+      const token = typeof window !== "undefined"
+        ? window.localStorage.getItem("cpmai.access") : null;
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch(`${BASE}/admin/questions/bulk-upload`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      const body = await r.json();
+      if (!r.ok) throw new ApiError(r.status, body?.error ?? {
+        code: "upload_failed", message: `Upload failed (HTTP ${r.status}).`,
+      });
+      return body;
+    },
     async get(id: number) {
       const { data } = await request<QuestionAdminOut>(
         `/admin/questions/${id}`, { authed: true });
