@@ -40,7 +40,12 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16-alpine
+        # Must match prod: prod docker-compose.yml uses pgvector/pgvector:pg16
+        # so the `vector` extension is available + the VECTOR(N) column
+        # type resolves. Plain postgres:16-alpine here fails on
+        # Base.metadata.create_all() trying to render a vector column.
+        # (Same vector data format as prod; just adds the extension.)
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: cpmai
           POSTGRES_PASSWORD: cpmai_test
@@ -97,11 +102,29 @@ jobs:
         # schema, then stamp alembic to head. Catches model-definition
         # breakage and ensures the test postgres looks like a freshly
         # installed prod.
+        #
+        # `CREATE EXTENSION vector` BEFORE create_all — required because
+        # migration 0009 normally provides this, but CI bypasses
+        # migrations and builds schema directly from model classes.
+        # Without it, create_all blows up on the VECTOR(1536) column on
+        # rag_chunks. Idempotent: safe on every CI run.
+        #
+        # NOTE on test-gate fidelity: CI executes Base.metadata.create_all
+        # (model-derived schema), NOT alembic upgrade head (migration-
+        # derived schema). When those two diverge — e.g. a migration
+        # creates a Postgres enum with values that don't match the
+        # SQLAlchemy Enum column's NAME-based default — prod can break
+        # while CI passes. Hardening: a follow-up PR adds a second
+        # job that runs `alembic upgrade head` from empty to validate
+        # migration parity. Tracked separately.
         run: |
           cd backend
           python -c "
           import app.models  # noqa: F401  -- triggers SQLAlchemy registration
           from app.core.database import Base, engine
+          from sqlalchemy import text
+          with engine.begin() as c:
+              c.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
           Base.metadata.create_all(bind=engine)
           print('schema created')
           "
