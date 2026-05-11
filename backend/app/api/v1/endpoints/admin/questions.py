@@ -12,6 +12,7 @@ from app.models.exam_set import ExamSet, ExamSetQuestion
 from app.models.topic import Topic
 from app.schemas.question import QuestionAdminIn, QuestionAdminOut
 from app.services import question_excel
+from app.services.assistant.rag.ingest import reindex_quietly
 
 router = APIRouter()
 
@@ -242,6 +243,8 @@ def create_question(payload: QuestionAdminIn,
     q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
     db.add(q); db.commit(); db.refresh(q)
     audit_log(db, admin.id, "question.created", {"id": q.id})
+    # Keep RAG corpus in sync if the question carries an explanation.
+    reindex_quietly(db, "question_explanation", q.id)
     # New question is unattached — in_sets defaults to [].
     return _attach_in_sets(db, [q])[0]
 
@@ -265,6 +268,7 @@ def update_question(question_id: int, payload: QuestionAdminIn,
     q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
     db.commit(); db.refresh(q)
     audit_log(db, admin.id, "question.updated", {"id": q.id})
+    reindex_quietly(db, "question_explanation", q.id)
     return _attach_in_sets(db, [q])[0]
 
 
@@ -275,3 +279,4 @@ def delete_question(question_id: int, db: Session = Depends(get_db),
     if not q: raise NotFoundError()
     db.delete(q); db.commit()
     audit_log(db, admin.id, "question.deleted", {"id": question_id})
+    reindex_quietly(db, "question_explanation", question_id)

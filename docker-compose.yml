@@ -13,7 +13,15 @@
 # --reload) so that a `-f` prod invocation gets a clean baseline.
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 is a drop-in for postgres:16-alpine — same
+    # PG16 binary, same data format, just bundles the `vector` extension.
+    # The `pgdata` named volume is unchanged by this swap; existing rows
+    # come back online untouched. The `vector` extension itself is
+    # created by migration 0009 (CREATE EXTENSION IF NOT EXISTS vector).
+    # If the swap ever has to be rolled back, switch this line back and
+    # the rag_chunks table simply becomes inert (no extension available
+    # to query it); the rest of the app keeps working.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: cpmai
       POSTGRES_PASSWORD: cpmai_dev

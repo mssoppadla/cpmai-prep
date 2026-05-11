@@ -34,6 +34,13 @@ pyotp==2.9.0
 # Google ID token verification (used by app.services.auth.google_auth)
 google-auth==2.34.0
 
-# Optional: real LLM provider SDKs (uncomment to install)
-# openai==1.51.0
+# OpenAI SDK — used for both chat completions (when admin selects the
+# openai provider) AND embeddings (always, for RAG). Pinned to match
+# the API surface our wrapper expects.
+openai==1.51.0
+# pgvector Python adapter — SQLAlchemy type bridge for the vector
+# column. The Postgres-side extension is provided by the
+# pgvector/pgvector:pg16 image; migration 0009 issues CREATE EXTENSION.
+pgvector==0.3.6
+# Optional: other LLM providers (uncomment to install)
 # anthropic==0.34.2

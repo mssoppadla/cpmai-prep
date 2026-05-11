@@ -50,6 +50,13 @@ class SettingsStore:
         except (TypeError, ValueError):
             return default
 
+    def get_float(self, key: str, default: float = 0.0) -> float:
+        v = self.get(key, default)
+        try:
+            return float(v) if v is not None else default
+        except (TypeError, ValueError):
+            return default
+
     def get_str(self, key: str, default: str = "") -> str:
         v = self.get(key, default)
         return str(v) if v is not None else default

@@ -12,6 +12,7 @@ from app.services.assistant.handlers.account_handler import AccountHandler
 from app.services.assistant.handlers.faq_handler import FAQHandler
 from app.services.assistant.handlers.content_handler import ContentHandler
 from app.services.assistant.handlers.insights_handler import InsightsHandler
+from app.services.assistant.handlers.pmi_handler import PmiReferenceHandler
 
 log = structlog.get_logger("assistant.orchestrator")
 
@@ -31,10 +32,11 @@ class AssistantOrchestrator:
         provider = LLMRegistry.get_active()
 
         handlers = {
-            Intent.ACCOUNT:  AccountHandler,
-            Intent.FAQ:      FAQHandler,
-            Intent.CONTENT:  ContentHandler,
-            Intent.INSIGHTS: InsightsHandler,
+            Intent.ACCOUNT:        AccountHandler,
+            Intent.FAQ:            FAQHandler,
+            Intent.CONTENT:        ContentHandler,
+            Intent.INSIGHTS:       InsightsHandler,
+            Intent.PMI_REFERENCE:  PmiReferenceHandler,
         }
         handler = handlers[intent](self.db, provider)
         try:

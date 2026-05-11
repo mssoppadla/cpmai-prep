@@ -58,6 +58,14 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "llm.cache_ttl_seconds":             30,
     "payment.active_provider_id":        None,
     "payment.cache_ttl_seconds":         30,
+    # embeddings + RAG
+    "embeddings.provider_id":            None,
+    "embeddings.cache_ttl_seconds":      60,
+    "rag.top_k":                         4,
+    "rag.min_similarity":                0.3,
+    # PMI link-out
+    "pmi.course_bundle_url":             "https://www.pmi.org/cpmai",
+    "pmi.eco_url":                       "https://www.pmi.org/cpmai/eco",
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,
