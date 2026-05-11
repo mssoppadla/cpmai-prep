@@ -36,7 +36,14 @@ B=$'\033[1m'; G=$'\033[0;32m'; Y=$'\033[0;33m'; C=$'\033[0;36m'; X=$'\033[0m'
 say()  { echo "${C}→${X} $*"; }
 ok()   { echo "${G}✓${X} $*"; }
 warn() { echo "${Y}!${X} $*" >&2; }
-die()  { echo "✗ $*" >&2; exit 1; }
+# `die` is the explicit failure exit. Bash's ERR trap doesn't fire on `exit`,
+# so when auto-rollback is armed we route through `on_failure` instead. Pre-
+# arming (env validation, etc.) just exits normally.
+die()  {
+  echo "✗ $*" >&2
+  if [ "${ROLLBACK_ARMED:-0}" = "1" ]; then on_failure; fi
+  exit 1
+}
 
 [ "$(id -u)" -ne 0 ] || die "Run as the deploy user, NOT root."
 [ -f backend/.env ]            || die "backend/.env missing — did install_app.sh run?"
@@ -46,6 +53,139 @@ command -v docker >/dev/null   || die "docker not on PATH"
 docker compose version >/dev/null 2>&1 || die "docker compose plugin missing"
 
 DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+
+# ------------------------------------------------------------------------------
+# Automatic rollback machinery
+# ------------------------------------------------------------------------------
+# If anything past the "arm rollback" point fails, the trap fires `on_failure`
+# which reverts backend + frontend images to the ones that were running
+# BEFORE this deploy and restores the DB from the pre-deploy backup. Goal:
+# the operator never finds the site stuck on half-applied changes again.
+#
+# Bash subtleties handled here:
+#   • `set -e` + `trap ERR` fires the trap on any non-zero command. Inside
+#     the trap we `trap - ERR EXIT` and `set +e` to avoid recursion.
+#   • Postgres is intentionally NOT image-reverted — the new pgvector image
+#     is binary-compatible with postgres:16 and there's no reason to bounce
+#     the DB engine on rollback.
+#   • Image rollback uses Docker tags, not the build cache. We tag the
+#     pre-deploy image as `:previous` before building the new one, so
+#     `docker tag :previous :latest && up -d` reverts cleanly even after
+#     the build has overwritten the `:latest` tag.
+#   • If there's no previous image (first-ever deploy on this host), image
+#     revert is skipped and only the DB is restored.
+#
+# Escape hatch: `SKIP_ROLLBACK=1 ./scripts/vps/deploy.sh` disarms the trap
+# entirely, useful when you want to debug a failure in-situ.
+ROLLBACK_BACKUP=""            # /var/backups/cpmai-prep/...sql.gz of pre-deploy snapshot
+ROLLBACK_HAS_PREV_BACKEND=0   # 1 = cpmai-prep-backend:previous tag exists
+ROLLBACK_HAS_PREV_FRONTEND=0  # 1 = cpmai-prep-frontend:previous tag exists
+ROLLBACK_ARMED=0              # 1 = on_failure trap is active
+
+capture_previous_images() {
+  # Capture the image IDs of currently-running backend + frontend BEFORE we
+  # build new ones. Tag them as `:previous` so the rollback path can find
+  # them by tag (image IDs are unstable across `compose build`).
+  for svc in backend frontend; do
+    local cname="cpmai-prep-${svc}-1"
+    local imgid=""
+    if docker inspect "$cname" >/dev/null 2>&1; then
+      imgid=$(docker inspect --format '{{.Image}}' "$cname" 2>/dev/null || echo "")
+    fi
+    if [ -n "$imgid" ]; then
+      docker tag "$imgid" "cpmai-prep-${svc}:previous" 2>/dev/null || true
+      if [ "$svc" = "backend" ];  then ROLLBACK_HAS_PREV_BACKEND=1;  fi
+      if [ "$svc" = "frontend" ]; then ROLLBACK_HAS_PREV_FRONTEND=1; fi
+    fi
+  done
+}
+
+arm_rollback() {
+  [ -n "${SKIP_ROLLBACK:-}" ] && { warn "SKIP_ROLLBACK=1 — auto-rollback disabled"; return; }
+  ROLLBACK_ARMED=1
+  trap on_failure ERR
+}
+
+disarm_rollback() {
+  ROLLBACK_ARMED=0
+  trap - ERR EXIT
+}
+
+on_failure() {
+  # Disable traps FIRST so a failure inside the rollback path doesn't recurse.
+  trap - ERR EXIT
+  ROLLBACK_ARMED=0
+  echo
+  warn "═══════════════════════════════════════════════════════════════"
+  warn "  DEPLOY FAILED — initiating automatic rollback"
+  warn "═══════════════════════════════════════════════════════════════"
+  set +e   # continue past errors INSIDE the rollback
+  do_rollback
+  echo
+  warn "═══════════════════════════════════════════════════════════════"
+  warn "  Rollback complete. Investigate the original failure above"
+  warn "  before re-attempting deploy. Forward-recovery commands and"
+  warn "  the pre-deploy backup are unchanged."
+  warn "═══════════════════════════════════════════════════════════════"
+  exit 1
+}
+
+do_rollback() {
+  local reverted=0
+  if [ "$ROLLBACK_HAS_PREV_BACKEND" = "1" ] \
+     && docker image inspect cpmai-prep-backend:previous >/dev/null 2>&1; then
+    say "rollback: cpmai-prep-backend:previous → :latest"
+    docker tag cpmai-prep-backend:previous cpmai-prep-backend:latest
+    reverted=1
+  fi
+  if [ "$ROLLBACK_HAS_PREV_FRONTEND" = "1" ] \
+     && docker image inspect cpmai-prep-frontend:previous >/dev/null 2>&1; then
+    say "rollback: cpmai-prep-frontend:previous → :latest"
+    docker tag cpmai-prep-frontend:previous cpmai-prep-frontend:latest
+    reverted=1
+  fi
+  if [ "$reverted" = "1" ]; then
+    say "rollback: recreating backend + frontend with previous images..."
+    $DC up -d --force-recreate --no-deps backend frontend
+  else
+    warn "rollback: no previous images saved (first deploy?) — skipping image revert"
+  fi
+
+  if [ -n "$ROLLBACK_BACKUP" ] && [ -f "$ROLLBACK_BACKUP" ]; then
+    say "rollback: restoring DB from $(basename "$ROLLBACK_BACKUP")..."
+    # restore.sh prompts unless CONFIRM=1 is set. It also takes its own
+    # pre-restore safety backup so this whole operation is reversible.
+    CONFIRM=1 ./scripts/vps/restore.sh "$ROLLBACK_BACKUP" \
+      || warn "rollback: DB restore had hiccups — verify manually"
+  else
+    warn "rollback: no pre-deploy backup available — skipping DB restore"
+  fi
+
+  # Revert the working tree so the on-disk code matches the running image.
+  # Without this, the next operator-triggered `./scripts/vps/deploy.sh`
+  # would do nothing (no-op path detects START==NEW) yet leave the deploy
+  # marker confusingly ahead.
+  if [ -n "${START_SHA:-}" ] && [ "${START_SHA}" != "${NEW_SHA:-}" ]; then
+    say "rollback: git reset --hard $START_SHA (working tree → pre-deploy SHA)"
+    git reset --hard "$START_SHA" >/dev/null 2>&1 \
+      || warn "rollback: git reset failed — re-pull manually"
+  fi
+
+  # Bounce backend so connection pool sees the restored schema.
+  $DC restart backend 2>/dev/null || true
+
+  for i in $(seq 1 30); do
+    if curl -fs -H "Host: api.${PROD_DOMAIN}" \
+          "http://localhost:${BACKEND_HOST_PORT}/health" >/dev/null 2>&1; then
+      ok "rollback: backend healthy on previous image — site is back up"
+      return 0
+    fi
+    sleep 1
+  done
+  warn "rollback: backend did NOT come back up — manual intervention needed"
+  warn "         check: $DC logs backend"
+  return 1
+}
 
 # When deploy.sh itself updates this script (via git pull below), the bash
 # interpreter has already loaded the body running NOW — file changes on
@@ -148,7 +288,10 @@ fi
 if [ -z "${SKIP_BACKUP:-}" ]; then
   say "Pre-deploy backup..."
   ./scripts/vps/backup.sh "pre-deploy-${NEW_SHA}" || die "pre-deploy backup failed — refusing to proceed"
-  ok "backup complete (rollback target: latest in /var/backups/cpmai-prep)"
+  # Capture the exact path so auto-rollback (below) restores from this snapshot.
+  ROLLBACK_BACKUP=$(ls -1t /var/backups/cpmai-prep/*"pre-deploy-${NEW_SHA}".sql.gz 2>/dev/null | head -1 || echo "")
+  [ -f "$ROLLBACK_BACKUP" ] || warn "could not locate pre-deploy backup file — auto-rollback will skip DB restore"
+  ok "backup complete (rollback target: ${ROLLBACK_BACKUP:-latest in /var/backups/cpmai-prep})"
 else
   warn "SKIP_BACKUP=1 — proceeding without fresh backup"
 fi
@@ -164,9 +307,19 @@ $DC exec -T backend python /app/../scripts/preserve_users_check.py snapshot 2>/d
 # ------------------------------------------------------------------------------
 # 4. Build new images (frontend bakes NEXT_PUBLIC_* from .env.local)
 # ------------------------------------------------------------------------------
+# Tag the CURRENTLY running images as `:previous` BEFORE rebuilding, so the
+# auto-rollback path can revert to them by tag. `compose build` overwrites
+# the `:latest` tag — the old image becomes dangling and is eventually
+# garbage-collected. The `:previous` tag keeps it referenceable.
+capture_previous_images
+
 say "Building images..."
 $DC build --pull
 ok "images built"
+
+# Arm auto-rollback. Any failure from here through the smoke test triggers
+# `on_failure` (defined near the top) which reverts images + restores DB.
+arm_rollback
 
 # ------------------------------------------------------------------------------
 # 5. Ensure postgres / redis are on the image declared in compose.
@@ -300,6 +453,10 @@ PRUNED_IMG=$(docker image prune -af --filter "until=168h" 2>&1 \
 PRUNED_BLD=$(docker builder prune -af --filter "until=168h" 2>&1 \
               | awk '/Total reclaimed/ {print $NF}' || echo "0B")
 ok "reclaimed: images=${PRUNED_IMG:-0B}  builder=${PRUNED_BLD:-0B}"
+
+# Smoke passed — deploy is good. Disarm auto-rollback so any post-deploy
+# command (image prune, etc.) failing won't tear down a healthy deploy.
+disarm_rollback
 
 ELAPSED=$(( $(date +%s) - START_TS ))
 echo
