@@ -8,6 +8,7 @@ from app.core.exceptions import NotFoundError
 from app.models.faq import FaqItem
 from app.models.user import User
 from app.schemas.faq import FaqAdminOut, FaqIn
+from app.services.assistant.rag.ingest import reindex_quietly
 
 router = APIRouter()
 
@@ -27,6 +28,8 @@ def create_faq(payload: FaqIn,
     f = FaqItem(**payload.model_dump())
     db.add(f); db.commit(); db.refresh(f)
     audit_log(db, admin.id, "faq.created", {"id": f.id})
+    # Keep RAG corpus in sync — chat answers reflect new FAQ instantly.
+    reindex_quietly(db, "faq", f.id)
     return f
 
 
@@ -41,6 +44,7 @@ def update_faq(faq_id: int, payload: FaqIn,
         setattr(f, k, v)
     db.commit(); db.refresh(f)
     audit_log(db, admin.id, "faq.updated", {"id": f.id})
+    reindex_quietly(db, "faq", f.id)
     return f
 
 
@@ -53,3 +57,5 @@ def delete_faq(faq_id: int,
         raise NotFoundError()
     db.delete(f); db.commit()
     audit_log(db, admin.id, "faq.deleted", {"id": faq_id})
+    # Reindex with no-source-row → cleans up stale chunks.
+    reindex_quietly(db, "faq", faq_id)

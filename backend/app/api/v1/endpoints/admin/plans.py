@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.plan import Plan, PlanExamSet
 from app.models.exam_set import ExamSet
 from app.schemas.plan import PlanCreate, PlanUpdate, PlanAdminOut
+from app.services.assistant.rag.ingest import reindex_quietly
 
 router = APIRouter()
 
@@ -62,6 +63,7 @@ def create_plan(payload: PlanCreate,
     audit_log(db, admin.id, "plan.created",
               {"id": plan.id, "slug": plan.slug,
                "bundle_type": plan.bundle_type})
+    reindex_quietly(db, "plan", plan.id)
     return PlanAdminOut.from_row(plan)
 
 
@@ -100,6 +102,7 @@ def update_plan(plan_id: int, payload: PlanUpdate,
     db.commit(); db.refresh(plan)
     audit_log(db, admin.id, "plan.updated",
               {"id": plan.id, "fields": list(data.keys())})
+    reindex_quietly(db, "plan", plan.id)
     return PlanAdminOut.from_row(plan)
 
 
@@ -117,3 +120,4 @@ def delete_plan(plan_id: int,
             "Plan has payments; deactivate instead of deleting.")
     db.delete(plan); db.commit()
     audit_log(db, admin.id, "plan.deleted", {"id": plan_id})
+    reindex_quietly(db, "plan", plan_id)

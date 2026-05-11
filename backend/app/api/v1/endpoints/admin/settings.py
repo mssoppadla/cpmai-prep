@@ -72,6 +72,10 @@ def _int_in(lo: int, hi: int):
     return lambda v: isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def _float_in(lo: float, hi: float):
+    return lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi
+
+
 EDITABLE: dict[str, Callable] = {
     # AI chat operational limits
     "chat.daily_limit.anonymous":        _int_in(0, 1000),
@@ -89,6 +93,14 @@ EDITABLE: dict[str, Callable] = {
     "llm.cache_ttl_seconds":             lambda v: isinstance(v, int) and v >= 1,
     "payment.active_provider_id":        lambda v: v is None or isinstance(v, int),
     "payment.cache_ttl_seconds":         lambda v: isinstance(v, int) and v >= 1,
+    # RAG / embeddings
+    "embeddings.provider_id":            lambda v: v is None or isinstance(v, int),
+    "embeddings.cache_ttl_seconds":      lambda v: isinstance(v, int) and v >= 1,
+    "rag.top_k":                         _int_in(1, 20),
+    "rag.min_similarity":                _float_in(0.0, 1.0),
+    # PMI link-out URLs (chat surfaces these when intent matches)
+    "pmi.course_bundle_url":             _optional_url(500),
+    "pmi.eco_url":                       _optional_url(500),
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),

@@ -55,6 +55,36 @@
     "description": "Provider config cache TTL"
   },
   {
+    "key": "embeddings.provider_id",
+    "value": null,
+    "description": "ID of the LLMProviderConfig row used for RAG embeddings (must be openai-typed). Set this after configuring your OpenAI provider."
+  },
+  {
+    "key": "embeddings.cache_ttl_seconds",
+    "value": 60,
+    "description": "Embedding provider config cache TTL"
+  },
+  {
+    "key": "rag.top_k",
+    "value": 4,
+    "description": "Number of RAG chunks to retrieve per query"
+  },
+  {
+    "key": "rag.min_similarity",
+    "value": 0.3,
+    "description": "Minimum cosine similarity (0..1) to include a chunk in context. Below this, the chunk is silently dropped — prevents irrelevant snippets polluting the prompt."
+  },
+  {
+    "key": "pmi.course_bundle_url",
+    "value": "",
+    "description": "PMI's official URL for the CPMAI course bundle. Surfaced when the user asks about registering for the actual exam. Leave blank to hide the suggestion."
+  },
+  {
+    "key": "pmi.eco_url",
+    "value": "",
+    "description": "PMI's Exam Content Outline URL. Surfaced when the user asks what's on the exam."
+  },
+  {
     "key": "payment.active_provider_id",
     "value": null,
     "description": "Active payment_providers row ID"
