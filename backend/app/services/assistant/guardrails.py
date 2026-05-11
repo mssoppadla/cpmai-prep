@@ -1,9 +1,11 @@
 """Input/output safety + per-actor daily limits driven by settings_store."""
 import re
 from datetime import datetime, timedelta, timezone
+from app.core.database import SessionLocal
 from app.core.redis import redis_client
 from app.core.settings_store import settings_store
 from app.core.exceptions import GuardrailViolation, ChatLimitReached
+from app.models.user import User
 
 INJECTION_PATTERNS = [
     re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions", re.I),
@@ -42,7 +44,14 @@ class AssistantGuardrails:
     def check_daily_limit(self, *, user_id: int | None,
                           anon_id: str | None) -> dict:
         if user_id:
-            limit = settings_store.get_int("chat.daily_limit.authenticated", 25)
+            # Per-user override takes precedence over the global setting.
+            # Why: power users + paid SaaS tiers should not require an
+            # admin to bump the global cap (and bump everyone else with
+            # it). Cost: one extra SELECT per chat turn — read-mostly,
+            # indexed by primary key.
+            override = _user_chat_override(user_id)
+            limit = (override if override is not None
+                     else settings_store.get_int("chat.daily_limit.authenticated", 25))
             scope, ident = "user", user_id
         elif anon_id:
             limit = settings_store.get_int("chat.daily_limit.anonymous", 5)
@@ -96,3 +105,22 @@ class AssistantGuardrails:
                 return "[Response blocked by safety filter. Please rephrase.]"
         max_out = settings_store.get_int("chat.max_output_chars", 4000)
         return text[:max_out] + ("…" if len(text) > max_out else "")
+
+
+def _user_chat_override(user_id: int) -> int | None:
+    """Read users.daily_chat_limit_override. None = no override set.
+
+    Uses a short-lived session — the orchestrator's request session
+    isn't passed down here; opening + closing is cheap (single PK
+    fetch) and avoids threading the session through every guardrail
+    call site.
+    """
+    try:
+        with SessionLocal() as db:
+            u = db.get(User, user_id)
+            return u.daily_chat_limit_override if u else None
+    except Exception:
+        # Defensive: if the column doesn't exist yet (mid-deploy / fresh
+        # SQLite test DB), fall back to "no override". Never blocks a
+        # chat turn because of a DB hiccup.
+        return None

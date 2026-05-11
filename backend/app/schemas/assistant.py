@@ -20,12 +20,34 @@ class AssistantCitation(BaseModel):
     url: str | None = None
 
 
+class SuggestedAction(BaseModel):
+    """A clickable follow-up the chat surfaces below an answer.
+
+    Handlers populate this when there's a concrete next step ("View
+    pricing", "Open ECO on pmi.org"). The frontend renders each as a
+    button that either navigates internally (if url starts with '/')
+    or opens externally.
+    """
+    label: str
+    url: str
+
+
 class AssistantResponse(BaseModel):
-    intent: Literal["account", "faq", "content", "insights"]
+    # Add `pmi_reference` to the literal — Day 1 introduced the new
+    # intent in the orchestrator but missed updating the response model.
+    # Pydantic would have rejected a "pmi_reference" intent at the
+    # serialization boundary; this aligns the wire shape with what the
+    # orchestrator emits.
+    intent: Literal[
+        "account", "faq", "content", "insights", "pmi_reference",
+    ]
     intent_confidence: float
     message: str
     citations: list[AssistantCitation] = []
-    suggested_actions: list[str] = []
+    # Was `list[str]`; handlers actually return {label, url} dicts.
+    # The richer shape lets the frontend render buttons that link
+    # somewhere — strings alone produced unclickable chips.
+    suggested_actions: list[SuggestedAction] = []
     provider: str
     model_version: str | None = None
     is_ai_generated: bool = True

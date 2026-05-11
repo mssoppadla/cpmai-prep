@@ -56,6 +56,9 @@ class UserAdminOut(UserOut):
     has_password: bool = False
     has_active_subscription: bool = False
     subscription_plan: str | None = None
+    # NULL = falls back to global chat.daily_limit.authenticated setting.
+    # Admin sets via PATCH /admin/users/{id}/chat-limit.
+    daily_chat_limit_override: int | None = None
 
 
 class SubscriptionSummary(BaseModel):

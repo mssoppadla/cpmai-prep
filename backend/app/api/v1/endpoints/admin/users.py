@@ -26,6 +26,7 @@ def _to_admin_out(u: User, sub: Subscription | None) -> UserAdminOut:
         has_password=bool(u.password_hash),
         has_active_subscription=bool(sub),
         subscription_plan=sub.plan if sub else None,
+        daily_chat_limit_override=u.daily_chat_limit_override,
     )
 
 
@@ -116,6 +117,37 @@ def reset_password(user_id: int, payload: _PasswordResetIn,
     db.refresh(u)
     audit_log(db, admin.id, "user.password_reset_by_admin",
               {"target_user_id": user_id, "target_email": u.email})
+    sub = (db.query(Subscription)
+           .filter_by(user_id=u.id, status="active").first())
+    return _to_admin_out(u, sub)
+
+
+class _ChatLimitOverrideIn(BaseModel):
+    """Setting `null` clears the override; a non-negative int sets one."""
+    daily_chat_limit_override: int | None = Field(default=None, ge=0, le=100000)
+
+
+@router.patch("/{user_id}/chat-limit", response_model=UserAdminOut)
+def set_chat_limit_override(user_id: int, payload: _ChatLimitOverrideIn,
+                             db: Session = Depends(get_db),
+                             admin: User = Depends(get_super_admin_user)):
+    """Set or clear a user's per-day chat limit override.
+
+    NULL = use the global `chat.daily_limit.authenticated` setting.
+    Any non-negative int overrides it specifically for this user.
+    Audit row captures both old and new values so we can reconstruct
+    the policy history of any account.
+    """
+    u = db.get(User, user_id)
+    if not u:
+        raise NotFoundError()
+    old = u.daily_chat_limit_override
+    u.daily_chat_limit_override = payload.daily_chat_limit_override
+    db.commit()
+    db.refresh(u)
+    audit_log(db, admin.id, "user.chat_limit_override_set",
+              {"target_user_id": user_id, "from": old,
+               "to": payload.daily_chat_limit_override})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
     return _to_admin_out(u, sub)

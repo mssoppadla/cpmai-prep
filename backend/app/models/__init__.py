@@ -16,5 +16,6 @@ from app.models.system_setting import SystemSetting                  # noqa
 from app.models.llm_provider import LLMProviderConfig                # noqa
 from app.models.assistant_log import AssistantLog                    # noqa
 from app.models.rag_chunk import RagChunk                            # noqa
+from app.models.rag_document import RagDocument                      # noqa
 from app.models.payment_provider import PaymentProviderConfig    # noqa
 from app.models.faq import FaqItem                                # noqa

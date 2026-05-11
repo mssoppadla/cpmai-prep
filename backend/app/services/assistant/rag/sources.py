@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.models.faq import FaqItem
 from app.models.plan import Plan
 from app.models.question import Question
+from app.models.rag_chunk import RagChunk
 
 
 @dataclass
@@ -158,10 +159,55 @@ class QuestionExplanationAdapter(SourceAdapter):
         )
 
 
+class UploadAdapter(SourceAdapter):
+    """Admin-uploaded files (.txt/.md/.pdf/.docx/.xlsx).
+
+    Unique among adapters: there's no domain source row to re-derive
+    chunks from — the raw bytes aren't kept after the upload endpoint
+    parses + embeds them. So iter_chunks re-yields what's already in
+    rag_chunks, which lets a future model-swap reindex re-embed in
+    place without forcing the admin to re-upload every file.
+
+    source_id == str(RagDocument.id).
+    """
+    source_type = "upload"
+
+    def iter_chunks(self, db: Session) -> Iterator[ChunkRecord]:
+        rows = (db.query(RagChunk)
+                .filter(RagChunk.source_type == "upload")
+                .order_by(RagChunk.source_id, RagChunk.chunk_index)
+                .all())
+        for r in rows:
+            yield ChunkRecord(
+                source_type="upload",
+                source_id=r.source_id,
+                chunk_index=r.chunk_index,
+                content=r.content,
+                metadata=r.chunk_metadata or {},
+            )
+
+    def iter_chunks_for_id(self, db: Session, source_id: str
+                            ) -> Iterator[ChunkRecord]:
+        rows = (db.query(RagChunk)
+                .filter(RagChunk.source_type == "upload",
+                        RagChunk.source_id == source_id)
+                .order_by(RagChunk.chunk_index)
+                .all())
+        for r in rows:
+            yield ChunkRecord(
+                source_type="upload",
+                source_id=r.source_id,
+                chunk_index=r.chunk_index,
+                content=r.content,
+                metadata=r.chunk_metadata or {},
+            )
+
+
 # Registry — new adapters land here. ingest.py reads this to know what
 # to walk during a full reindex.
 SOURCES: dict[str, SourceAdapter] = {
     "faq":                   FAQAdapter(),
     "plan":                  PlanAdapter(),
     "question_explanation":  QuestionExplanationAdapter(),
+    "upload":                UploadAdapter(),
 }
