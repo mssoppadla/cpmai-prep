@@ -17,6 +17,10 @@ class LeadSource(str, enum.Enum):
     PRICING_PAGE   = "pricing_page"
     EXAM_PREVIEW   = "exam_preview"
     DEMO_REQUEST   = "demo_request"
+    # Signed-in user clicked "Talk to a human" in the chat widget. They've
+    # opted to leave a phone number for a follow-up call instead of (or in
+    # addition to) the AI conversation.
+    CHAT_CALLBACK  = "chat_callback"
 
 
 class Lead(Base):

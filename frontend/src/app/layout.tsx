@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { AssistantWidgetMount } from "@/components/assistant/AssistantWidgetMount";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cpmai-prep.example";
 
@@ -74,6 +75,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="bg-slate-50 text-slate-900 antialiased min-h-screen">
         {children}
+        {/* Chat widget — follows signed-in users across every page.
+            Self-hides for anon visitors (so marketing pages stay clean). */}
+        <AssistantWidgetMount />
       </body>
     </html>
   );
