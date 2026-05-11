@@ -46,6 +46,12 @@ services:
         NEXT_PUBLIC_API_URL:          ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
         NEXT_PUBLIC_RAZORPAY_KEY_ID:  ${NEXT_PUBLIC_RAZORPAY_KEY_ID}
+        # Public site URL — baked into og:url, canonical, JSON-LD,
+        # Twitter cards. Mobile share sheets read these meta tags, so
+        # this MUST be the real production domain. If unset, the
+        # hardcoded fallback in layout.tsx kicks in (cpmaiexamprep.com),
+        # but plumbing the env var lets staging deploys override.
+        NEXT_PUBLIC_SITE_URL:         ${NEXT_PUBLIC_SITE_URL:-https://cpmaiexamprep.com}
         NEXTAUTH_URL:                 ${NEXTAUTH_URL}
         NEXTAUTH_SECRET:              ${NEXTAUTH_SECRET}
     restart: always

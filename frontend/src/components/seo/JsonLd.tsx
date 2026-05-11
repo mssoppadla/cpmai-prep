@@ -11,8 +11,8 @@ export const organizationSchema = {
   "@context": "https://schema.org",
   "@type": "EducationalOrganization",
   name: "CPMAI Prep",
-  url: "https://cpmai-prep.example",
-  logo: "https://cpmai-prep.example/logo.png",
+  url: "https://cpmaiexamprep.com",
+  logo: "https://cpmaiexamprep.com/logo.png",
   sameAs: [
     "https://twitter.com/cpmaiprep",
     "https://www.linkedin.com/company/cpmai-prep",
@@ -28,7 +28,7 @@ export const courseSchema = {
   provider: {
     "@type": "Organization",
     name: "CPMAI Prep",
-    sameAs: "https://cpmai-prep.example",
+    sameAs: "https://cpmaiexamprep.com",
   },
   hasCourseInstance: {
     "@type": "CourseInstance",
