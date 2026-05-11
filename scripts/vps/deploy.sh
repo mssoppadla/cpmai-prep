@@ -169,7 +169,33 @@ $DC build --pull
 ok "images built"
 
 # ------------------------------------------------------------------------------
-# 5. Bring up new images (rolling — postgres / redis stay up)
+# 5. Ensure postgres / redis are on the image declared in compose.
+# ------------------------------------------------------------------------------
+# `up -d --no-deps backend frontend` (next step) leaves postgres alone, which
+# is normally what we want — but if docker-compose.yml bumped the postgres
+# image (e.g. postgres:16-alpine → pgvector/pgvector:pg16, which we did when
+# adding RAG), the running container is still on the OLD image and any new
+# migration that needs the new image (CREATE EXTENSION vector, etc.) will
+# fail. So: ask compose to converge postgres + redis. If config hasn't
+# drifted, this is a no-op (no restart, no downtime). If the image bumped,
+# compose recreates the container — pgdata volume persists, so data is safe.
+#
+# Doing this BEFORE recreating backend ensures the new backend code connects
+# to the right postgres from the start.
+say "Converging postgres + redis to declared compose state..."
+$DC pull postgres redis >/dev/null 2>&1 || true
+$DC up -d postgres redis
+for i in $(seq 1 30); do
+  if $DC exec -T postgres pg_isready -U cpmai >/dev/null 2>&1; then
+    ok "postgres ready"
+    break
+  fi
+  sleep 1
+  if [ "$i" = 30 ]; then die "postgres did not become ready — $DC logs postgres"; fi
+done
+
+# ------------------------------------------------------------------------------
+# 6. Bring up new images (rolling — postgres / redis already converged above)
 # ------------------------------------------------------------------------------
 say "Recreating backend + frontend with new images..."
 $DC up -d --no-deps --build backend frontend
