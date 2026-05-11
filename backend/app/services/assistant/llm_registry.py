@@ -20,6 +20,11 @@ def _provider_classes():
         out["openai"] = OpenAIProvider
     except Exception:
         pass
+    try:
+        from app.services.assistant.providers.anthropic_provider import AnthropicProvider
+        out["anthropic"] = AnthropicProvider
+    except Exception:
+        pass
     return out
 
 

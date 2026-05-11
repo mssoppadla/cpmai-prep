@@ -107,6 +107,7 @@ EDITABLE: dict[str, Callable] = {
     "assistant.allowed_topics":          _optional_str(2000),
     "assistant.banned_topics":           _optional_str(2000),
     "assistant.allowed_exceptions":      _optional_str(2000),
+    "assistant.no_provider_message":     _optional_str(2000),
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),

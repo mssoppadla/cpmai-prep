@@ -105,6 +105,11 @@
     "description": "Exception clause to the banned list — PMI-adjacent items that ARE allowed even though they touch the PM banned set."
   },
   {
+    "key": "assistant.no_provider_message",
+    "value": "Our AI tutor is being set up right now and isn't able to answer questions yet. Please check back shortly — sorry for the wait.",
+    "description": "End-user-facing message the assistant shows when no LLM provider is configured / active. Keep it generic — no mention of admin/provider/setup details."
+  },
+  {
     "key": "payment.active_provider_id",
     "value": null,
     "description": "Active payment_providers row ID"
