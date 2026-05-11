@@ -14,7 +14,8 @@ export type QuestionType = "single_choice" | "multi_choice";
 export type AttemptStatus = "in_progress" | "submitted" | "expired";
 export type LeadSource =
   | "landing_hero" | "newsletter" | "exit_intent" | "gated_download"
-  | "blog" | "pricing_page" | "exam_preview" | "demo_request";
+  | "blog" | "pricing_page" | "exam_preview" | "demo_request"
+  | "chat_callback";
 export type ProviderType =
   | "openai" | "anthropic" | "azure_openai" | "ollama" | "stub";
 

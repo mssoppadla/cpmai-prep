@@ -1,43 +1,12 @@
-"use client";
 /**
  * Layout for the authenticated user route group.
  *
- * Mounts the floating AI chat widget on every page inside `(app)/*`
- * — currently `/exams`, `/exams/[slug]`, `/exams/results/[id]`, and
- * future authenticated routes. Public pages (landing, /pricing,
- * /login) stay clean.
- *
- * Auth check is non-blocking: the layout shows page content
- * immediately and probes `/users/me` in the background. The widget
- * mounts once we know who's signed in (null for anon → widget hides
- * itself).
+ * Currently a pass-through. The chat widget used to mount here, but it now
+ * lives in the root layout so signed-in users see the bubble on every page
+ * (landing, pricing, dashboard, exams). Keeping this file means the route
+ * group still has an explicit layout slot — useful for any future
+ * authenticated-only chrome (e.g. an in-app top bar).
  */
-import { useEffect, useState } from "react";
-import { auth } from "@/lib/api";
-import type { UserOut } from "@/types/api";
-import { AssistantWidget } from "@/components/assistant/AssistantWidget";
-
-
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserOut | null>(null);
-  const [probed, setProbed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    auth.me()
-      .then((u) => { if (!cancelled) setUser(u); })
-      .catch(() => { /* anon or expired token — widget stays hidden */ })
-      .finally(() => { if (!cancelled) setProbed(true); });
-    return () => { cancelled = true; };
-  }, []);
-
-  return (
-    <>
-      {children}
-      {/* Widget renders only for authenticated users; takes itself off
-          the DOM for anon visitors (so the bubble doesn't appear and
-          then disappear on the auth probe race). */}
-      {probed && <AssistantWidget user={user} />}
-    </>
-  );
+  return <>{children}</>;
 }

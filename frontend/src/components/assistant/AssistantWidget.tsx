@@ -24,7 +24,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { content } from "@/lib/api";
+import { content, leads, errMsg } from "@/lib/api";
 import type { UserOut, AssistantCitation, SuggestedAction } from "@/types/api";
 import { useAssistant, type ChatTurn } from "./useAssistant";
 
@@ -35,6 +35,14 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [subtitle, setSubtitle] = useState(DEFAULT_SUBTITLE);
+  // Callback-request state. Separate "view" inside the panel so the user
+  // can step out of the chat to request a human follow-up without losing
+  // the conversation, then return to the chat.
+  const [view, setView] = useState<"chat" | "callback" | "callback_sent">("chat");
+  const [cbPhone, setCbPhone] = useState("");
+  const [cbNote, setCbNote] = useState("");
+  const [cbBusy, setCbBusy] = useState(false);
+  const [cbErr, setCbErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -82,14 +90,60 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
     send(m);
   }
 
+  async function onCallbackSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setCbErr(null);
+    const phone = cbPhone.trim();
+    // Loose validation — backend still validates. Just catch obvious typos.
+    if (!phone || phone.replace(/[^\d]/g, "").length < 7) {
+      setCbErr("Please enter a valid phone number.");
+      return;
+    }
+    setCbBusy(true);
+    try {
+      await leads.submit({
+        email: user?.email ?? "",
+        name:  user?.name ?? null,
+        phone,
+        source: "chat_callback",
+        landing_url: typeof window !== "undefined" ? window.location.href : null,
+        consent_marketing: false,
+        interests: cbNote.trim() ? [cbNote.trim().slice(0, 200)] : [],
+      });
+      setView("callback_sent");
+    } catch (err) {
+      console.error("[assistant] callback submit failed", err);
+      setCbErr(errMsg(err));
+    } finally {
+      setCbBusy(false);
+    }
+  }
+
+  function openCallback() {
+    setCbPhone("");
+    setCbNote("");
+    setCbErr(null);
+    setView("callback");
+  }
+
   return (
     <>
-      {/* Floating bubble — always visible, toggles panel */}
+      {/* Floating bubble — always visible, toggles panel.
+          `bottom` uses env(safe-area-inset-bottom) so the bubble doesn't sit
+          under the iOS home-indicator gesture bar (iPhone X+) or Android
+          gesture nav strip. Fallback floor of 1.25rem on devices that
+          don't expose the inset.
+          z-30 keeps it below the panel (z-40) and below standard modals
+          (z-50) so site dialogs always cover it. */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Close AI assistant" : "Open AI assistant"}
-        className="fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full
+        style={{
+          bottom: "max(1.25rem, calc(env(safe-area-inset-bottom, 0px) + 0.75rem))",
+          right:  "max(1.25rem, calc(env(safe-area-inset-right, 0px) + 0.5rem))",
+        }}
+        className="fixed z-30 w-14 h-14 rounded-full
                    bg-indigo-600 text-white shadow-lg hover:bg-indigo-700
                    focus:outline-none focus:ring-4 focus:ring-indigo-300
                    flex items-center justify-center transition-transform
@@ -109,12 +163,26 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
         )}
       </button>
 
+      {/* Mobile-only backdrop — tap anywhere outside the panel dismisses it.
+          Hidden ≥sm because the panel doesn't cover the viewport there. */}
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+          className="fixed inset-0 z-30 bg-slate-900/20 sm:hidden"
+        />
+      )}
+
       {/* Chat panel */}
       {open && (
-        <div className="fixed inset-x-0 bottom-0 sm:bottom-24 sm:right-5 sm:left-auto
+        <div
+          style={{
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          }}
+          className="fixed inset-x-0 bottom-0 sm:bottom-24 sm:right-5 sm:left-auto
                         sm:w-[380px] sm:max-h-[600px] sm:rounded-xl
                         z-40 bg-white border border-slate-200 shadow-2xl
-                        flex flex-col max-h-[80vh]">
+                        flex flex-col max-h-[85vh]">
           {/* Header */}
           <header className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-indigo-50 sm:rounded-t-xl">
             <div>
@@ -143,8 +211,8 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
             </div>
           </header>
 
-          {/* Quota strip */}
-          {quota && (
+          {/* Quota strip — only shown in chat view, hidden during callback flow */}
+          {view === "chat" && quota && (
             <div className={`px-4 py-1.5 text-xs border-b border-slate-200 ${
               quotaExhausted ? "bg-rose-50 text-rose-700" : "bg-slate-50 text-slate-600"
             }`}>
@@ -154,55 +222,163 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
             </div>
           )}
 
-          {/* Message list */}
-          <div ref={scrollRef}
-               className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-white">
-            {turns.length === 0 && (
-              <EmptyState />
-            )}
-            {turns.map((t, i) => (
-              <TurnBubble key={i} turn={t} />
-            ))}
-            {busy && (
-              <div className="flex items-start gap-2">
-                <Avatar role="assistant" />
-                <div className="bg-slate-100 text-slate-500 rounded-lg px-3 py-2 text-sm">
-                  Thinking…
-                </div>
+          {view === "chat" && (
+            <>
+              {/* Message list */}
+              <div ref={scrollRef}
+                   className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-white">
+                {turns.length === 0 && (
+                  <EmptyState />
+                )}
+                {turns.map((t, i) => (
+                  <TurnBubble key={i} turn={t} />
+                ))}
+                {busy && (
+                  <div className="flex items-start gap-2">
+                    <Avatar role="assistant" />
+                    <div className="bg-slate-100 text-slate-500 rounded-lg px-3 py-2 text-sm">
+                      Thinking…
+                    </div>
+                  </div>
+                )}
+                {error && (
+                  <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
+                    {error}
+                  </div>
+                )}
               </div>
-            )}
-            {error && (
-              <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
-                {error}
-              </div>
-            )}
-          </div>
 
-          {/* Input */}
-          <form onSubmit={onSubmit}
-                className="border-t border-slate-200 p-3 flex gap-2 bg-white sm:rounded-b-xl">
-            <input
-              ref={inputRef}
-              type="text"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={quotaExhausted ? "Daily cap reached" : "Ask about CPMAI…"}
-              disabled={busy || !!quotaExhausted}
-              maxLength={4000}
-              className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded
-                         focus:outline-none focus:ring-2 focus:ring-indigo-500
-                         disabled:bg-slate-100 disabled:cursor-not-allowed"
-            />
-            <button
-              type="submit"
-              disabled={!draft.trim() || busy || !!quotaExhausted}
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
-                         rounded hover:bg-indigo-700 disabled:opacity-50
-                         disabled:cursor-not-allowed"
-            >
-              Send
-            </button>
-          </form>
+              {/* Input */}
+              <form onSubmit={onSubmit}
+                    className="border-t border-slate-200 p-3 flex gap-2 bg-white">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={quotaExhausted ? "Daily cap reached" : "Ask about CPMAI…"}
+                  disabled={busy || !!quotaExhausted}
+                  maxLength={4000}
+                  className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded
+                             focus:outline-none focus:ring-2 focus:ring-indigo-500
+                             disabled:bg-slate-100 disabled:cursor-not-allowed"
+                />
+                <button
+                  type="submit"
+                  disabled={!draft.trim() || busy || !!quotaExhausted}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
+                             rounded hover:bg-indigo-700 disabled:opacity-50
+                             disabled:cursor-not-allowed"
+                >
+                  Send
+                </button>
+              </form>
+              {/* Escalation link — kept low-key so it's there when you need
+                  it but doesn't shout. Lives below the input so high-intent
+                  users see it after sending a message. */}
+              <div className="px-3 pb-2 text-center bg-white sm:rounded-b-xl">
+                <button
+                  type="button"
+                  onClick={openCallback}
+                  className="text-xs text-slate-500 hover:text-indigo-600 hover:underline"
+                >
+                  Talk to a human →
+                </button>
+              </div>
+            </>
+          )}
+
+          {view === "callback" && (
+            <form onSubmit={onCallbackSubmit}
+                  className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-white sm:rounded-b-xl">
+              <div>
+                <div className="text-sm font-medium text-slate-900">
+                  Request a callback
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Leave your phone number and we&apos;ll reach out within one
+                  business day.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Email
+                </label>
+                <input type="email"
+                       value={user?.email ?? ""}
+                       disabled
+                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded bg-slate-50 text-slate-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Phone <span className="text-rose-600">*</span>
+                </label>
+                <input type="tel" inputMode="tel"
+                       value={cbPhone}
+                       onChange={(e) => setCbPhone(e.target.value)}
+                       placeholder="+91 98XXXXXXXX"
+                       autoComplete="tel"
+                       maxLength={32}
+                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded
+                                  focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Anything we should know? <span className="text-slate-400">(optional)</span>
+                </label>
+                <textarea value={cbNote}
+                          onChange={(e) => setCbNote(e.target.value)}
+                          rows={2}
+                          maxLength={200}
+                          placeholder="Best time to call, topic, etc."
+                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded
+                                     focus:outline-none focus:ring-2 focus:ring-indigo-500
+                                     resize-none" />
+              </div>
+              {cbErr && (
+                <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
+                  {cbErr}
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button type="button"
+                        onClick={() => setView("chat")}
+                        className="flex-1 px-3 py-2 border border-slate-300 text-slate-700 text-sm rounded
+                                   hover:bg-slate-50">
+                  Back to chat
+                </button>
+                <button type="submit"
+                        disabled={cbBusy}
+                        className="flex-1 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded
+                                   hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {cbBusy ? "Sending…" : "Request callback"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {view === "callback_sent" && (
+            <div className="flex-1 overflow-y-auto px-4 py-6 bg-white sm:rounded-b-xl flex flex-col items-center text-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div className="text-sm font-medium text-slate-900">
+                We&apos;ll be in touch
+              </div>
+              <p className="text-xs text-slate-500 max-w-[260px]">
+                Thanks — we&apos;ve logged your request and someone will reach
+                you on the number you provided within one business day.
+              </p>
+              <button type="button"
+                      onClick={() => setView("chat")}
+                      className="mt-2 text-xs text-indigo-600 hover:underline">
+                Back to chat
+              </button>
+            </div>
+          )}
         </div>
       )}
     </>
