@@ -38,6 +38,7 @@ const SITE_FALLBACK: SiteChrome = {
   twitter_url: "",
   copyright_text: "© 2026 CPMAI Prep. All rights reserved.",
   show_pricing_link: true,
+  assistant_widget_subtitle: "Grounded in our FAQ, pricing & question explanations",
 };
 
 function destinationFor(role: UserOut["role"]): string {

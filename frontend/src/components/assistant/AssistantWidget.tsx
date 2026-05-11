@@ -24,17 +24,37 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { content } from "@/lib/api";
 import type { UserOut, AssistantCitation, SuggestedAction } from "@/types/api";
 import { useAssistant, type ChatTurn } from "./useAssistant";
+
+const DEFAULT_SUBTITLE = "Grounded in our FAQ, pricing & question explanations";
 
 
 export function AssistantWidget({ user }: { user: UserOut | null }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [subtitle, setSubtitle] = useState(DEFAULT_SUBTITLE);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { turns, quota, busy, error, send, clear } = useAssistant(user?.id ?? null);
+
+  // Subtitle is admin-editable via /admin/settings → assistant.widget_subtitle.
+  // Lives on SiteChrome (one public endpoint, cached). If the fetch fails or
+  // returns an empty string, we fall back to the default copy — never show
+  // an empty subtitle box.
+  useEffect(() => {
+    let cancelled = false;
+    content.site()
+      .then((s) => {
+        if (cancelled) return;
+        const v = s.assistant_widget_subtitle?.trim();
+        if (v) setSubtitle(v);
+      })
+      .catch(() => { /* keep default */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // Auto-scroll to bottom whenever turns change.
   useEffect(() => {
@@ -100,7 +120,7 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
             <div>
               <div className="font-semibold text-slate-900 text-sm">CPMAI Assistant</div>
               <div className="text-xs text-slate-500">
-                Grounded in our FAQ, pricing &amp; question explanations
+                {subtitle}
               </div>
             </div>
             <div className="flex items-center gap-2">

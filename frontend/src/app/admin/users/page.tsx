@@ -56,6 +56,38 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function setChatLimit(u: UserAdminOut) {
+    const current = u.daily_chat_limit_override;
+    const prompt = current == null
+      ? `Set a per-user daily chat-message cap for ${u.email}.\n\n` +
+        `Currently using the global default. Enter a number to override ` +
+        `it (e.g. 100), or leave blank to keep the default.`
+      : `Override the daily chat-message cap for ${u.email}.\n\n` +
+        `Current override: ${current} messages/day.\n` +
+        `Enter a new number, "0" to block chat entirely, or leave blank to ` +
+        `clear the override and fall back to the global default.`;
+    const ans = window.prompt(prompt, current?.toString() ?? "");
+    if (ans === null) return; // cancelled
+    let override: number | null;
+    if (ans.trim() === "") {
+      override = null;
+    } else {
+      const n = Number(ans);
+      if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+        setErr("Chat limit must be a non-negative whole number.");
+        return;
+      }
+      override = n;
+    }
+    try {
+      await admin.users.setChatLimitOverride(u.id, override);
+      await reload();
+    } catch (e) {
+      console.error("[admin/users] setChatLimit", e);
+      setErr(errMsg(e));
+    }
+  }
+
   async function resetPassword(u: UserAdminOut) {
     const pw = window.prompt(
       `Set a new password for ${u.email}.\n\n` +
@@ -161,6 +193,7 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3">Login methods</th>
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Subscription</th>
+                <th className="px-4 py-3">Chat limit</th>
                 <th className="px-4 py-3">Last login</th>
                 <th className="px-4 py-3">Joined</th>
                 <th className="px-4 py-3"></th>
@@ -192,6 +225,17 @@ export default function AdminUsersPage() {
                       <Badge color="emerald">{u.subscription_plan ?? "active"}</Badge>
                     ) : (
                       <Badge color="slate">free</Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {u.daily_chat_limit_override == null ? (
+                      <span className="text-xs text-slate-400">default</span>
+                    ) : u.daily_chat_limit_override === 0 ? (
+                      <Badge color="slate">blocked</Badge>
+                    ) : (
+                      <Badge color="indigo">
+                        {u.daily_chat_limit_override}/day
+                      </Badge>
                     )}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
@@ -228,6 +272,15 @@ export default function AdminUsersPage() {
                           title="Force-reset this user's password"
                         >
                           Reset password
+                        </button>
+                        <button
+                          onClick={() => setChatLimit(u)}
+                          className="text-xs px-2 py-1 border border-slate-300 rounded text-slate-700 hover:bg-slate-50"
+                          title="Override this user's daily chat-message cap"
+                        >
+                          {u.daily_chat_limit_override == null
+                            ? "Set chat limit"
+                            : "Edit chat limit"}
                         </button>
                       </div>
                     )}

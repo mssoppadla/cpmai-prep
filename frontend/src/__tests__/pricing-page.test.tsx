@@ -91,6 +91,7 @@ function buildFetch(quoteResponse: typeof QUOTE_NO_OFFER | typeof QUOTE_WITH_OFF
         linkedin_url: "", youtube_url: "", twitter_url: "",
         copyright_text: "© 2026 CPMAI Prep. All rights reserved.",
         show_pricing_link: true,
+        assistant_widget_subtitle: "",
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response("{}", {

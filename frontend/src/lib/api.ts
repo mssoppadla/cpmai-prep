@@ -581,6 +581,16 @@ export const admin = {
       await request(`/admin/users/${userId}`,
         { method: "DELETE", authed: true });
     },
+    /** Override the user's daily chat-message cap. `null` clears the
+     *  override and falls back to the global `chat.daily_limit.authenticated`
+     *  setting; a number sets it to exactly that many messages/day. */
+    async setChatLimitOverride(userId: number, override: number | null) {
+      const { data } = await request<UserAdminOut>(
+        `/admin/users/${userId}/chat-limit`,
+        { method: "PATCH", authed: true,
+          json: { daily_chat_limit_override: override } });
+      return data;
+    },
   },
   plans: {
     async list(): Promise<PlanAdminOut[]> {

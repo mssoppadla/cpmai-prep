@@ -110,6 +110,11 @@
     "description": "End-user-facing message the assistant shows when no LLM provider is configured / active. Keep it generic — no mention of admin/provider/setup details."
   },
   {
+    "key": "assistant.widget_subtitle",
+    "value": "Grounded in our FAQ, pricing & question explanations",
+    "description": "Subtitle shown under 'CPMAI Assistant' in the chat panel header. Tells learners what the AI is grounded in."
+  },
+  {
     "key": "payment.active_provider_id",
     "value": null,
     "description": "Active payment_providers row ID"
