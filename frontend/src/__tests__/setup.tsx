@@ -78,6 +78,7 @@ beforeEach(() => {
     twitter_url: "",
     copyright_text: "© 2026 CPMAI Prep. All rights reserved.",
     show_pricing_link: true,
+    assistant_widget_subtitle: "Grounded in our FAQ, pricing & question explanations",
   };
   global.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();

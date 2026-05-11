@@ -55,6 +55,10 @@ export interface UserAdminOut extends UserOut {
   has_password: boolean;
   has_active_subscription: boolean;
   subscription_plan: string | null;
+  /** Per-user daily chat-message cap. `null` = fall back to the global
+   *  `chat.daily_limit.authenticated` setting; a number is the explicit
+   *  override; `0` blocks chat entirely for this user. */
+  daily_chat_limit_override: number | null;
 }
 export interface SubscriptionSummary {
   active: boolean;
@@ -265,6 +269,8 @@ export interface SiteChrome {
   twitter_url: string;
   copyright_text: string;
   show_pricing_link: boolean;
+  /** Subtitle shown under "CPMAI Assistant" in the chat-widget header. */
+  assistant_widget_subtitle: string;
 }
 
 export interface ContactRow {

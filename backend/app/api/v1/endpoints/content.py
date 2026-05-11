@@ -55,6 +55,13 @@ def site_chrome():
         "show_pricing_link": bool(
             settings_store.get("site.show_pricing_link", True),
         ),
+        # End-user chat widget subtitle. Lives here (rather than under
+        # /assistant/*) so the widget can render it without an extra
+        # round-trip — site chrome is already fetched on every page.
+        "assistant_widget_subtitle": settings_store.get_str(
+            "assistant.widget_subtitle",
+            "Grounded in our FAQ, pricing & question explanations",
+        ),
     }
 
 
