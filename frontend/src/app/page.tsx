@@ -85,16 +85,33 @@ export default async function Landing() {
           {faqs.length === 0 ? (
             <p className="text-slate-500 text-sm">No FAQs published yet.</p>
           ) : (
-            <dl className="space-y-3 sm:space-y-4">
-              {faqs.map(f => (
-                <div key={f.id || f.question}
-                     className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200">
-                  <dt className="font-semibold text-slate-900 text-base">{f.question}</dt>
-                  <dd className="mt-2 text-slate-600 text-sm sm:text-base
-                                 leading-relaxed">{f.answer}</dd>
-                </div>
+            // Native <details>/<summary> accordion — no client JS, fully
+            // keyboard-accessible, works without hydration. First item
+            // opens by default so the section doesn't look empty.
+            <div className="space-y-3 sm:space-y-4">
+              {faqs.map((f, i) => (
+                <details key={f.id || f.question}
+                         open={i === 0}
+                         className="group bg-white rounded-xl border border-slate-200
+                                    open:shadow-sm transition-shadow">
+                  <summary className="cursor-pointer list-none flex items-center justify-between
+                                      gap-3 p-4 sm:p-5 font-semibold text-slate-900 text-base
+                                      [&::-webkit-details-marker]:hidden">
+                    <span>{f.question}</span>
+                    <svg
+                      className="flex-shrink-0 w-5 h-5 text-slate-400 transition-transform
+                                 group-open:rotate-180"
+                      viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path fillRule="evenodd"
+                            d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.4a.75.75 0 01-1.08 0l-4.25-4.4a.75.75 0 01.02-1.06z"
+                            clipRule="evenodd" />
+                    </svg>
+                  </summary>
+                  <div className="px-4 sm:px-5 pb-4 sm:pb-5 text-slate-600 text-sm sm:text-base
+                                  leading-relaxed">{f.answer}</div>
+                </details>
               ))}
-            </dl>
+            </div>
           )}
         </section>
       </main>

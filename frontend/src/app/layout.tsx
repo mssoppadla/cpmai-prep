@@ -2,7 +2,12 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AssistantWidgetMount } from "@/components/assistant/AssistantWidgetMount";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cpmai-prep.example";
+// Fallback is the REAL production domain — not a placeholder. iOS Safari
+// and Android Chrome share sheets prefer the og:url / canonical meta tags
+// over window.location, so the value baked in here at build time IS the
+// URL that gets shared. Plumb NEXT_PUBLIC_SITE_URL through the build env
+// to override (e.g. for staging), but never let a placeholder leak.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cpmaiexamprep.com";
 
 export const viewport: Viewport = {
   width: "device-width",
