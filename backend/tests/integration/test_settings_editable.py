@@ -71,6 +71,7 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "assistant.allowed_topics":          "CPMAI, ML, data science.",
     "assistant.banned_topics":           "PMP-only methodologies.",
     "assistant.allowed_exceptions":      "PMI history.",
+    "assistant.no_provider_message":     "Our AI tutor is coming back soon — thanks for your patience.",
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,

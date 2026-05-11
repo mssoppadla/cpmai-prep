@@ -46,5 +46,8 @@ pgvector==0.3.6
 # never invoke heavy document engines like LibreOffice or Java.
 pypdf==4.3.1
 python-docx==1.1.2
-# Optional: other LLM providers (uncomment to install)
-# anthropic==0.34.2
+# Anthropic SDK — enabled when admin selects provider_type: anthropic in
+# /admin/llm-providers. Lazy-imported in providers/anthropic_provider.py
+# so its absence couldn't break the app, but we ship it by default now
+# that it's a first-class option alongside OpenAI.
+anthropic==0.34.2
