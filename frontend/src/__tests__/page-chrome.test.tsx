@@ -22,7 +22,7 @@ import { describe, it, vi } from "vitest";
 // next/navigation, fetch) make these renderable in jsdom.
 import LandingPage from "@/app/page";
 import LoginPage from "@/app/login/page";
-import LearnerDashboard from "@/app/dashboard/page";
+import LearnerDashboard from "@/app/(app)/dashboard/page";
 import ExamSetsListPage from "@/app/(app)/exams/page";
 import ResultsPage from "@/app/(app)/exams/results/[id]/page";
 import PricingPage from "@/app/pricing/page";
