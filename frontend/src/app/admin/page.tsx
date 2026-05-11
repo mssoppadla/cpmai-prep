@@ -14,6 +14,10 @@ const CARDS = [
     desc: "Add or rotate AI model providers with encrypted API keys." },
   { href: "/admin/payment-providers", title: "Payment Providers",
     desc: "Configure Razorpay (or future gateways) at runtime — no redeploy." },
+  { href: "/admin/rag-sources",       title: "RAG Sources",
+    desc: "Upload reference docs (PDF/DOCX/XLSX) that the assistant retrieves from." },
+  { href: "/admin/chat-history",      title: "Chat History",
+    desc: "Audit per-user assistant transcripts, intent, tokens, and cost." },
 ];
 
 export default function AdminDashboard() {

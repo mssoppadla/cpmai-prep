@@ -624,4 +624,125 @@ export const admin = {
         { method: "DELETE", authed: true });
     },
   },
+  chatHistory: {
+    async listUsers(p?: { limit?: number; offset?: number }): Promise<{
+      users: Array<{
+        user_id: number | null;
+        email: string | null;
+        name: string | null;
+        turns: number;
+        last_active: string;
+        tokens_in: number;
+        tokens_out: number;
+        cost_usd: number;
+      }>;
+    }> {
+      const { data } = await request<{
+        users: Array<{
+          user_id: number | null;
+          email: string | null;
+          name: string | null;
+          turns: number;
+          last_active: string;
+          tokens_in: number;
+          tokens_out: number;
+          cost_usd: number;
+        }>;
+      }>(`/admin/chat-history/users${qs(p)}`, { authed: true });
+      return data;
+    },
+    async userTranscript(userId: number, p?: { limit?: number; offset?: number }): Promise<{
+      user: { id: number; email: string | null; name: string | null };
+      turns: Array<{
+        id: number;
+        created_at: string;
+        intent: string | null;
+        intent_confidence: number | null;
+        provider: string | null;
+        model: string | null;
+        input: string | null;
+        response_preview: string | null;
+        tokens_in: number;
+        tokens_out: number;
+        cost_usd: number;
+      }>;
+    }> {
+      const { data } = await request<{
+        user: { id: number; email: string | null; name: string | null };
+        turns: Array<{
+          id: number;
+          created_at: string;
+          intent: string | null;
+          intent_confidence: number | null;
+          provider: string | null;
+          model: string | null;
+          input: string | null;
+          response_preview: string | null;
+          tokens_in: number;
+          tokens_out: number;
+          cost_usd: number;
+        }>;
+      }>(`/admin/chat-history/users/${userId}${qs(p)}`, { authed: true });
+      return data;
+    },
+  },
+  rag: {
+    async status(): Promise<{
+      sources: Record<string, {
+        chunks: number;
+        last_indexed: string | null;
+        provider: string | null;
+        model: string | null;
+      }>;
+    }> {
+      const { data } = await request<{
+        sources: Record<string, {
+          chunks: number; last_indexed: string | null;
+          provider: string | null; model: string | null;
+        }>;
+      }>("/admin/rag/status", { authed: true });
+      return data;
+    },
+    async reindex(): Promise<{ counts: Record<string, number> }> {
+      const { data } = await request<{ counts: Record<string, number> }>(
+        "/admin/rag/reindex", { method: "POST", authed: true });
+      return data;
+    },
+    async listUploads(): Promise<{ documents: RagDocumentOut[] }> {
+      const { data } = await request<{ documents: RagDocumentOut[] }>(
+        "/admin/rag/uploads", { authed: true });
+      return data;
+    },
+    async upload(file: File): Promise<RagDocumentOut> {
+      const token = typeof window !== "undefined"
+        ? window.localStorage.getItem("cpmai.access") : null;
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch(`${BASE}/admin/rag/upload`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      const body = await r.json();
+      if (!r.ok) throw new ApiError(r.status, body?.error ?? {
+        code: "upload_failed", message: `Upload failed (HTTP ${r.status}).`,
+      });
+      return body;
+    },
+    async deleteUpload(id: number): Promise<void> {
+      await request(`/admin/rag/uploads/${id}`, {
+        method: "DELETE", authed: true });
+    },
+  },
 };
+
+export interface RagDocumentOut {
+  id: number;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  chunk_count: number;
+  status: string;
+  created_by: number | null;
+  created_at: string;
+}

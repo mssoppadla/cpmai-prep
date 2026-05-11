@@ -9,6 +9,7 @@ from app.services.assistant.providers.base import LLMProvider
 from app.services.assistant.rag.handler_support import (
     build_context_block, retrieve_context, to_citations,
 )
+from app.services.assistant.system_prompt import with_preamble
 
 
 SYSTEM = (
@@ -26,7 +27,9 @@ class FAQHandler:
     def respond(self, request, user) -> dict:
         chunks = retrieve_context(self.db, request.message, source_types=["faq"])
         context = build_context_block(chunks)
-        system = (SYSTEM + "\n\n" + context) if context else SYSTEM
+        base = (SYSTEM + "\n\n" + context) if context else SYSTEM
+        # Prepend admin-configured guardrails (preamble + allowed/banned).
+        system = with_preamble(base)
         history = [{"role": m.role, "content": m.content} for m in request.history]
         history.append({"role": "user", "content": request.message})
         text = self.provider.complete(system, history)

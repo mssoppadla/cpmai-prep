@@ -85,6 +85,26 @@
     "description": "PMI's Exam Content Outline URL. Surfaced when the user asks what's on the exam."
   },
   {
+    "key": "assistant.system_prompt_preamble",
+    "value": "You are CPMAI Prep's official AI assistant. Be concise and helpful. If a user's question is outside your scope, say so directly rather than guessing.",
+    "description": "Top-line persona / instruction prepended to every chat turn. Admin-tunable without redeploy."
+  },
+  {
+    "key": "assistant.allowed_topics",
+    "value": "CPMAI Body of Knowledge (the 6 phases), ML/AI fundamentals, data science, certification exam tactics, pricing on this site, your account on this site.",
+    "description": "Comma-or-newline list of topics the bot will discuss freely. Folded into the system prompt as 'TOPIC SCOPE'."
+  },
+  {
+    "key": "assistant.banned_topics",
+    "value": "PMP-only project-management methodologies (PRINCE2, classical waterfall PM, PMBOK process groups, agile-only frameworks unless they touch ML).",
+    "description": "Topics the bot should politely decline. Folded into the system prompt as 'BANNED'."
+  },
+  {
+    "key": "assistant.allowed_exceptions",
+    "value": "PMI's history with CPMAI, the relationship between PMI and CPMAI certification, where to register for the CPMAI exam on PMI's site.",
+    "description": "Exception clause to the banned list — PMI-adjacent items that ARE allowed even though they touch the PM banned set."
+  },
+  {
     "key": "payment.active_provider_id",
     "value": null,
     "description": "Active payment_providers row ID"

@@ -467,12 +467,15 @@ export interface ChatMessage {
 }
 export interface AssistantRequest { message: string; history?: ChatMessage[] }
 export interface AssistantCitation { source: string; title: string; url: string | null }
+export interface SuggestedAction { label: string; url: string }
+export type AssistantIntent =
+  | "account" | "faq" | "content" | "insights" | "pmi_reference";
 export interface AssistantResponse {
-  intent: "account" | "faq" | "content" | "insights";
+  intent: AssistantIntent;
   intent_confidence: number;
   message: string;
   citations: AssistantCitation[];
-  suggested_actions: string[];
+  suggested_actions: SuggestedAction[];
   provider: string;
   model_version: string | null;
   is_ai_generated: boolean;

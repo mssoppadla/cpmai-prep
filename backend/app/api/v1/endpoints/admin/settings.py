@@ -101,6 +101,12 @@ EDITABLE: dict[str, Callable] = {
     # PMI link-out URLs (chat surfaces these when intent matches)
     "pmi.course_bundle_url":             _optional_url(500),
     "pmi.eco_url":                       _optional_url(500),
+    # AI assistant guardrails — folded into every LLM-bound handler's
+    # system prompt at request time. Empty values = silent (skipped).
+    "assistant.system_prompt_preamble":  _optional_str(2000),
+    "assistant.allowed_topics":          _optional_str(2000),
+    "assistant.banned_topics":           _optional_str(2000),
+    "assistant.allowed_exceptions":      _optional_str(2000),
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),

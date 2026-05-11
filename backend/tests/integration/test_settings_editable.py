@@ -66,6 +66,11 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     # PMI link-out
     "pmi.course_bundle_url":             "https://www.pmi.org/cpmai",
     "pmi.eco_url":                       "https://www.pmi.org/cpmai/eco",
+    # Assistant guardrails (admin-tunable system prompt + topic policy)
+    "assistant.system_prompt_preamble":  "You are CPMAI Prep's assistant.",
+    "assistant.allowed_topics":          "CPMAI, ML, data science.",
+    "assistant.banned_topics":           "PMP-only methodologies.",
+    "assistant.allowed_exceptions":      "PMI history.",
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,

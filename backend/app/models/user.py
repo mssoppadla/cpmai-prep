@@ -24,6 +24,11 @@ class User(Base):
     role               = Column(SQLEnum(UserRole, name="user_role"),
                                 default=UserRole.USER, nullable=False, index=True)
     is_active          = Column(Boolean, default=True, nullable=False)
+    # Per-user chat daily-limit override. NULL → use the global setting
+    # `chat.daily_limit.authenticated`. Set to give a specific user a
+    # higher (or lower) cap without changing the global default. Admin
+    # edits via the user-admin UI.
+    daily_chat_limit_override = Column(Integer, nullable=True)
     failed_login_count = Column(Integer, default=0, nullable=False)
     locked_until       = Column(DateTime(timezone=True))
     last_login_at      = Column(DateTime(timezone=True))

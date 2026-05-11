@@ -10,6 +10,7 @@ from app.services.assistant.providers.base import LLMProvider
 from app.services.assistant.rag.handler_support import (
     build_context_block, retrieve_context, to_citations,
 )
+from app.services.assistant.system_prompt import with_preamble
 
 
 SYSTEM = (
@@ -29,7 +30,8 @@ class ContentHandler:
             self.db, request.message,
             source_types=["question_explanation"])
         context = build_context_block(chunks)
-        system = (SYSTEM + "\n\n" + context) if context else SYSTEM
+        base = (SYSTEM + "\n\n" + context) if context else SYSTEM
+        system = with_preamble(base)
         history = [{"role": m.role, "content": m.content} for m in request.history]
         history.append({"role": "user", "content": request.message})
         text = self.provider.complete(system, history)
