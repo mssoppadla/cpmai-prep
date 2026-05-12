@@ -16,7 +16,7 @@ plan_exam_sets to decide whether a given exam set is unlocked.
 """
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, JSON, DateTime,
-    ForeignKey, UniqueConstraint, Index,
+    ForeignKey, Index,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -56,8 +56,10 @@ class Plan(Base):
 
 class PlanExamSet(Base):
     __tablename__ = "plan_exam_sets"
+    # Composite PK (plan_id, exam_set_id) already enforces uniqueness; no
+    # separate UniqueConstraint needed (Postgres collapses them, causing
+    # spurious `alembic check` drift reports).
     __table_args__ = (
-        UniqueConstraint("plan_id", "exam_set_id", name="uq_plan_exam_set"),
         Index("ix_plan_exam_sets_plan", "plan_id"),
         Index("ix_plan_exam_sets_set", "exam_set_id"),
     )
