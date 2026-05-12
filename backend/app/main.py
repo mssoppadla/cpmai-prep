@@ -1,4 +1,20 @@
-"""FastAPI entrypoint with full middleware stack and exception handling."""
+"""FastAPI entrypoint with full middleware stack and exception handling.
+
+Where unhandled-exception 500s come from
+----------------------------------------
+The fallback handler for uncaught exceptions lives in
+``RequestLoggingMiddleware`` (``app/core/middleware/logging_mw.py``)
+rather than as a ``@app.exception_handler(Exception)`` here. The reason:
+``BaseHTTPMiddleware`` task-group semantics cause exceptions to bypass
+FastAPI's ``ExceptionMiddleware`` before any ``@app.exception_handler``
+can match them. Catching in the logging middleware ensures the response
+still propagates back through ``CORSMiddleware`` — so the browser sees
+a proper JSON 500 with the right CORS headers instead of a bare 500
+that looks like a network failure.
+
+See the docstring on ``RequestLoggingMiddleware`` for the full
+rationale.
+"""
 import threading
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -96,6 +112,15 @@ async def handle_integrity_error(request: Request, exc: IntegrityError):
                      "a unique field (slug, code, email) is already in use."),
         "request_id": getattr(request.state, "request_id", None),
     }})
+
+
+# NOTE: There is no @app.exception_handler(Exception) here on purpose.
+# See the module-level docstring above and the docstring on
+# RequestLoggingMiddleware for why the fallback 500 path lives in
+# middleware instead. Adding a handler here would be unreachable code
+# given how BaseHTTPMiddleware re-raises exceptions, and would risk
+# someone removing the actual fallback in logging_mw.py thinking this
+# was sufficient.
 
 
 @app.on_event("startup")
