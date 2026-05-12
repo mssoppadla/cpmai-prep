@@ -129,7 +129,15 @@ describe("/pricing page", () => {
   it("bounces unauthenticated user to /login on checkout", async () => {
     global.fetch = buildFetch(QUOTE_NO_OFFER);
     render(<PricingPage />);
+    // The button text changes to "Sign in to continue" once /users/me
+    // resolves with 401, but the button itself stays `disabled` until
+    // /pricing/quote resolves. Race: in slow CI the text-match may
+    // fire before quote is set, so we'd click a disabled button and
+    // checkout() silently no-ops. waitFor on .not.toBeDisabled() pins
+    // both conditions before the click. Locally this was always fast
+    // enough to pass; in GH Actions it flaked.
     const btn = await screen.findByRole("button", { name: /sign in to continue/i });
+    await waitFor(() => { expect(btn).not.toBeDisabled(); });
     fireEvent.click(btn);
     await waitFor(() => {
       expect(pushed.some(p => p.startsWith("/login"))).toBe(true);
