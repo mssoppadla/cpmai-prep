@@ -88,6 +88,54 @@ describe("AssistantWidgetMount — chat bubble visibility contract", () => {
     expect(bubble).toBeInTheDocument();
   });
 
+  it("bubble is position:fixed and anchored bottom-right (not in-flow)",
+     async () => {
+    // Regression: on 2026-05-14 the user reported the bubble had moved
+    // to bottom-LEFT and was missing on some pages. Root cause was
+    // ``relative`` accidentally added to the button's className
+    // alongside ``fixed`` (PR #33 thought it was needed as a
+    // positioning context for the red-dot notification badge — but
+    // ``fixed`` already establishes one). With both classes present,
+    // Tailwind's ``.relative`` rule wins in the output CSS, demoting
+    // the button to in-flow positioning, where the ``right``/``bottom``
+    // offsets behave relative to its parent instead of the viewport.
+    //
+    // This test asserts both invariants:
+    //   • the ``fixed`` utility class is on the button
+    //   • the ``relative`` utility class is NOT on the button
+    //
+    // We check className tokens rather than computed style because
+    // jsdom doesn't evaluate Tailwind's stylesheets. The className
+    // contract is what matters; if both classes are present in source
+    // they'll both end up on the element and the bug returns.
+    window.localStorage.setItem("cpmai.access", "fake.jwt.token");
+    stubAuth({
+      status: 200,
+      body: { id: 1, email: "test@example.com", name: "Test User",
+              role: "user", created_at: "2026-01-01T00:00:00Z" },
+    });
+
+    render(<AssistantWidgetMount />);
+
+    const bubble = await waitFor(() => screen.getByRole("button", {
+      name: /open ai assistant/i,
+    }));
+
+    expect(bubble.className).toMatch(/\bfixed\b/);
+    expect(bubble.className).not.toMatch(/\brelative\b/);
+    // The right + bottom offsets are inline styles (use env() for safe-
+    // area-inset). Their presence confirms the bubble is anchored to a
+    // corner — if either is missing the bubble would float to a default
+    // position. The exact pixel values can change for design tweaks;
+    // we only assert the style keys exist and are non-empty.
+    expect(bubble.style.right).not.toBe("");
+    expect(bubble.style.bottom).not.toBe("");
+    // And we assert NO ``left`` / ``top`` inline style — the bubble
+    // belongs in the bottom-right corner specifically.
+    expect(bubble.style.left).toBe("");
+    expect(bubble.style.top).toBe("");
+  });
+
   it("renders NOTHING when /users/me returns 401 (anonymous visitor)",
      async () => {
     stubAuth({
