@@ -46,6 +46,9 @@ class LeadAdminOut(BaseModel):
     target_exam_date: date | None
     consent_marketing: bool
     converted_user_id: int | None
+    # 0..100 rule-based score, populated at insert time and on any
+    # notes-patch save. `null` for leads that pre-date the feature.
+    score: int | None = None
     class Config: from_attributes = True
 
 
@@ -70,6 +73,10 @@ class ContactRow(BaseModel):
     notes: str | None = None
     converted_user_id: int | None = None
     target_exam_date: date | None = None
+    # Rule-based score in 0..100 for lead rows. `None` for user rows
+    # AND for legacy lead rows that pre-date the scoring feature. UI
+    # renders HOT/WARM/COLD chips based on the bucket.
+    score: int | None = None
 
     # User-specific (None for leads)
     role: str | None = None

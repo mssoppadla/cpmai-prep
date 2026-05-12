@@ -6,9 +6,10 @@
  * One row stream sorted by created_at desc. Filter by kind to focus on
  * just leads or just users. Notes editor is available for lead rows.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { admin, auth, errMsg } from "@/lib/api";
-import type { ContactRow, UserOut } from "@/types/api";
+import { leadTier } from "@/types/api";
+import type { ContactRow, LeadTier, UserOut } from "@/types/api";
 
 export default function ContactsPage() {
   const [rows, setRows] = useState<ContactRow[] | null>(null);
@@ -16,6 +17,10 @@ export default function ContactsPage() {
   const [filter, setFilter] = useState<{ kind: "" | "lead" | "user"; q: string }>(
     { kind: "", q: "" }
   );
+  // Client-side sort. "recent" preserves the API's created_at-desc
+  // ordering. "score" surfaces warmest leads first (with scoreless
+  // rows demoted to the bottom).
+  const [sortBy, setSortBy] = useState<"recent" | "score">("recent");
   const [editing, setEditing] = useState<string | null>(null);  // `${kind}-${id}`
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -41,6 +46,20 @@ export default function ContactsPage() {
     auth.me().then(setMe).catch(() => setMe(null));
     /* eslint-disable-next-line */
   }, []);
+
+  // Client-side resort. Memoize so we don't re-sort on every render.
+  // For score-sort: higher score first, NULL scores last, ties broken
+  // by created_at desc (preserves the recent-first feel within a tier).
+  const displayRows = useMemo<ContactRow[] | null>(() => {
+    if (!rows) return null;
+    if (sortBy === "recent") return rows;  // API already sorted this way
+    return [...rows].sort((a, b) => {
+      const sa = a.score ?? -1;
+      const sb = b.score ?? -1;
+      if (sa !== sb) return sb - sa;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [rows, sortBy]);
 
   async function deleteRow(row: ContactRow) {
     const isUser = row.kind === "user";
@@ -144,6 +163,15 @@ export default function ContactsPage() {
           <option value="lead">Leads only</option>
           <option value="user">Users only</option>
         </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as "recent" | "score")}
+          className="px-3 py-1.5 text-sm border border-slate-300 rounded"
+          title="Sort order"
+        >
+          <option value="recent">Sort: recent first</option>
+          <option value="score">Sort: warmest leads first</option>
+        </select>
         <button
           onClick={reload}
           disabled={busy}
@@ -159,9 +187,9 @@ export default function ContactsPage() {
         </div>
       )}
 
-      {!rows ? (
+      {!displayRows ? (
         <div className="text-slate-500">Loading…</div>
-      ) : rows.length === 0 ? (
+      ) : displayRows.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
           No contacts match the filter.
         </div>
@@ -173,6 +201,7 @@ export default function ContactsPage() {
                 <th className="px-4 py-3">Contact</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Source / role</th>
+                <th className="px-4 py-3">Score</th>
                 <th className="px-4 py-3">Subscription</th>
                 <th className="px-4 py-3">Last seen</th>
                 <th className="px-4 py-3">Created</th>
@@ -180,7 +209,7 @@ export default function ContactsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map(r => {
+              {displayRows.map(r => {
                 const key = `${r.kind}-${r.id}`;
                 const isOpen = editing === key;
                 // Super-admin can delete anything except their own user row.
@@ -279,6 +308,13 @@ function Row({
           )}
         </td>
         <td className="px-4 py-3 text-sm">
+          {row.kind === "lead" ? (
+            <ScoreChip score={row.score ?? null} />
+          ) : (
+            <span className="text-xs text-slate-300">—</span>
+          )}
+        </td>
+        <td className="px-4 py-3 text-sm">
           {row.kind === "user" ? (
             row.has_active_subscription
               ? <span className="text-emerald-700 font-medium">paid</span>
@@ -315,7 +351,7 @@ function Row({
       </tr>
       {isOpen && row.kind === "lead" && (
         <tr className="bg-slate-50">
-          <td colSpan={7} className="px-4 py-4">
+          <td colSpan={8} className="px-4 py-4">
             <div className="text-xs font-semibold text-slate-700 mb-2">
               Internal notes (admin-only)
             </div>
@@ -344,5 +380,29 @@ function Row({
         </tr>
       )}
     </>
+  );
+}
+
+/** Tier-colored chip for the lead Score column.
+ *  HOT = score ≥ 70, WARM = 40-69, COLD = <40, neutral = unscored. */
+function ScoreChip({ score }: { score: number | null }) {
+  const tier: LeadTier = leadTier(score);
+  if (tier === "unknown") {
+    return <span className="text-xs text-slate-400 italic">unscored</span>;
+  }
+  const cls = (
+    tier === "hot"  ? "bg-rose-50    text-rose-700    border-rose-200" :
+    tier === "warm" ? "bg-amber-50   text-amber-700   border-amber-200" :
+                      "bg-slate-100  text-slate-700   border-slate-200"
+  );
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5
+                  rounded border font-medium ${cls}`}
+      title={`Rule-based lead score: ${score}/100`}
+    >
+      <span className="uppercase tracking-wide">{tier}</span>
+      <span className="opacity-70">{score}</span>
+    </span>
   );
 }
