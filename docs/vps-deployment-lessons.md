@@ -212,3 +212,37 @@ find the prod-only path that needs to handle it (typically in
 | `docker-compose.override.yml` (tracked) | Auto-loaded by `docker compose up` (no `-f`) | Dev source mounts, dev ports, `--reload`, `npm run dev` |
 | `docker-compose.prod.yml` (tracked) | Explicit `-f` only | restart:always, loopback ports, prod build args, no source mounts |
 | `infra/Caddyfile` (tracked) | Template; install_app.sh substitutes domain + ports | Reverse proxy + auto-TLS |
+
+---
+
+## One-time VPS image cleanup
+
+`deploy.sh` auto-prunes dangling images older than 7 days at the end of
+every **successful** deploy. If a deploy fails before that step (as
+happened during the two May rollback incidents), images accumulate.
+After a string of failed deploys, `/var/lib/docker` can grow noticeably
+— symptoms include slower builds and, eventually, a disk-full deploy
+abort.
+
+Run on the VPS as the `deploy` user (sudo not required — the user is
+already in the `docker` group):
+
+```bash
+docker system df -v          # before — see what's reclaimable
+docker image prune -af        # remove unused images (running ones stay)
+docker builder prune -af      # reclaim build cache layers
+docker system df -v           # after — sanity check
+```
+
+**Safe to run any time.** Won't touch:
+
+- Running containers or the images they're built from.
+- `cpmai-prep-backend:previous` / `cpmai-prep-frontend:previous` —
+  referenced by `deploy.sh`'s auto-rollback path, so they count as
+  "in use" until a future successful deploy replaces them.
+- Named volumes (postgres data, etc.) — `image prune` only touches
+  images, not volumes.
+
+If you ever need to reclaim volume space too (you usually don't):
+inspect first with `docker volume ls` + `docker volume inspect`. Never
+`docker volume prune` on the prod host without a fresh DB backup.
