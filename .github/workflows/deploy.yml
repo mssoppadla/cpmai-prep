@@ -226,6 +226,70 @@ jobs:
         # is not gated by `if not exists` or otherwise crashes when its
         # target already exists, this catches it before prod.
         run: cd backend && alembic upgrade head
+      - name: alembic upgrade head from EMPTY DB (full chain)
+        # Above gate only verified metadata vs head; the migrations
+        # themselves never actually executed against a DB. This step
+        # drops the schema and runs every migration in sequence. Catches
+        # migrations that crash on apply (CREATE EXTENSION missing,
+        # ALTER TABLE referencing a column added later, etc.) — the
+        # exact class of bug that bit us in May 2026 with 0009 and
+        # again with 0016/0017.
+        run: |
+          cd backend
+          python -c "
+          from sqlalchemy import text
+          from app.core.database import engine
+          with engine.begin() as c:
+              c.execute(text('DROP SCHEMA public CASCADE'))
+              c.execute(text('CREATE SCHEMA public'))
+              c.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
+          "
+          alembic upgrade head
+      - name: regression — uppercase leadsource row survives full chain
+        # Specifically pins the 2026-05-13 bug: with a real row in
+        # ``leads`` whose ``source`` is the uppercase NAME (the
+        # pre-values_callable convention), running 0016+0017 in the
+        # SAME alembic transaction triggered
+        # ``psycopg2.errors.UnsafeNewEnumValueUsage`` because
+        # ``ALTER TYPE … ADD VALUE`` and the ``UPDATE … ::leadsource``
+        # cast can't share a transaction. Fixed by setting
+        # ``transaction_per_migration=True`` in env.py. This step
+        # exercises that codepath end-to-end.
+        run: |
+          cd backend
+          python -c "
+          from sqlalchemy import text
+          from app.core.database import engine
+          # 1. Reset to empty DB
+          with engine.begin() as c:
+              c.execute(text('DROP SCHEMA public CASCADE'))
+              c.execute(text('CREATE SCHEMA public'))
+              c.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
+          "
+          # 2. Apply migrations up to the one BEFORE the LeadSource enum work
+          alembic upgrade 0015_hitl_flagged_turns
+          # 3. Insert a lead with an uppercase NAME source value via raw
+          #    SQL (bypass the model so we get the historical wire shape).
+          python -c "
+          from sqlalchemy import text
+          from app.core.database import engine
+          with engine.begin() as c:
+              c.execute(text(\"INSERT INTO leads (email, source, consent_marketing) VALUES ('regression@test', 'LANDING_HERO', false)\"))
+          "
+          # 4. Continue to head. With transaction_per_migration=True (env.py),
+          #    0016 commits the ADD VALUE before 0017 tries to USE it.
+          #    With the old single-transaction default this step
+          #    fails — that's the regression we're guarding against.
+          alembic upgrade head
+          # 5. Sanity check — the row's source should now be the lowercase VALUE.
+          python -c "
+          from sqlalchemy import text
+          from app.core.database import engine
+          with engine.begin() as c:
+              v = c.execute(text(\"SELECT source::text FROM leads WHERE email='regression@test'\")).scalar()
+          assert v == 'landing_hero', f'expected landing_hero, got {v!r}'
+          print('regression check passed: row converted to lowercase value')
+          "
 
   # ----------------------------------------------------------------------------
   # Deploy gate — requires manual approval via the "production" Environment.
