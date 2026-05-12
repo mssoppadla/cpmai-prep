@@ -39,7 +39,24 @@ class Lead(Base):
     company = Column(String(120))
     role    = Column(String(120))
 
-    source       = Column(SQLEnum(LeadSource), nullable=False)
+    # ``values_callable`` makes SQLAlchemy use the Python enum's VALUES
+    # (lowercase ``landing_hero``) instead of its NAMES (uppercase
+    # ``LANDING_HERO``) for DDL generation and on-write serialization.
+    #
+    # Why: without this, SQLAlchemy stored the NAME but the Pydantic API
+    # contract surfaces the VALUE — a quiet drift trap. We hit it in
+    # May 2026 when migration 0012 added the lowercase value
+    # ``chat_callback`` but inserts were silently sending ``CHAT_CALLBACK``
+    # — every chat-callback POST 500'd until we hot-patched the enum.
+    #
+    # See ``QuestionType`` in ``app/models/question.py`` for the
+    # documented pattern. Migrations 0016 + 0017 added every lowercase
+    # value to the enum and translated existing rows to match.
+    source       = Column(
+        SQLEnum(LeadSource, name="leadsource",
+                values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+    )
     landing_url  = Column(String(500))
     referrer     = Column(String(500))
     utm_source   = Column(String(120))
