@@ -24,7 +24,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { content, leads, errMsg } from "@/lib/api";
+import { assistant, content, leads, errMsg,
+         type AssistantNotification } from "@/lib/api";
 import type { UserOut, AssistantCitation, SuggestedAction } from "@/types/api";
 import { useAssistant, type ChatTurn } from "./useAssistant";
 
@@ -47,6 +48,55 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { turns, quota, busy, error, send, clear } = useAssistant(user?.id ?? null);
+
+  // HITL: unread admin replies. Drives the red-dot indicator on the
+  // bubble + the "Support reply" cards prepended to the message list.
+  const [notifications, setNotifications] = useState<AssistantNotification[]>([]);
+
+  // Per-turn flag UI state, keyed by turn_id from the AssistantResponse.
+  const [flagState, setFlagState] = useState<Record<number, {
+    mode: "idle" | "open" | "submitting" | "sent" | "error";
+    note: string;
+    err?: string;
+  }>>({});
+
+  // Poll notifications on mount + every time the panel opens. No
+  // long-polling; opening the widget is the natural read trigger.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    assistant.notifications()
+      .then((n) => { if (!cancelled) setNotifications(n); })
+      .catch(() => { /* silent — not critical */ });
+    return () => { cancelled = true; };
+  }, [user, open]);
+
+  // When the panel opens and there are unread replies, mark them seen
+  // after a short delay (so the user has time to see the highlight).
+  useEffect(() => {
+    if (!open || notifications.length === 0) return;
+    const ids = notifications.map((n) => n.id);
+    const t = setTimeout(() => {
+      Promise.all(ids.map((id) => assistant.markNotificationSeen(id)
+                                            .catch(() => null)))
+        .then(() => setNotifications([]));
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [open, notifications]);
+
+  async function submitFlag(turnId: number) {
+    const s = flagState[turnId];
+    setFlagState((m) => ({ ...m, [turnId]: { ...s, mode: "submitting", note: s?.note ?? "" } }));
+    try {
+      await assistant.flagTurn(turnId, s?.note);
+      setFlagState((m) => ({ ...m, [turnId]: { mode: "sent", note: "" } }));
+    } catch (e) {
+      setFlagState((m) => ({ ...m, [turnId]: {
+        ...s, mode: "error", note: s?.note ?? "",
+        err: errMsg(e),
+      } }));
+    }
+  }
 
   // Subtitle is admin-editable via /admin/settings → assistant.widget_subtitle.
   // Lives on SiteChrome (one public endpoint, cached). If the fetch fails or
@@ -147,8 +197,15 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
                    bg-indigo-600 text-white shadow-lg hover:bg-indigo-700
                    focus:outline-none focus:ring-4 focus:ring-indigo-300
                    flex items-center justify-center transition-transform
-                   hover:scale-105"
+                   hover:scale-105 relative"
       >
+        {!open && notifications.length > 0 && (
+          <span
+            aria-label={`${notifications.length} unread reply`}
+            className="absolute top-0 right-0 w-3.5 h-3.5 rounded-full
+                       bg-rose-500 border-2 border-white"
+          />
+        )}
         {open ? (
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -227,11 +284,27 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
               {/* Message list */}
               <div ref={scrollRef}
                    className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-white">
-                {turns.length === 0 && (
+                {turns.length === 0 && notifications.length === 0 && (
                   <EmptyState />
                 )}
+                {notifications.map((n) => (
+                  <SupportReplyBubble key={n.id} notification={n} />
+                ))}
                 {turns.map((t, i) => (
-                  <TurnBubble key={i} turn={t} />
+                  <TurnBubble key={i} turn={t}
+                              flagState={t.response?.turn_id != null
+                                ? flagState[t.response.turn_id] : undefined}
+                              onFlagOpen={(id) => setFlagState((m) => ({
+                                ...m, [id]: { mode: "open", note: "" },
+                              }))}
+                              onFlagCancel={(id) => setFlagState((m) => {
+                                const { [id]: _drop, ...rest } = m;
+                                return rest;
+                              })}
+                              onFlagNoteChange={(id, v) => setFlagState((m) => ({
+                                ...m, [id]: { ...(m[id] ?? { mode: "open", note: "" }), note: v },
+                              }))}
+                              onFlagSubmit={submitFlag} />
                 ))}
                 {busy && (
                   <div className="flex items-start gap-2">
@@ -401,7 +474,21 @@ function EmptyState() {
 }
 
 
-function TurnBubble({ turn }: { turn: ChatTurn }) {
+interface FlagUiState {
+  mode: "idle" | "open" | "submitting" | "sent" | "error";
+  note: string;
+  err?: string;
+}
+
+function TurnBubble({ turn, flagState, onFlagOpen, onFlagCancel,
+                     onFlagNoteChange, onFlagSubmit }: {
+  turn: ChatTurn;
+  flagState?: FlagUiState;
+  onFlagOpen?: (id: number) => void;
+  onFlagCancel?: (id: number) => void;
+  onFlagNoteChange?: (id: number, v: string) => void;
+  onFlagSubmit?: (id: number) => void;
+}) {
   if (turn.role === "user") {
     return (
       <div className="flex items-start gap-2 justify-end">
@@ -411,6 +498,7 @@ function TurnBubble({ turn }: { turn: ChatTurn }) {
       </div>
     );
   }
+  const turnId = turn.response?.turn_id ?? null;
   return (
     <div className="flex items-start gap-2">
       <Avatar role="assistant" />
@@ -428,6 +516,99 @@ function TurnBubble({ turn }: { turn: ChatTurn }) {
         {turn.response?.citations && turn.response.citations.length > 0 && (
           <Citations citations={turn.response.citations} />
         )}
+        {turnId != null && (
+          <FlagControl turnId={turnId} state={flagState}
+                       onOpen={onFlagOpen} onCancel={onFlagCancel}
+                       onNoteChange={onFlagNoteChange}
+                       onSubmit={onFlagSubmit} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+function FlagControl({ turnId, state, onOpen, onCancel, onNoteChange,
+                       onSubmit }: {
+  turnId: number; state?: FlagUiState;
+  onOpen?: (id: number) => void;
+  onCancel?: (id: number) => void;
+  onNoteChange?: (id: number, v: string) => void;
+  onSubmit?: (id: number) => void;
+}) {
+  const mode = state?.mode ?? "idle";
+  if (mode === "sent") {
+    return (
+      <div className="mt-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+        ✓ Sent for review. A teammate will reply here when they can.
+      </div>
+    );
+  }
+  if (mode === "open" || mode === "submitting" || mode === "error") {
+    return (
+      <div className="mt-2 border border-slate-200 rounded-lg p-2 bg-slate-50">
+        <label className="block text-xs text-slate-600 mb-1">
+          What was wrong about this answer? <span className="text-slate-400">(optional)</span>
+        </label>
+        <textarea
+          value={state?.note ?? ""}
+          onChange={(e) => onNoteChange?.(turnId, e.target.value)}
+          rows={2} maxLength={500}
+          disabled={mode === "submitting"}
+          className="w-full text-sm border border-slate-300 rounded px-2 py-1
+                     focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          placeholder="e.g. The exam is monthly, not quarterly."
+        />
+        {state?.err && (
+          <div className="text-xs text-rose-600 mt-1">{state.err}</div>
+        )}
+        <div className="flex justify-end gap-1.5 mt-1.5">
+          <button type="button"
+            onClick={() => onCancel?.(turnId)}
+            disabled={mode === "submitting"}
+            className="text-xs px-2 py-1 text-slate-600 hover:text-slate-900 disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="button"
+            onClick={() => onSubmit?.(turnId)}
+            disabled={mode === "submitting"}
+            className="text-xs px-2 py-1 bg-indigo-600 text-white rounded
+                       hover:bg-indigo-700 disabled:opacity-50">
+            {mode === "submitting" ? "Sending…" : "Send for review"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <button type="button"
+      onClick={() => onOpen?.(turnId)}
+      className="mt-1 text-xs text-slate-400 hover:text-rose-600 hover:underline">
+      Wasn't helpful?
+    </button>
+  );
+}
+
+
+function SupportReplyBubble({ notification }: {
+  notification: AssistantNotification;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <div className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold bg-emerald-100 text-emerald-700">
+        ✓
+      </div>
+      <div className="flex-1 max-w-[85%]">
+        <div className="bg-emerald-50 border border-emerald-200 text-slate-900 rounded-lg px-3 py-2 text-sm whitespace-pre-wrap">
+          <div className="text-xs font-semibold text-emerald-700 mb-1">
+            Reply from our team
+            {notification.replied_by_name && ` · ${notification.replied_by_name}`}
+          </div>
+          {notification.admin_reply}
+        </div>
+        <div className="text-[10px] text-slate-400 mt-1">
+          Re: <em>"{notification.original_message.slice(0, 80)}{notification.original_message.length > 80 ? "…" : ""}"</em>
+        </div>
       </div>
     </div>
   );

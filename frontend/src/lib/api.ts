@@ -244,6 +244,16 @@ export const exams = {
 };
 
 // ---------- Assistant ------------------------------------------------------
+export interface AssistantNotification {
+  id: number;
+  assistant_log_id: number;
+  original_message: string;
+  original_reply: string;
+  admin_reply: string;
+  replied_at: string;
+  replied_by_name: string | null;
+}
+
 export const assistant = {
   async chat(payload: AssistantRequest): Promise<{
     response: AssistantResponse; quota: ChatQuota;
@@ -258,6 +268,31 @@ export const assistant = {
       reset_at: headers.get("X-Chat-Quota-Reset") ?? "",
     };
     return { response: data, quota };
+  },
+  /** Flag an AI turn as unhelpful. Idempotent on (turn_id) — the
+   *  backend returns the existing flag row on second submit instead
+   *  of erroring, so the widget can be safely re-clicked. */
+  async flagTurn(turnId: number, note?: string): Promise<{
+    id: number; status: "pending" | "replied" | "closed";
+  }> {
+    const { data } = await request<{
+      id: number; status: "pending" | "replied" | "closed";
+    }>(`/assistant/turns/${turnId}/flag`, {
+      method: "POST", authed: true,
+      json: { note: note?.trim() || null },
+    });
+    return data;
+  },
+  /** Unread admin replies — drives the chat widget's red-dot indicator. */
+  async notifications(): Promise<AssistantNotification[]> {
+    const { data } = await request<AssistantNotification[]>(
+      "/assistant/notifications", { authed: true });
+    return data;
+  },
+  /** Acknowledge an admin reply (clears the red dot for this flag). */
+  async markNotificationSeen(flagId: number): Promise<void> {
+    await request(`/assistant/notifications/${flagId}/seen`,
+      { method: "POST", authed: true });
   },
 };
 
@@ -659,6 +694,7 @@ export const admin = {
         email: string | null;
         name: string | null;
         turns: number;
+        flagged: number;
         last_active: string;
         tokens_in: number;
         tokens_out: number;
@@ -671,12 +707,61 @@ export const admin = {
           email: string | null;
           name: string | null;
           turns: number;
+          flagged: number;
           last_active: string;
           tokens_in: number;
           tokens_out: number;
           cost_usd: number;
         }>;
       }>(`/admin/chat-history/users${qs(p)}`, { authed: true });
+      return data;
+    },
+    /** HITL: list flagged turns awaiting (or, with includeReplied,
+     *  including already-replied) admin attention. */
+    async listFlagged(p?: { include_replied?: boolean;
+                            limit?: number; offset?: number }): Promise<{
+      items: Array<{
+        id: number;
+        assistant_log_id: number;
+        user: { id: number | null; email: string | null; name: string | null };
+        original_message: string;
+        original_reply: string;
+        provider: string | null;
+        model: string | null;
+        flag_note: string | null;
+        flagged_at: string;
+        admin_reply: string | null;
+        replied_at: string | null;
+        replied_by: { id: number | null; name: string | null;
+                      email: string | null } | null;
+      }>;
+    }> {
+      const { data } = await request<{
+        items: Array<{
+          id: number;
+          assistant_log_id: number;
+          user: { id: number | null; email: string | null; name: string | null };
+          original_message: string;
+          original_reply: string;
+          provider: string | null;
+          model: string | null;
+          flag_note: string | null;
+          flagged_at: string;
+          admin_reply: string | null;
+          replied_at: string | null;
+          replied_by: { id: number | null; name: string | null;
+                        email: string | null } | null;
+        }>;
+      }>(`/admin/chat-history/flagged${qs(p)}`, { authed: true });
+      return data;
+    },
+    /** HITL: admin posts a reply for a flagged turn. */
+    async replyToFlagged(flagId: number, reply: string): Promise<{
+      id: number; replied_at: string;
+    }> {
+      const { data } = await request<{ id: number; replied_at: string }>(
+        `/admin/chat-history/turns/${flagId}/reply`,
+        { method: "POST", authed: true, json: { reply } });
       return data;
     },
     async userTranscript(userId: number, p?: { limit?: number; offset?: number }): Promise<{

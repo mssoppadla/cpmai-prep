@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { admin, errMsg } from "@/lib/api";
 
 type UserRow = {
@@ -7,6 +8,7 @@ type UserRow = {
   email: string | null;
   name: string | null;
   turns: number;
+  flagged: number;
   last_active: string;
   tokens_in: number;
   tokens_out: number;
@@ -53,12 +55,20 @@ export default function ChatHistoryPage() {
 
   return (
     <div className="p-8 max-w-6xl">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Chat History</h1>
-        <p className="text-slate-600 mt-1 text-sm">
-          Per-user transcripts of assistant conversations. PII-redacted at
-          capture; intent, provider, tokens and cost are tracked for audit.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Chat History</h1>
+          <p className="text-slate-600 mt-1 text-sm">
+            Per-user transcripts of assistant conversations. PII-redacted at
+            capture; intent, provider, tokens and cost are tracked for audit.
+          </p>
+        </div>
+        <Link href="/admin/chat-history/flagged"
+          className="shrink-0 px-3 py-2 text-sm font-medium rounded-lg
+                     border border-rose-300 text-rose-700 bg-white
+                     hover:bg-rose-50">
+          Flagged turns queue →
+        </Link>
       </header>
 
       {err && (
@@ -88,7 +98,13 @@ export default function ChatHistoryPage() {
                           {u.name || u.email || "(anonymous)"}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
-                          {u.turns} turns · ${u.cost_usd.toFixed(4)} ·
+                          {u.turns} turns ·{" "}
+                          {u.flagged > 0 && (
+                            <span className="text-rose-600 font-medium">
+                              {u.flagged} flagged ·{" "}
+                            </span>
+                          )}
+                          ${u.cost_usd.toFixed(4)} ·
                           {" "}{new Date(u.last_active).toLocaleDateString()}
                         </div>
                       </button>
