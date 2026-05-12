@@ -32,6 +32,12 @@ class User(Base):
     failed_login_count = Column(Integer, default=0, nullable=False)
     locked_until       = Column(DateTime(timezone=True))
     last_login_at      = Column(DateTime(timezone=True))
+    # GDPR soft-delete marker. Set by `DELETE /users/me`; once non-NULL,
+    # the user cannot log in and PII has been redacted (email rewritten
+    # to deleted-{id}@redacted.invalid, name/password_hash/google_id
+    # NULL). Financial rows (payments, subscriptions) are retained for
+    # tax-law compliance.
+    deleted_at         = Column(DateTime(timezone=True), nullable=True)
     created_at         = Column(DateTime(timezone=True), server_default=func.now())
     updated_at         = Column(DateTime(timezone=True),
                                 server_default=func.now(), onupdate=func.now())

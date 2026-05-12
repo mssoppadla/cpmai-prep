@@ -183,6 +183,19 @@ export const auth = {
       "/users/me/dashboard", { authed: true });
     return data;
   },
+  /** GDPR data export. Returns the raw JSON object (everything the
+   *  server holds for this user). Caller offers it as a downloadable file. */
+  async exportMyData(): Promise<unknown> {
+    const { data } = await request<unknown>("/users/me/export",
+      { authed: true });
+    return data;
+  },
+  /** GDPR account deletion. Server soft-deletes + redacts PII; on 204
+   *  the caller should clear local auth and route to the landing page. */
+  async deleteMyAccount(): Promise<void> {
+    await request("/users/me", { method: "DELETE", authed: true });
+    clearTokens();
+  },
 };
 
 // ---------- Exam sets & attempts ------------------------------------------

@@ -207,9 +207,135 @@ export default function LearnerDashboard() {
           </div>
         )}
       </section>
+
+      <PrivacySection email={data.user.email} onAfterDelete={() => router.push("/")} />
       </main>
       <SiteFooter />
     </>
+  );
+}
+
+function PrivacySection({ email, onAfterDelete }: {
+  email: string; onAfterDelete: () => void;
+}) {
+  const [busy, setBusy] = useState<"export" | "delete" | null>(null);
+  const [err, setErr]   = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+
+  async function onExport() {
+    setBusy("export"); setErr(null);
+    try {
+      const data = await auth.exportMyData();
+      const blob = new Blob([JSON.stringify(data, null, 2)],
+                            { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cpmai-data-${email.split("@")[0]}-${new Date()
+        .toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally { setBusy(null); }
+  }
+
+  async function onConfirmDelete() {
+    setBusy("delete"); setErr(null);
+    try {
+      await auth.deleteMyAccount();
+      onAfterDelete();
+    } catch (e) {
+      setErr(errMsg(e));
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="max-w-5xl mx-auto px-6 pb-12 border-t border-slate-200 pt-8">
+      <h2 className="text-lg font-semibold text-slate-900 mb-1">
+        Privacy &amp; data
+      </h2>
+      <p className="text-sm text-slate-500 mb-4">
+        Download everything we have for your account, or permanently
+        delete it.
+      </p>
+      {err && (
+        <div className="mb-3 text-sm text-rose-600">{err}</div>
+      )}
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={onExport}
+          disabled={!!busy}
+          className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-60"
+        >
+          {busy === "export" ? "Preparing…" : "Download my data"}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setTyped(""); setConfirmOpen(true); }}
+          disabled={!!busy}
+          className="px-4 py-2 text-sm font-medium rounded-lg border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 disabled:opacity-60"
+        >
+          Delete my account
+        </button>
+      </div>
+
+      {confirmOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center px-4"
+          onClick={() => !busy && setConfirmOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-xl shadow-xl max-w-md w-full p-6"
+          >
+            <h3 className="text-base font-semibold text-slate-900 mb-2">
+              Delete your account?
+            </h3>
+            <p className="text-sm text-slate-600 mb-3">
+              This permanently redacts your profile (email, name, sign-in
+              credentials) and signs you out. Financial records
+              (payments, subscriptions) are retained as required by
+              Indian tax law but are no longer linked to a usable account.
+              <strong className="text-slate-900"> This cannot be undone.</strong>
+            </p>
+            <label className="block text-xs text-slate-500 mb-1">
+              Type <code className="font-mono text-rose-700">DELETE</code> to confirm
+            </label>
+            <input
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm mb-4"
+              placeholder="DELETE"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                disabled={!!busy}
+                className="px-3 py-2 text-sm rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onConfirmDelete}
+                disabled={typed !== "DELETE" || !!busy}
+                className="px-3 py-2 text-sm rounded-md bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {busy === "delete" ? "Deleting…" : "Delete account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
