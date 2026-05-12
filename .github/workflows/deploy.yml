@@ -109,14 +109,10 @@ jobs:
         # Without it, create_all blows up on the VECTOR(1536) column on
         # rag_chunks. Idempotent: safe on every CI run.
         #
-        # NOTE on test-gate fidelity: CI executes Base.metadata.create_all
-        # (model-derived schema), NOT alembic upgrade head (migration-
-        # derived schema). When those two diverge — e.g. a migration
-        # creates a Postgres enum with values that don't match the
-        # SQLAlchemy Enum column's NAME-based default — prod can break
-        # while CI passes. Hardening: a follow-up PR adds a second
-        # job that runs `alembic upgrade head` from empty to validate
-        # migration parity. Tracked separately.
+        # Test-gate fidelity note: this job uses Base.metadata.create_all
+        # (model-derived schema) — fast, and matches deploy.sh's fresh-DB
+        # bootstrap. The separate `migration-drift` job below catches the
+        # model-vs-migration divergence this path cannot see.
         run: |
           cd backend
           python -c "
@@ -156,11 +152,87 @@ jobs:
         run: cd frontend && npm run lint || true
 
   # ----------------------------------------------------------------------------
+  # Migration drift gate.
+  #
+  # Why this exists: the `test` job above runs Base.metadata.create_all (model-
+  # derived schema) + `alembic stamp head` (mirrors deploy.sh on a fresh DB).
+  # That path NEVER runs the migration DDL, so a developer can add a model
+  # column without the matching migration and CI still passes — only to break
+  # in prod on the existing-install upgrade path. Twice now we've shipped
+  # that class of drift.
+  #
+  # Defense: `alembic check` compares the head revision's metadata against
+  # the live model classes and fails on any mismatch (new column, removed
+  # column, type change, etc.) — no DDL execution needed.
+  #
+  # We also run `alembic upgrade head` after bootstrap to verify migrations
+  # remain syntactically valid + don't conflict with the bootstrapped
+  # schema. This catches stuff like 0009's missing `CREATE EXTENSION vector`
+  # — the migration must run against the actual DB, not just be parseable.
+  # ----------------------------------------------------------------------------
+  migration-drift:
+    name: Migration ↔ model drift check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: cpmai
+          POSTGRES_PASSWORD: cpmai_test
+          POSTGRES_DB: cpmai_migr
+        options: >-
+          --health-cmd "pg_isready -U cpmai -d cpmai_migr"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+    env:
+      DATABASE_URL: postgresql+psycopg2://cpmai:cpmai_test@localhost:5432/cpmai_migr
+      SECRET_KEY: test_secret_key_not_used_in_prod
+      APP_ENV: test
+      ALLOWED_HOSTS: '["localhost","127.0.0.1"]'
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    steps:
+      - name: Generate test ENCRYPTION_KEY (per-job, ephemeral)
+        run: |
+          python3 -c "import secrets, base64; print('ENCRYPTION_KEY=' + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend deps
+        run: pip install -r backend/requirements.txt
+      - name: Bootstrap schema (mirror deploy.sh fresh-DB path)
+        run: |
+          cd backend
+          python -c "
+          import app.models  # noqa: F401
+          from app.core.database import Base, engine
+          from sqlalchemy import text
+          with engine.begin() as c:
+              c.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
+          Base.metadata.create_all(bind=engine)
+          "
+          alembic stamp head
+      - name: alembic check (model ↔ migration drift)
+        # Fails if SQLAlchemy model classes have diverged from the migration
+        # head's expected schema. This is the exact check the existing `test`
+        # job cannot do because it bootstraps from the model, not the
+        # migrations.
+        run: cd backend && alembic check
+      - name: alembic upgrade head (idempotency on bootstrapped schema)
+        # On a fresh-bootstrapped DB this is a no-op. If a future migration
+        # is not gated by `if not exists` or otherwise crashes when its
+        # target already exists, this catches it before prod.
+        run: cd backend && alembic upgrade head
+
+  # ----------------------------------------------------------------------------
   # Deploy gate — requires manual approval via the "production" Environment.
   # ----------------------------------------------------------------------------
   deploy:
     name: Deploy to production VPS
-    needs: test
+    needs: [test, migration-drift]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:

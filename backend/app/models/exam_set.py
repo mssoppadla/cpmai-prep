@@ -5,7 +5,7 @@ Existing exam_sessions get a nullable exam_set_id so historical attempts remain 
 """
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, ForeignKey, Enum as SQLEnum,
-    DateTime, UniqueConstraint, Index
+    DateTime, Index
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -38,8 +38,11 @@ class ExamSet(Base):
 
 class ExamSetQuestion(Base):
     __tablename__ = "exam_set_questions"
+    # No explicit UniqueConstraint: the composite PK (exam_set_id, question_id)
+    # already enforces uniqueness. Postgres collapses the two when create_all
+    # emits both, which previously caused `alembic check` to report drift
+    # between the model (claims a separate UQ) and the DB (just the PK).
     __table_args__ = (
-        UniqueConstraint("exam_set_id", "question_id", name="uq_exam_set_question"),
         Index("ix_exam_set_questions_set_position", "exam_set_id", "position"),
     )
 
