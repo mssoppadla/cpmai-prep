@@ -483,7 +483,9 @@ export const admin = {
     },
   },
   leads: {
-    async list(p?: { source?: string; q?: string; limit?: number; offset?: number }) {
+    async list(p?: { source?: string; q?: string;
+                     sort?: "recent" | "score";
+                     limit?: number; offset?: number }) {
       const { data } = await request<LeadAdminOut[]>(
         `/admin/leads${qs(p)}`, { authed: true });
       return data;

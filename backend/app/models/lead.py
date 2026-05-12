@@ -68,6 +68,13 @@ class Lead(Base):
     interests        = Column(JSON, default=list)
     target_exam_date = Column(Date)
     experience_level = Column(String(50))
+    # Rule-based score in [0, 100] computed at insert time by
+    # ``app.services.lead_scoring.calculate_lead_score``. Nullable
+    # because rows pre-dating this feature don't have one and we
+    # intentionally don't backfill (see migration 0018 rationale).
+    # Re-saving via the notes-patch endpoint also recomputes, so admin
+    # can opt-in to score old leads one at a time.
+    score            = Column(Integer)
 
     anon_id           = Column(String(36), index=True)
     converted_user_id = Column(Integer, ForeignKey("users.id"))

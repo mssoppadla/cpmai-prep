@@ -287,6 +287,9 @@ export interface ContactRow {
   notes?: string | null;
   converted_user_id?: number | null;
   target_exam_date?: string | null;
+  /** Rule-based 0..100 score (lead rows only). `null` for user rows
+   *  and for leads created before scoring shipped. */
+  score?: number | null;
   // user-only
   role?: string | null;
   has_google?: boolean | null;
@@ -315,6 +318,20 @@ export interface LeadAdminOut {
   converted_user_id: number | null;
   notes: string | null;
   created_at: string;
+  /** Rule-based 0..100 score. `null` for leads created before the
+   *  scoring feature shipped; backfilled when admin saves notes. */
+  score: number | null;
+}
+
+/** UI tier label for a lead score. Matches `app/services/lead_scoring.py:
+ *  score_tier`. Drives the chip color on the admin list. */
+export type LeadTier = "hot" | "warm" | "cold" | "unknown";
+
+export function leadTier(score: number | null | undefined): LeadTier {
+  if (score === null || score === undefined) return "unknown";
+  if (score >= 70) return "hot";
+  if (score >= 40) return "warm";
+  return "cold";
 }
 
 // ---------- Payments -------------------------------------------------------

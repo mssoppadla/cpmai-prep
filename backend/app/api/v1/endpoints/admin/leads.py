@@ -33,9 +33,20 @@ def list_leads(db: Session = Depends(get_db),
                source: str | None = None, q: str | None = None,
                from_date: date | None = Query(default=None, alias="from"),
                to_date: date | None = Query(default=None, alias="to"),
+               # Admin can sort by recency (default) OR by score-desc
+               # to triage warm leads first. Score-desc is the lead-
+               # scoring feature's main UI hook.
+               sort: str = Query("recent", pattern="^(recent|score)$"),
                limit: int = Query(50, le=200), offset: int = 0):
     query = _filter(db.query(Lead), source, q, from_date, to_date)
-    return query.order_by(Lead.created_at.desc()).offset(offset).limit(limit).all()
+    if sort == "score":
+        # NULL scores (pre-feature leads) sort last so warm leads
+        # surface to the top. Tie-break on created_at-desc.
+        query = query.order_by(Lead.score.desc().nulls_last(),
+                                Lead.created_at.desc())
+    else:
+        query = query.order_by(Lead.created_at.desc())
+    return query.offset(offset).limit(limit).all()
 
 
 @router.get("/contacts", response_model=list[ContactRow])
@@ -68,6 +79,7 @@ def list_contacts(db: Session = Depends(get_db),
                 notes=L.notes,
                 converted_user_id=L.converted_user_id,
                 target_exam_date=L.target_exam_date,
+                score=L.score,
             ))
 
     if kind != "lead":
@@ -112,8 +124,19 @@ def update_notes(lead_id: int, payload: dict,
     lead = db.get(Lead, lead_id)
     if not lead: raise NotFoundError()
     lead.notes = payload.get("notes", "")
+    # Recompute the score: notes are an input to it, AND this also lets
+    # admin opt-in-backfill the score for leads that pre-date the
+    # scoring feature (just save the notes — even unchanged — to score).
+    from app.services.lead_scoring import calculate_lead_score
+    is_repeat = db.query(Lead.id).filter(
+        Lead.id != lead.id,
+        (Lead.email == lead.email) |
+        ((Lead.anon_id == lead.anon_id) if lead.anon_id else False),
+    ).first() is not None
+    lead.score = calculate_lead_score(lead, is_repeat=is_repeat)
     db.commit(); db.refresh(lead)
-    audit_log(db, admin.id, "lead.notes_updated", {"lead_id": lead_id})
+    audit_log(db, admin.id, "lead.notes_updated",
+              {"lead_id": lead_id, "score": lead.score})
     return lead
 
 
