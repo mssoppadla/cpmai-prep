@@ -113,7 +113,12 @@ async function request<T>(path: string, opts: FetchOpts = {}): Promise<{
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
     headers,
-    credentials: "include",
+    // Auth is carried in the Authorization header (Bearer token from
+    // localStorage), not cookies. Forcing credentials: "include" on every
+    // request triggered credentialed CORS on anonymous endpoints like
+    // POST /leads — and against a wildcard CORS origin the browser
+    // rejects the response, surfacing as `TypeError: Failed to fetch`.
+    credentials: opts.credentials ?? "same-origin",
     body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body,
   });
   let body: unknown = null;
