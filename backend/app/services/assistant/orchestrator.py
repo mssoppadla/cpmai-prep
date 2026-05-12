@@ -48,18 +48,23 @@ class AssistantOrchestrator:
 
         safe_out = self.guardrails.check_output(raw["message"])
 
-        # Log redacted version
-        self.db.add(AssistantLog(
+        # Log redacted version. Return the log row's id so the frontend
+        # can reference this specific turn when the user clicks "Wasn't
+        # helpful" → POST /assistant/turns/{log_id}/flag.
+        log_row = AssistantLog(
             user_id=user.id if user else None,
             anon_id=request.anon_id,
             intent=intent.value, intent_confidence=confidence,
             provider=provider.name, model=getattr(provider, "model", None),
             redacted_input=redact(safe_msg)[:2000],
             response_preview=safe_out[:500],
-        ))
+        )
+        self.db.add(log_row)
         self.db.commit()
+        self.db.refresh(log_row)
 
         return AssistantResponse(
+            turn_id=log_row.id,
             intent=intent.value, intent_confidence=confidence,
             message=safe_out,
             citations=raw.get("citations", []),

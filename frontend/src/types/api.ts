@@ -478,6 +478,9 @@ export interface SuggestedAction { label: string; url: string }
 export type AssistantIntent =
   | "account" | "faq" | "content" | "insights" | "pmi_reference";
 export interface AssistantResponse {
+  /** AssistantLog row id for this turn. Null on older clients / pre-HITL
+   *  responses. Required to flag a turn via /assistant/turns/{id}/flag. */
+  turn_id: number | null;
   intent: AssistantIntent;
   intent_confidence: number;
   message: string;

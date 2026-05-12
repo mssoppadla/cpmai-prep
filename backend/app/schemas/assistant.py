@@ -33,6 +33,10 @@ class SuggestedAction(BaseModel):
 
 
 class AssistantResponse(BaseModel):
+    # AssistantLog row id for this turn. Lets the widget reference the
+    # specific turn when the user flags it ("Wasn't helpful?"). Optional
+    # so older clients that don't expect it still parse responses cleanly.
+    turn_id: int | None = None
     # Add `pmi_reference` to the literal — Day 1 introduced the new
     # intent in the orchestrator but missed updating the response model.
     # Pydantic would have rejected a "pmi_reference" intent at the
