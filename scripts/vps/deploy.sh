@@ -256,7 +256,31 @@ START_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 # ------------------------------------------------------------------------------
 if [ -z "${SKIP_PULL:-}" ]; then
   say "Pulling latest from origin..."
-  git fetch --prune
+  # Retry the network half of the pull on transient blips. Hostinger →
+  # github.com over HTTPS has occasional 1-2 minute reachability
+  # glitches that show up as 'GnuTLS recv error', 'Couldn't connect',
+  # or 'Failed to connect to github.com port 443'. Each bounced deploy
+  # before required a manual 'Re-run failed jobs' from the GH Actions
+  # UI. Two attempts with 10s backoff between them clears these
+  # without ceremony; on a real persistent network outage we still
+  # fail loudly on the third try.
+  #
+  # Crucially, we DON'T retry the ff-only check that runs second — a
+  # non-FF history or uncommitted changes is operator-fixable, not
+  # something a sleep-and-retry will resolve.
+  attempt=1
+  max_attempts=3
+  while ! git fetch --prune origin 2>/tmp/git-fetch.err; do
+    if [ "$attempt" -ge "$max_attempts" ]; then
+      cat /tmp/git-fetch.err >&2
+      die "git fetch failed after $max_attempts attempts — VPS may have lost connectivity to github.com"
+    fi
+    warn "git fetch attempt $attempt failed:"
+    cat /tmp/git-fetch.err >&2
+    warn "retrying in 10s..."
+    sleep 10
+    attempt=$((attempt + 1))
+  done
   git pull --ff-only origin main || die "git pull --ff-only failed (uncommitted changes? non-FF history?)"
   ok "now at $(git rev-parse --short HEAD)"
 else
