@@ -197,8 +197,18 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
                    bg-indigo-600 text-white shadow-lg hover:bg-indigo-700
                    focus:outline-none focus:ring-4 focus:ring-indigo-300
                    flex items-center justify-center transition-transform
-                   hover:scale-105 relative"
+                   hover:scale-105"
       >
+        {/* The red-dot notification badge is ``position: absolute`` and
+            anchors to the top-right of THIS button via its
+            ``position: fixed`` containing block (fixed elements
+            establish a positioning context for their abs-positioned
+            descendants — no need to add ``relative`` to the button).
+            Adding ``relative`` here previously CLOBBERED ``fixed`` (both
+            are position utilities, ``.relative`` wins in Tailwind's
+            output order) — that's how the bubble drifted into the
+            document flow and ended up bottom-LEFT on pages where the
+            layout pushed it that way. Don't reintroduce it. */}
         {!open && notifications.length > 0 && (
           <span
             aria-label={`${notifications.length} unread reply`}
