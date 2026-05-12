@@ -49,13 +49,20 @@ hot-patched manually (run ``ALTER TYPE leadsource ADD VALUE IF NOT EXISTS
 'CHAT_CALLBACK'`` to unblock prod). ``IF NOT EXISTS`` keeps it
 idempotent in either order.
 
-Revision ID: 0014_lead_source_chat_callback_name
+Revision ID: 0014_lead_source_name_fix
 Revises: 0013_users_deleted_at
+
+Note: revision id stays under VARCHAR(32) for alembic_version
+(this one's 25 chars). Original attempt was
+``0014_lead_source_chat_callback_name`` at 35 chars and CI's
+"Bootstrap schema + stamp alembic" step blew up with
+``value too long for type character varying(32)``. Same length-cap
+warning is in ``0012_lead_source_chat_callback.py``.
 """
 from alembic import op
 
 
-revision = "0014_lead_source_chat_callback_name"
+revision = "0014_lead_source_name_fix"
 down_revision = "0013_users_deleted_at"
 branch_labels = None
 depends_on = None
