@@ -141,8 +141,28 @@
   },
   {
     "key": "pricing.fx_rates_inr_per_unit",
-    "value": {"USD": 83.0, "EUR": 90.0, "GBP": 105.0, "SGD": 62.0, "AED": 22.6},
-    "description": "FX rates: INR per 1 unit of foreign currency (e.g. USD=83 means 1 USD = 83 INR). Used to display + charge non-INR amounts. Admin updates manually when FX drifts >5%. INR is implicit (rate=1). Add a generous markup to cover Razorpay's international FX fees."
+    "value": {},
+    "description": "LEGACY admin-managed FX rates. Empty by default. The live cron writes to pricing.fx_live_raw instead — this setting is retained for backward compatibility but new deployments should leave it empty. To force a specific rate for a single currency (e.g. promo pricing), use pricing.fx_overrides."
+  },
+  {
+    "key": "pricing.fx_live_raw",
+    "value": {},
+    "description": "AUTO-MANAGED: raw mid-market rates fetched from Frankfurter (ECB-published) by the daily cron. Format: {\"USD\": 83.33, ...} (INR per 1 unit). Admins should NOT edit this by hand — use pricing.fx_overrides instead. Empty until first cron run."
+  },
+  {
+    "key": "pricing.fx_live_fetched_at",
+    "value": "",
+    "description": "AUTO-MANAGED: ISO-8601 timestamp of the last successful FX fetch from Frankfurter. Empty until first cron run. /health surfaces an fx_stale flag when this is > 7 days old."
+  },
+  {
+    "key": "pricing.fx_markup_percent",
+    "value": 5.0,
+    "description": "Markup applied on top of the live mid-market rate to cover Razorpay's ~3% international FX fee + ~2% buffer for FX drift between quote-time and capture-time. Shown transparently to international buyers as a separate 'international processing fee' line on the order summary (not buried in the rate). Range: 0-50%. Default 5% is conservative but safe; lower if you want leaner pricing AT YOUR OWN RISK."
+  },
+  {
+    "key": "pricing.fx_overrides",
+    "value": {},
+    "description": "Admin-set FX rates that WIN over the live cron (priority order: override > live > stale). Use for: (a) currencies Razorpay supports but Frankfurter doesn't cover (AED, SAR, KWD — Middle East peggers; KES, GHS, NGN — African); (b) promo pricing in a specific country at a fixed rate. Same shape as fx_live_raw: {\"AED\": 22.6, ...}. Markup is NOT applied to overrides — the admin's number is the final effective rate."
   },
   {
     "key": "landing.lead_section_heading",

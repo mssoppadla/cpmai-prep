@@ -5,6 +5,7 @@ from app.api.v1.endpoints.admin import (
     questions, exam_sets, leads, settings as settings_ep,
     llm_providers, payment_providers, users, faqs,
     plans, offers, rag, chat_history, geoip,
+    pricing as pricing_admin,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -21,3 +22,4 @@ admin_router.include_router(offers.router,       prefix="/offer-codes",   tags=[
 admin_router.include_router(rag.router,          prefix="/rag",           tags=["admin"])
 admin_router.include_router(chat_history.router, prefix="/chat-history",  tags=["admin"])
 admin_router.include_router(geoip.router,        prefix="/geoip",         tags=["admin"])
+admin_router.include_router(pricing_admin.router, prefix="/pricing",      tags=["admin"])

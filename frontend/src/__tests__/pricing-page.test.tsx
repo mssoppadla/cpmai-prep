@@ -31,11 +31,16 @@ const QUOTE_NO_OFFER = {
   subtotal_paise: 100_000,
   gst_percent: 0, gst_paise: 0,
   final_price_paise: 100_000, stack_offer_with_discount: false,
-  // International-pricing display block (PR-44). Mirrors INR when
-  // the user hasn't switched currency. Existing tests are INR-only,
-  // so display_amount_minor == final_price_paise.
+  // International-pricing display block. Mirrors INR when the user
+  // hasn't switched currency. Existing tests are INR-only, so
+  // display_amount_minor == final_price_paise and there's no markup.
   display_currency: "INR", display_amount_minor: 100_000,
   display_fx_rate: 1.0, display_currency_supported: true,
+  display_fx_source: "inr", display_fx_rate_raw: null,
+  display_fx_fetched_at: null,
+  display_subtotal_minor: 100_000,
+  display_markup_percent: 0.0,
+  display_markup_minor: 0,
 };
 
 const CURRENCIES_INR_ONLY = {

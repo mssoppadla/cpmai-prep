@@ -1,4 +1,5 @@
 """Public pricing wire types (mirrors PriceQuote dataclass)."""
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 
@@ -29,16 +30,24 @@ class PriceQuoteOut(BaseModel):
     final_price_paise: int
     stack_offer_with_discount: bool
 
-    # Display block — the currency the caller asked us to compute for.
-    # Defaults to INR (mirror of the block above). When non-INR, the
-    # display amount is the FX-converted subtotal (GST excluded —
-    # international customers don't pay Indian GST). UI shows BOTH the
-    # INR block AND the display amount so the user sees the comparison;
-    # checkout charges in display_currency.
+    # Display block — currency the caller asked us to compute for.
+    # For INR: mirrors the INR block above.
+    # For non-INR + live FX: subtotal-at-mid-market + transparent
+    #   markup line = total. UI shows the markup as a separate fee
+    #   line so the buyer can see it on the receipt rather than
+    #   having it buried in the FX rate.
+    # For non-INR + admin override: rate as-is, no markup line.
+    # For unsupported currency: mirrors INR, display_currency_supported=false.
     display_currency: str = "INR"
     display_amount_minor: int = 0
     display_fx_rate: Optional[float] = 1.0
+    display_fx_rate_raw: Optional[float] = None
     display_currency_supported: bool = True
+    display_fx_source: str = "inr"
+    display_fx_fetched_at: Optional[datetime] = None
+    display_subtotal_minor: int = 0
+    display_markup_percent: float = 0.0
+    display_markup_minor: int = 0
 
 
 class QuoteRequestIn(BaseModel):

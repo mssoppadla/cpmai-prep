@@ -589,12 +589,49 @@ export interface PriceQuoteOut {
   // user pays. Non-INR users pay display_amount_minor in display_currency.
   final_price_paise: number;
   stack_offer_with_discount: boolean;
-  // Display block — the currency the caller asked us to compute for.
-  // Always present; mirrors the INR block when display_currency === "INR".
+  // Display block — currency the caller asked us to compute for.
+  // For non-INR + LIVE source: subtotal-at-mid-market + transparent
+  // markup line = total. UI breaks out the markup so the buyer can
+  // see it on the receipt instead of having it baked into the rate.
   display_currency: string;
-  display_amount_minor: number;   // minor units of display_currency
-  display_fx_rate: number | null; // INR per 1 unit of display_currency
+  display_amount_minor: number;        // minor units of display_currency
+  display_fx_rate: number | null;      // effective rate (post-markup for LIVE)
+  display_fx_rate_raw?: number | null; // raw mid-market (pre-markup, LIVE/STALE only)
   display_currency_supported: boolean;
+  display_fx_source?: string;          // "inr"|"live"|"override"|"stale"|"unavailable"
+  display_fx_fetched_at?: string | null;
+  display_subtotal_minor?: number;     // amount at mid-market, pre-markup
+  display_markup_percent?: number;
+  display_markup_minor?: number;       // international processing fee
+}
+
+// ---------- Admin FX dashboard --------------------------------------------
+export interface FXCurrencyStatus {
+  code: string;
+  symbol: string;
+  razorpay_supported: boolean;
+  frankfurter_supported: boolean;
+  has_live_rate: boolean;
+  has_override: boolean;
+  raw_inr_per_unit: number | null;
+  effective_inr_per_unit: number | null;
+  source: string;                       // RateSource enum value
+  in_picker: boolean;
+}
+export interface FXStatusOut {
+  last_fetched_at: string | null;
+  age_days: number | null;
+  stale: boolean;
+  markup_percent: number;
+  currencies: FXCurrencyStatus[];
+}
+export interface FXRefreshOut {
+  updated: boolean;
+  fetched_at: string | null;
+  rates_count: number;
+  rejected_codes: string[];
+  elapsed_seconds: number;
+  message: string;
 }
 
 export interface CurrencyOption {

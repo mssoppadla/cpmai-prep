@@ -189,6 +189,58 @@ def _fx_rates(v):
     return True
 
 
+def _fx_overrides(v):
+    """Validate ``pricing.fx_overrides`` — admin-set rates that win
+    over live FX. Same shape as ``pricing.fx_rates_inr_per_unit``
+    (kept as a separate validator only because the two settings have
+    different semantics: one is the legacy admin-managed list, the
+    other is the new live-bypass list)."""
+    return _fx_rates(v) if v else (isinstance(v, dict) and len(v) == 0)
+
+
+def _fx_live_raw(v):
+    """Validate ``pricing.fx_live_raw`` — auto-managed by the cron.
+
+    Admins should NEVER edit this by hand (use ``pricing.fx_overrides``
+    instead), but the validator still has to accept what the cron
+    writes, which is the same shape as fx_overrides plus an empty
+    dict on first deploy. Tolerant of empty input.
+    """
+    return isinstance(v, dict) and (len(v) == 0 or _fx_rates(v))
+
+
+def _fx_live_fetched_at(v):
+    """ISO-8601 datetime string, or empty string for "never fetched"."""
+    if not isinstance(v, str):
+        return False
+    if v == "":
+        return True
+    if len(v) > 64:
+        return False
+    try:
+        from datetime import datetime
+        datetime.fromisoformat(v)
+        return True
+    except ValueError:
+        return False
+
+
+def _fx_markup_percent(v):
+    """Markup percent the cron applies on top of live mid-market.
+
+    Range 0..50 — anything outside is almost certainly a typo or an
+    unwise pricing decision. 5% is the recommended default (covers
+    Razorpay's ~3% international FX fee + ~2% drift buffer).
+    """
+    if isinstance(v, bool):
+        return False
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return False
+    return 0.0 <= f <= 50.0
+
+
 EDITABLE: dict[str, Callable] = {
     # AI chat operational limits
     "chat.daily_limit.anonymous":        _int_in(0, 1000),
@@ -230,6 +282,14 @@ EDITABLE: dict[str, Callable] = {
     # GST only applies to INR; non-INR currencies skip the GST line.
     "pricing.supported_currencies":      _supported_currencies,
     "pricing.fx_rates_inr_per_unit":     _fx_rates,
+    # Live FX system — added 2026-05-14 alongside the Frankfurter cron.
+    # ``fx_live_raw`` + ``fx_live_fetched_at`` are CRON-MANAGED (admins
+    # see them but should rarely edit). ``fx_markup_percent`` and
+    # ``fx_overrides`` are the admin-tunable knobs.
+    "pricing.fx_live_raw":               _fx_live_raw,
+    "pricing.fx_live_fetched_at":        _fx_live_fetched_at,
+    "pricing.fx_markup_percent":         _fx_markup_percent,
+    "pricing.fx_overrides":              _fx_overrides,
     # Landing-page copy (admin-editable, no redeploy needed)
     "landing.lead_section_heading":      _short_str(200),
     "landing.lead_cta_text":             _short_str(80),

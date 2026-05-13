@@ -18,6 +18,7 @@ import type {
   VerifyPaymentIn, VerifyPaymentOut,
   GeoIPStatusOut, GeoIPRefreshOut, GeoIPTestKeyOut, GeoIPLookupOut,
   GeoIPSchedulePreviewOut,
+  FXStatusOut, FXRefreshOut,
 } from "@/types/api";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -591,6 +592,22 @@ export const admin = {
       const { data } = await request<GeoIPSchedulePreviewOut>(
         "/admin/geoip/schedule-preview",
         { method: "POST", json: { expression, count }, authed: true });
+      return data;
+    },
+  },
+  pricing: {
+    /** /admin/pricing/fx-status — current rates + last-fetched-at +
+     *  per-currency provenance. Drives the /admin/pricing dashboard. */
+    async fxStatus() {
+      const { data } = await request<FXStatusOut>(
+        "/admin/pricing/fx-status", { authed: true });
+      return data;
+    },
+    /** /admin/pricing/fx-refresh-now — admin-triggered pull from
+     *  Frankfurter. Rate-limited to 5/hour. */
+    async fxRefreshNow() {
+      const { data } = await request<FXRefreshOut>(
+        "/admin/pricing/fx-refresh-now", { method: "POST", authed: true });
       return data;
     },
   },

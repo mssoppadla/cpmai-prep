@@ -420,24 +420,30 @@ def test_verify_after_webhook_activated_returns_active(
 
 # ============================================================ currencies
 # International currency in /payments/orders + Razorpay handoff.
+# Uses the new live-FX system (pricing.fx_live_raw + markup).
+
+from datetime import datetime, timezone
+
 
 @pytest.fixture
-def fx_settings(monkeypatch):
-    """Apply FX rate + supported-currencies + GST settings for the
-    currency-aware payment tests."""
+def fx_live_settings(monkeypatch):
+    """Live FX rates + 5% markup + 18% GST + stack-off."""
+    fresh = datetime.now(timezone.utc).isoformat()
     from app.core import settings_store as ss_module
     monkeypatch.setattr(ss_module.SettingsStore, "get",
         lambda self, k, default=None: {
-            "pricing.fx_rates_inr_per_unit": {"USD": 83.0, "EUR": 90.0},
-            "pricing.supported_currencies": ["INR", "USD", "EUR"],
-            "pricing.gst_percent": 18,
             "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent":               18,
+            "pricing.fx_live_raw":               {"USD": 83.33, "EUR": 90.91},
+            "pricing.fx_live_fetched_at":        fresh,
+            "pricing.fx_markup_percent":         5.0,
+            "pricing.fx_overrides":              {},
         }.get(k, default))
 
 
-def test_order_in_usd_passes_converted_amount_to_provider(
-        client, db, user, fake_provider, fx_settings):
-    """Razorpay gets USD currency + cents amount, NOT INR paise."""
+def test_order_in_usd_passes_total_to_provider(
+        client, db, user, fake_provider, fx_live_settings):
+    """Razorpay gets the USD TOTAL (subtotal + 5% markup), NOT INR paise."""
     _seed_plan(db, base_price_paise=99900)
     h = auth_header(client, user.email)
     r = client.post("/api/v1/payments/orders", headers=h, json={
@@ -445,28 +451,26 @@ def test_order_in_usd_passes_converted_amount_to_provider(
     assert r.status_code == 201, r.text
     body = r.json()
 
-    # The order returned uses USD + the converted amount.
-    assert body["currency"] == "USD"
-    # 99900 paise (subtotal, no GST for non-INR) / 83 = 1203.61 → 1204 cents.
-    assert body["amount"] == round(99900 / 83.0)
+    expected_sub = round(99900 / 83.33)
+    expected_markup = round(expected_sub * 5.0 / 100.0)
+    expected_total = expected_sub + expected_markup
 
-    # Provider also saw USD + cents.
-    assert fake_provider.last_order_amount == round(99900 / 83.0)
+    assert body["currency"] == "USD"
+    assert body["amount"] == expected_total
+    assert fake_provider.last_order_amount == expected_total
 
     # INR breakdown still shown (for receipts / reference).
     assert body["base_amount"] == 99900
     assert body["subtotal_amount"] == 99900
-    assert body["final_inr_paise"] == 117882   # subtotal + 18% GST
-    assert body["fx_rate"] == 83.0
-    # GST line is ZEROED for non-INR (international customer doesn't pay GST).
+    assert body["final_inr_paise"] == 117882   # subtotal + 18% GST INR-side
+    # GST is zeroed in the chargeable amount (international customer).
     assert body["gst_amount"] == 0
 
 
 def test_order_in_inr_unchanged_existing_behavior(
-        client, db, user, fake_provider, fx_settings):
-    """REGRESSION GUARD: when currency is INR (or omitted), behave
-    EXACTLY as before the currency feature shipped — paise amount,
-    full GST included in the charge."""
+        client, db, user, fake_provider, fx_live_settings):
+    """REGRESSION GUARD: INR / no-currency → unchanged behavior (paise,
+    full GST included in charge)."""
     _seed_plan(db, base_price_paise=99900)
     h = auth_header(client, user.email)
     r = client.post("/api/v1/payments/orders", headers=h, json={
@@ -474,16 +478,15 @@ def test_order_in_inr_unchanged_existing_behavior(
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["currency"] == "INR"
-    assert body["amount"] == 117882   # subtotal + GST, full charge
+    assert body["amount"] == 117882
     assert fake_provider.last_order_amount == 117882
-    assert body["gst_amount"] == 17982   # GST applies to INR
+    assert body["gst_amount"] == 17982
 
 
 def test_order_with_unsupported_currency_400(
-        client, db, user, fake_provider, fx_settings):
-    """We REJECT unsupported currencies at order-create time (different
-    from /pricing/quote which falls back). We're about to actually
-    charge; silently falling back would be a billing nightmare."""
+        client, db, user, fake_provider, fx_live_settings):
+    """REJECT unsupported currencies at order-create time (different
+    from /pricing/quote which falls back to INR display)."""
     _seed_plan(db, base_price_paise=99900)
     h = auth_header(client, user.email)
     r = client.post("/api/v1/payments/orders", headers=h, json={
@@ -493,10 +496,10 @@ def test_order_with_unsupported_currency_400(
 
 
 def test_order_in_eur_persists_currency_on_payment_row(
-        client, db, user, fake_provider, fx_settings):
-    """The Payment row stores the charge currency so admin can later
-    reconcile EUR-denominated orders."""
-    _seed_plan(db, base_price_paise=180000)   # ₹1800
+        client, db, user, fake_provider, fx_live_settings):
+    """The Payment row stores the charge currency (and total) so admin
+    can later reconcile EUR-denominated orders."""
+    _seed_plan(db, base_price_paise=99900)
     h = auth_header(client, user.email)
     r = client.post("/api/v1/payments/orders", headers=h, json={
         "plan_slug": "exam-bundle", "currency": "EUR"})
@@ -504,5 +507,30 @@ def test_order_in_eur_persists_currency_on_payment_row(
     pay = (db.query(Payment).filter_by(razorpay_order_id=r.json()["order_id"])
            .first())
     assert pay.currency == "EUR"
-    # EUR amount = 180000 / 90 = 2000 cents (€20.00)
-    assert pay.amount_paise == 2000   # column name historic; minor units of charge currency
+    expected_sub = round(99900 / 90.91)
+    expected_markup = round(expected_sub * 5.0 / 100.0)
+    assert pay.amount_paise == expected_sub + expected_markup
+
+
+def test_order_with_admin_override_skips_markup(client, db, user,
+                                                 fake_provider, monkeypatch):
+    """Admin override → admin's rate is the final rate, no markup added."""
+    fresh = datetime.now(timezone.utc).isoformat()
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent":               0,
+            "pricing.fx_live_raw":               {"USD": 83.33},
+            "pricing.fx_live_fetched_at":        fresh,
+            "pricing.fx_markup_percent":         5.0,
+            "pricing.fx_overrides":              {"USD": 90.0},  # override wins
+        }.get(k, default))
+
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders", headers=h, json={
+        "plan_slug": "exam-bundle", "currency": "USD"})
+    assert r.status_code == 201
+    # 99900 / 90 = 1110 cents, no markup added.
+    assert r.json()["amount"] == 1110

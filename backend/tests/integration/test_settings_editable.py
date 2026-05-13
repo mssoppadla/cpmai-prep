@@ -78,6 +78,10 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "pricing.gst_percent":               18,
     "pricing.supported_currencies":      ["INR", "USD", "EUR"],
     "pricing.fx_rates_inr_per_unit":     {"USD": 83.0, "EUR": 90.0},
+    "pricing.fx_live_raw":               {"USD": 83.33, "EUR": 90.91},
+    "pricing.fx_live_fetched_at":        "2026-05-14T04:00:00+00:00",
+    "pricing.fx_markup_percent":         5.0,
+    "pricing.fx_overrides":              {"AED": 22.6},
     # landing.*
     "landing.lead_section_heading":      "Start with our free CPMAI study guide",
     "landing.lead_cta_text":             "Get the free guide",

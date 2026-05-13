@@ -58,7 +58,7 @@ alongside as a reference but isn't part of the charge in that case.
 FX rates live in ``pricing.fx_rates_inr_per_unit`` (admin-editable).
 Supported currencies live in ``pricing.supported_currencies``.
 """
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
@@ -67,6 +67,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.core.settings_store import settings_store
 from app.models.plan import Plan
 from app.models.offer import OfferCode
+from app.services.fx import get_effective_rate, RateSource
 
 
 @dataclass
@@ -121,25 +122,49 @@ class PriceQuote:
     # ``amount`` field gets when ``display_currency`` is passed as
     # ``currency`` to order.create.
     #
-    # Computed as:
-    #   * INR: equals final_price_paise (includes GST)
-    #   * other: round(subtotal_paise / fx_rate)
-    #           ↑ GST is INTENTIONALLY skipped for non-INR (Indian
-    #             GST does not apply to international customers).
+    # = display_subtotal_minor + display_markup_minor
+    # (for INR this equals final_price_paise which already includes GST)
     display_amount_minor: int = 0
 
-    # FX rate that was used to compute display_amount_minor.
-    # Expressed as "INR per 1 unit of display_currency"
-    # (e.g. 83 means 1 USD = 83 INR). 1.0 for INR. None if the
-    # caller asked for an unsupported currency (we fall back to INR
-    # and report ``display_currency_supported=False``).
+    # FX rate USED for the conversion. For LIVE source this is the
+    # MARKED-UP rate (= raw × (1 + markup/100)). For OVERRIDE source
+    # this is the admin's rate as-is. 1.0 for INR. None if no rate
+    # available (display_currency_supported=False).
     display_fx_rate: Optional[float] = 1.0
 
-    # False if the caller asked for a currency NOT in
-    # pricing.supported_currencies (or with no FX rate configured).
-    # In that case the display block is identical to the INR block and
-    # the front-end should refuse to checkout in that currency.
+    # Raw mid-market rate (pre-markup). Set only when source=LIVE/STALE
+    # — the frontend shows this as a "live FX rate" footnote.
+    display_fx_rate_raw: Optional[float] = None
+
+    # False if the caller asked for a currency we can't quote (not in
+    # supported list, no FX rate, no override). Frontend should refuse
+    # checkout. For INR + supported live + supported override: True.
     display_currency_supported: bool = True
+
+    # Where the FX rate came from — drives the rate-provenance footnote
+    # in the UI. One of: "inr", "live", "override", "stale", "unavailable".
+    display_fx_source: str = "inr"
+
+    # When the live rate was fetched (LIVE/STALE source only).
+    display_fx_fetched_at: Optional[datetime] = None
+
+    # ----- Transparent international-processing fee (broken out so the
+    # user sees it as a separate line, not buried in the FX rate) -----
+    #
+    # Only non-zero for non-INR currencies with source=LIVE/STALE.
+    # For source=OVERRIDE or INR, markup is 0 (admin's rate IS final,
+    # or domestic INR doesn't need an FX fee).
+    #
+    # The math:
+    #   display_subtotal_minor = round(subtotal_paise / raw_fx_rate)
+    #     ← what the buyer would pay at pure mid-market rate
+    #   display_markup_minor   = round(display_subtotal_minor × markup_percent/100)
+    #     ← the international-processing fee, transparent
+    #   display_amount_minor   = display_subtotal_minor + display_markup_minor
+    #     ← total charged on the card
+    display_subtotal_minor: int = 0
+    display_markup_percent: float = 0.0
+    display_markup_minor: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -386,36 +411,107 @@ class PricingService:
                 continue
         return rates
 
-    @classmethod
-    def _build_display_block(cls, target_currency: str,
+    @staticmethod
+    def _build_display_block(target_currency: str,
                               subtotal_paise: int,
-                              final_inr_paise: int
-                              ) -> tuple[str, int, Optional[float], bool]:
-        """Compute the (currency, amount_in_minor_units, fx_rate, supported)
-        tuple for the display block of a quote.
+                              final_inr_paise: int) -> dict:
+        """Compute the display-currency block of a PriceQuote.
 
-        For INR: display equals the INR final (includes GST), fx_rate=1.
-        For non-INR: GST is dropped (international customers don't pay
-        Indian GST). amount = round(subtotal_paise / fx_rate).
-        For unsupported currency: silently falls back to INR final with
-        supported=False so the UI can refuse checkout in that currency.
+        Returns a dict keyed to match PriceQuote's ``display_*`` fields.
+        Caller spreads this into the dataclass constructor.
+
+        Source priority (delegated to fx.get_effective_rate):
+          1. OVERRIDE (admin lock) — rate as-is, markup=0
+          2. LIVE (Frankfurter + markup) — markup broken out as fee
+          3. STALE (last-known live, >7 days) — same shape as LIVE
+             but display_fx_source="stale" so UI can warn
+          4. INR — passthrough, mirrors the INR final
+          5. UNAVAILABLE — fall back to INR final, supported=False
+
+        GST is INR-only — non-INR display converts from the pre-GST
+        ``subtotal_paise``. International customers don't pay Indian GST.
+
+        Math (non-INR with LIVE source):
+            raw_rate          = e.g. 83.33 INR/USD (Frankfurter)
+            markup_percent    = 5
+            sub_minor         = round(subtotal_paise / raw_rate)    ← mid-market base
+            markup_minor      = round(sub_minor × markup_percent / 100)
+            amount_minor      = sub_minor + markup_minor              ← charged to card
+            effective_rate    = raw_rate × (1 + markup_percent/100)
         """
         target = (target_currency or "INR").strip().upper()
-        supported = cls._supported_currencies()
-        rates = cls._fx_rates()
-        if target == "INR":
-            return ("INR", final_inr_paise, 1.0, True)
-        if target not in supported or target not in rates:
-            # Fall back to INR but flag for the caller.
-            return ("INR", final_inr_paise, 1.0, False)
-        fx = rates[target]
-        # GST is INR-only; international customers don't pay it. So we
-        # convert from the pre-GST INR subtotal (NOT the post-GST final).
-        # Round to nearest minor unit. round() ties-to-even is fine here
-        # — at our price points a single-paisa drift is below the noise
-        # floor of FX volatility.
-        amount = int(round(subtotal_paise / fx))
-        return (target, amount, fx, True)
+        rate = get_effective_rate(target)
+
+        if rate.source == RateSource.INR:
+            return {
+                "display_currency": "INR",
+                "display_amount_minor": final_inr_paise,
+                "display_fx_rate": 1.0,
+                "display_fx_rate_raw": None,
+                "display_currency_supported": True,
+                "display_fx_source": "inr",
+                "display_fx_fetched_at": None,
+                "display_subtotal_minor": final_inr_paise,
+                "display_markup_percent": 0.0,
+                "display_markup_minor": 0,
+            }
+
+        if rate.source == RateSource.UNAVAILABLE:
+            # No way to quote this currency. Mirror INR + flag so UI
+            # refuses checkout.
+            return {
+                "display_currency": "INR",
+                "display_amount_minor": final_inr_paise,
+                "display_fx_rate": 1.0,
+                "display_fx_rate_raw": None,
+                "display_currency_supported": False,
+                "display_fx_source": "unavailable",
+                "display_fx_fetched_at": None,
+                "display_subtotal_minor": final_inr_paise,
+                "display_markup_percent": 0.0,
+                "display_markup_minor": 0,
+            }
+
+        if rate.source == RateSource.OVERRIDE:
+            # Admin set this rate directly. Treat their value as final
+            # — no markup line shown (the admin baked it in if they
+            # wanted). Convert from pre-GST subtotal (no Indian GST).
+            amount = int(round(subtotal_paise / rate.inr_per_unit))
+            return {
+                "display_currency": target,
+                "display_amount_minor": amount,
+                "display_fx_rate": rate.inr_per_unit,
+                "display_fx_rate_raw": None,
+                "display_currency_supported": True,
+                "display_fx_source": "override",
+                "display_fx_fetched_at": None,
+                "display_subtotal_minor": amount,
+                "display_markup_percent": 0.0,
+                "display_markup_minor": 0,
+            }
+
+        # LIVE or STALE: raw mid-market rate + transparent markup line.
+        raw = rate.raw_inr_per_unit or rate.inr_per_unit
+        markup = rate.markup_percent or 0.0
+        # Subtotal at pure mid-market rate.
+        sub_minor = int(round(subtotal_paise / raw))
+        # Markup line. Computed on the SUBTOTAL (post-conversion) so the
+        # 5% is "5% of what you'd pay at mid-market" — that's the right
+        # mental model for a buyer reading the receipt.
+        markup_minor = int(round(sub_minor * markup / 100.0))
+        amount_minor = sub_minor + markup_minor
+        return {
+            "display_currency": target,
+            "display_amount_minor": amount_minor,
+            "display_fx_rate": rate.inr_per_unit,
+            "display_fx_rate_raw": raw,
+            "display_currency_supported": True,
+            "display_fx_source": rate.source.value,   # "live" or "stale"
+            "display_fx_fetched_at": rate.fetched_at,
+            "display_subtotal_minor": sub_minor,
+            "display_markup_percent": markup,
+            "display_markup_minor": markup_minor,
+        }
 
     @classmethod
     def _build_quote(cls, *, plan: Plan, effective_before_offer: int,
@@ -428,8 +524,7 @@ class PricingService:
         # GSTIN-bearing invoices we'll need exact rounding rules.
         gst_paise = (subtotal * gst_percent) // 100
         final_price = subtotal + gst_paise
-        display_currency, display_amount_minor, fx_rate, supported = \
-            cls._build_display_block(target_currency, subtotal, final_price)
+        display = cls._build_display_block(target_currency, subtotal, final_price)
         return PriceQuote(
             plan_id=plan.id, plan_slug=plan.slug, plan_name=plan.name,
             currency=plan.currency,
@@ -445,8 +540,5 @@ class PricingService:
             gst_paise=gst_paise,
             final_price_paise=final_price,
             stack_offer_with_discount=stack,
-            display_currency=display_currency,
-            display_amount_minor=display_amount_minor,
-            display_fx_rate=fx_rate,
-            display_currency_supported=supported,
+            **display,
         )

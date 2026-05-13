@@ -462,17 +462,34 @@ export default function PricingPage() {
                              value={`+₹${(quote.gst_paise / 100).toFixed(2)}`} muted />
                       </>
                     )}
-                    {/* For non-INR: show a "Tax: not applicable" note so
-                        the international buyer knows the displayed
-                        amount is the final total. */}
+                    {/* For non-INR: GST is INR-only so we explicitly
+                        note it doesn't apply. Then we BREAK OUT the
+                        international processing fee (markup) as a
+                        separate line, so the buyer sees exactly what
+                        they're paying for: subtotal at mid-market FX
+                        + a transparent fee. */}
                     {quote && currency !== "INR" && quote.display_currency_supported && (
-                      <Row label="Indian GST"
-                           value="not applicable (international)"
-                           muted />
+                      <>
+                        <Row label="Indian GST"
+                             value="not applicable (international)"
+                             muted />
+                        {(quote.display_subtotal_minor ?? 0) > 0 && (
+                          <Row label={`Subtotal (${currency})`}
+                               value={formatMinor(quote.display_subtotal_minor ?? 0,
+                                                   currentCurrencyOption.symbol)}
+                               muted />
+                        )}
+                        {(quote.display_markup_minor ?? 0) > 0 && (
+                          <Row
+                            label={`International processing fee (${(quote.display_markup_percent ?? 0).toFixed(1)}%)`}
+                            value={`+${formatMinor(quote.display_markup_minor ?? 0,
+                                                    currentCurrencyOption.symbol)}`}
+                            muted />
+                        )}
+                      </>
                     )}
-                    {/* The TOTAL row. For INR: final INR. For non-INR:
-                        converted display amount; INR shown as small
-                        reference under the total. */}
+                    {/* TOTAL row. INR: final INR. Non-INR: total
+                        (subtotal + markup) with FX rate as a footnote. */}
                     {currency === "INR" ? (
                       <Row strong label="Total to pay"
                            value={quote
@@ -486,11 +503,26 @@ export default function PricingPage() {
                                                currentCurrencyOption.symbol)
                                 : (quoteBusy ? "…" : "—")} />
                         {quote && quote.display_currency_supported && (
-                          <div className="text-xs text-slate-500 text-right -mt-0.5">
-                            ≈ ₹{(quote.subtotal_paise / 100).toFixed(2)} INR{" "}
-                            <span className="italic">
-                              @ ₹{quote.display_fx_rate?.toFixed(2)} per 1 {currency}
-                            </span>
+                          <div className="text-xs text-slate-500 text-right -mt-0.5 space-y-0.5">
+                            <div>
+                              ≈ ₹{(quote.subtotal_paise / 100).toFixed(2)} INR
+                            </div>
+                            {quote.display_fx_rate_raw && (
+                              <div className="italic">
+                                Live ECB FX: 1 {currency} = ₹{quote.display_fx_rate_raw.toFixed(2)}
+                                {quote.display_fx_source === "stale" && (
+                                  <span className="text-amber-600 not-italic">
+                                    {" "}(may be stale)
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {quote.display_fx_source === "override" && (
+                              <div className="italic">
+                                Rate: ₹{quote.display_fx_rate?.toFixed(2)} per 1 {currency}
+                                {" "}(admin-set)
+                              </div>
+                            )}
                           </div>
                         )}
                       </>

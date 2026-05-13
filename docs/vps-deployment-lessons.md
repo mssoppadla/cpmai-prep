@@ -406,3 +406,62 @@ correct after any path change".
 Operationally this means: merge the PR → CI deploys → cron is live →
 admin opens /admin/geoip → sets license key → clicks Install database
 now → done. No terminal access at any step.
+
+## 41. International pricing: live FX from Frankfurter + transparent markup
+
+**Date:** 2026-05-14.
+
+International (non-INR) checkout pulls live mid-market FX rates from
+[Frankfurter](https://api.frankfurter.dev) (ECB-published, free, no
+API key). Refresh runs once daily via cron at 04:23 UTC. Markup is
+applied at quote-time and surfaced to the buyer as a **separate
+"international processing fee" line** — never baked silently into
+the FX rate.
+
+### The 3-layer architecture
+
+```
+pricing.fx_overrides         (admin lock; wins)
+       ↓ otherwise
+pricing.fx_live_raw × (1 + pricing.fx_markup_percent/100)
+       ↓ otherwise (no live + no override)
+UNAVAILABLE   ← frontend refuses checkout in this currency
+```
+
+### Why markup is broken out as a line item
+
+A savvy buyer who Googles "1 USD in INR" will spot a baked-in markup
+in the rate and lose trust. Showing it explicitly as
+"International processing fee (5%): $0.60" is the honest pattern.
+The 5% covers Razorpay's ~3% international FX fee plus ~2% buffer
+for FX drift between quote-time and capture-time — admin can tune
+via `pricing.fx_markup_percent` setting.
+
+### When admin must intervene
+
+| Symptom | Fix |
+|---|---|
+| /pricing dropdown only shows INR | Cron hasn't run yet — wait for next 04:23 UTC OR click "Refresh now" in /admin/pricing |
+| Currency in Razorpay's set but not in picker | Frankfurter doesn't publish that rate (e.g. AED, SAR). Add a manual override via `pricing.fx_overrides` in /admin/settings |
+| /admin/pricing shows "STALE" warning | Cron hasn't run in >7 days. Check `/var/log/cpmai/fx_refresh.log` for the failure |
+| `[sanity] Sanity cap rejected...` in cron log | Frankfurter returned implausible rates (>20% moves on >50% of currencies). Almost always a bad upstream payload — investigate before retrying. The OLD rates stay in effect |
+
+### Sanity cap details
+
+Per-currency, any new rate that moves >20% from the previous fetch
+is REJECTED — old value kept. If >50% of currencies trip the cap on
+one fetch, the WHOLE fetch is rejected with `SanityCapError` (no
+write). Defends against Frankfurter API bugs / data poisoning that
+would otherwise flow straight into customer-facing prices.
+
+Pinned by:
+- `tests/unit/test_fx_service.py::test_refresh_sanity_cap_keeps_old_value_on_big_move`
+- `tests/unit/test_fx_service.py::test_refresh_sanity_cap_wholesale_rejection`
+
+### Razorpay-side note
+
+Non-INR `order.create` requires "International payments" enabled in
+the Razorpay dashboard (Settings → International payments). Without
+it, the endpoint returns a clean 502 with the Razorpay error text;
+the admin sees that message and knows to enable. INR-only operation
+needs no Razorpay config beyond what's already in prod.
