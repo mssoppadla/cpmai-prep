@@ -58,6 +58,7 @@ alongside as a reference but isn't part of the charge in that case.
 FX rates live in ``pricing.fx_rates_inr_per_unit`` (admin-editable).
 Supported currencies live in ``pricing.supported_currencies``.
 """
+import math
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -68,6 +69,29 @@ from app.core.settings_store import settings_store
 from app.models.plan import Plan
 from app.models.offer import OfferCode
 from app.services.fx import get_effective_rate, RateSource
+
+
+# All currencies we support have a 1:100 minor:major ratio (cents/pence/
+# fils/paise/etc.) — the same shape Razorpay expects in the `amount`
+# field. JPY/KRW/IDR are not in our picker; if added, this constant
+# needs to become per-currency.
+_MINOR_UNITS_PER_MAJOR = 100
+
+
+def _ceil_to_whole_unit(amount_minor: int) -> int:
+    """Round amount_minor UP to the next whole major unit.
+
+    1234 (cents) → 1300 (= $13.00)
+    1200 (cents) → 1200 (already a whole unit, no change)
+    0    (cents) → 0    (zero is a whole unit)
+
+    Used to satisfy Razorpay International's integer-amount rule for
+    non-INR charges. See PriceQuote.display_rounding_adjustment_minor
+    for context.
+    """
+    if amount_minor <= 0:
+        return 0
+    return math.ceil(amount_minor / _MINOR_UNITS_PER_MAJOR) * _MINOR_UNITS_PER_MAJOR
 
 
 @dataclass
@@ -165,6 +189,23 @@ class PriceQuote:
     display_subtotal_minor: int = 0
     display_markup_percent: float = 0.0
     display_markup_minor: int = 0
+
+    # ----- Whole-unit rounding adjustment (Razorpay International) -----
+    #
+    # Razorpay's International rail rounds (or rejects) non-whole-unit
+    # amounts for several currencies — GBP confirmed in production
+    # (charge of 0.89 GBP got billed as 1 GBP, breaking buyer trust).
+    # Fix: ceil the final non-INR amount to the next whole currency
+    # unit (cents -> next 100) at quote-time so the displayed total
+    # and the charged total always match.
+    #
+    # Surfaced as a SEPARATE line in the breakdown so the buyer sees
+    # exactly where the small adjustment came from instead of finding
+    # it baked silently into the rate or fee.
+    #
+    # Zero for INR (paise are valid Razorpay-India amounts) and for
+    # UNAVAILABLE (we fall back to INR). Non-zero for LIVE/STALE/OVERRIDE.
+    display_rounding_adjustment_minor: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -454,11 +495,13 @@ class PricingService:
                 "display_subtotal_minor": final_inr_paise,
                 "display_markup_percent": 0.0,
                 "display_markup_minor": 0,
+                "display_rounding_adjustment_minor": 0,
             }
 
         if rate.source == RateSource.UNAVAILABLE:
             # No way to quote this currency. Mirror INR + flag so UI
-            # refuses checkout.
+            # refuses checkout. No rounding adjustment — we're not
+            # actually going to charge in this currency.
             return {
                 "display_currency": "INR",
                 "display_amount_minor": final_inr_paise,
@@ -470,24 +513,31 @@ class PricingService:
                 "display_subtotal_minor": final_inr_paise,
                 "display_markup_percent": 0.0,
                 "display_markup_minor": 0,
+                "display_rounding_adjustment_minor": 0,
             }
 
         if rate.source == RateSource.OVERRIDE:
             # Admin set this rate directly. Treat their value as final
             # — no markup line shown (the admin baked it in if they
             # wanted). Convert from pre-GST subtotal (no Indian GST).
-            amount = int(round(subtotal_paise / rate.inr_per_unit))
+            #
+            # Ceil to whole-unit (see Razorpay-International rounding
+            # block at end of method).
+            raw_amount = int(round(subtotal_paise / rate.inr_per_unit))
+            rounded = _ceil_to_whole_unit(raw_amount)
+            rounding_adj = rounded - raw_amount
             return {
                 "display_currency": target,
-                "display_amount_minor": amount,
+                "display_amount_minor": rounded,
                 "display_fx_rate": rate.inr_per_unit,
                 "display_fx_rate_raw": None,
                 "display_currency_supported": True,
                 "display_fx_source": "override",
                 "display_fx_fetched_at": None,
-                "display_subtotal_minor": amount,
+                "display_subtotal_minor": raw_amount,
                 "display_markup_percent": 0.0,
                 "display_markup_minor": 0,
+                "display_rounding_adjustment_minor": rounding_adj,
             }
 
         # LIVE or STALE: raw mid-market rate + transparent markup line.
@@ -499,10 +549,16 @@ class PricingService:
         # 5% is "5% of what you'd pay at mid-market" — that's the right
         # mental model for a buyer reading the receipt.
         markup_minor = int(round(sub_minor * markup / 100.0))
-        amount_minor = sub_minor + markup_minor
+        pre_round = sub_minor + markup_minor
+        # Razorpay-International rule: amount must be a whole unit for
+        # currencies like GBP (rounding/rejecting fractional charges in
+        # production). Ceil up to keep the displayed total honest — the
+        # delta is shown as a separate "Rounded to whole unit" line.
+        rounded = _ceil_to_whole_unit(pre_round)
+        rounding_adj = rounded - pre_round
         return {
             "display_currency": target,
-            "display_amount_minor": amount_minor,
+            "display_amount_minor": rounded,
             "display_fx_rate": rate.inr_per_unit,
             "display_fx_rate_raw": raw,
             "display_currency_supported": True,
@@ -511,6 +567,7 @@ class PricingService:
             "display_subtotal_minor": sub_minor,
             "display_markup_percent": markup,
             "display_markup_minor": markup_minor,
+            "display_rounding_adjustment_minor": rounding_adj,
         }
 
     @classmethod

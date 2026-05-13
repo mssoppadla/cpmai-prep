@@ -443,7 +443,13 @@ def fx_live_settings(monkeypatch):
 
 def test_order_in_usd_passes_total_to_provider(
         client, db, user, fake_provider, fx_live_settings):
-    """Razorpay gets the USD TOTAL (subtotal + 5% markup), NOT INR paise."""
+    """Razorpay gets the USD TOTAL (subtotal + 5% markup, ceiled to
+    next whole unit), NOT INR paise.
+
+    Whole-unit ceil is Razorpay-International's integer-amount rule —
+    GBP confirmed in prod that fractional charges silently rounded up
+    on their end, breaking the displayed-vs-charged contract."""
+    import math
     _seed_plan(db, base_price_paise=99900)
     h = auth_header(client, user.email)
     r = client.post("/api/v1/payments/orders", headers=h, json={
@@ -453,10 +459,12 @@ def test_order_in_usd_passes_total_to_provider(
 
     expected_sub = round(99900 / 83.33)
     expected_markup = round(expected_sub * 5.0 / 100.0)
-    expected_total = expected_sub + expected_markup
+    pre_round = expected_sub + expected_markup
+    expected_total = math.ceil(pre_round / 100) * 100   # ceil to whole unit
 
     assert body["currency"] == "USD"
     assert body["amount"] == expected_total
+    assert body["amount"] % 100 == 0                # always a whole unit
     assert fake_provider.last_order_amount == expected_total
 
     # INR breakdown still shown (for receipts / reference).
@@ -497,8 +505,9 @@ def test_order_with_unsupported_currency_400(
 
 def test_order_in_eur_persists_currency_on_payment_row(
         client, db, user, fake_provider, fx_live_settings):
-    """The Payment row stores the charge currency (and total) so admin
-    can later reconcile EUR-denominated orders."""
+    """The Payment row stores the charge currency (and total, post
+    whole-unit ceil) so admin can later reconcile EUR orders."""
+    import math
     _seed_plan(db, base_price_paise=99900)
     h = auth_header(client, user.email)
     r = client.post("/api/v1/payments/orders", headers=h, json={
@@ -509,12 +518,16 @@ def test_order_in_eur_persists_currency_on_payment_row(
     assert pay.currency == "EUR"
     expected_sub = round(99900 / 90.91)
     expected_markup = round(expected_sub * 5.0 / 100.0)
-    assert pay.amount_paise == expected_sub + expected_markup
+    expected_total = math.ceil((expected_sub + expected_markup) / 100) * 100
+    assert pay.amount_paise == expected_total
+    assert pay.amount_paise % 100 == 0
 
 
 def test_order_with_admin_override_skips_markup(client, db, user,
                                                  fake_provider, monkeypatch):
-    """Admin override → admin's rate is the final rate, no markup added."""
+    """Admin override → admin's rate is the final rate, no markup added.
+    Whole-unit ceil still applies (Razorpay-rail constraint is independent
+    of whether the rate came from live data or an override)."""
     fresh = datetime.now(timezone.utc).isoformat()
     from app.core import settings_store as ss_module
     monkeypatch.setattr(ss_module.SettingsStore, "get",
@@ -532,5 +545,7 @@ def test_order_with_admin_override_skips_markup(client, db, user,
     r = client.post("/api/v1/payments/orders", headers=h, json={
         "plan_slug": "exam-bundle", "currency": "USD"})
     assert r.status_code == 201
-    # 99900 / 90 = 1110 cents, no markup added.
-    assert r.json()["amount"] == 1110
+    # 99900 / 90 = 1110 cents, ceiled to 1200 cents = $12.00.
+    # No markup line (admin's rate is final), but rounding still applies.
+    assert r.json()["amount"] == 1200
+    assert r.json()["amount"] % 100 == 0

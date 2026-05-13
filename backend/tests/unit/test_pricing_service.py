@@ -440,7 +440,9 @@ def fx_live_with_markup(monkeypatch):
 
 
 def test_quote_default_currency_is_inr(db, fx_live_with_markup):
-    """No currency argument -> INR. Display mirrors INR final, no markup."""
+    """No currency argument -> INR. Display mirrors INR final, no markup,
+    and no whole-unit rounding (INR is paise-native and Razorpay-India
+    accepts paise directly, so rounding does NOT apply)."""
     _make_plan(db, base=99900)
     q = PricingService(db).quote("exam-bundle")
     assert q.display_currency == "INR"
@@ -448,12 +450,17 @@ def test_quote_default_currency_is_inr(db, fx_live_with_markup):
     assert q.display_fx_rate == 1.0
     assert q.display_fx_source == "inr"
     assert q.display_markup_minor == 0
+    assert q.display_rounding_adjustment_minor == 0
     assert q.display_currency_supported is True
 
 
 def test_quote_in_usd_breaks_out_markup_as_fee(db, fx_live_with_markup):
     """Non-INR + LIVE source: subtotal at mid-market + markup as
-    separate line + total = subtotal + markup. GST is dropped."""
+    separate line + rounding-to-whole-unit + total. GST is dropped.
+
+    Razorpay-International requires whole-unit amounts for several
+    currencies (GBP confirmed in prod), so we ceil the final to the
+    next whole major unit and surface the delta as its own line."""
     _make_plan(db, base=99900)
     q = PricingService(db).quote("exam-bundle", currency="USD")
 
@@ -469,17 +476,25 @@ def test_quote_in_usd_breaks_out_markup_as_fee(db, fx_live_with_markup):
     assert q.display_fx_rate_raw == 83.33
     assert q.display_markup_percent == 5.0
 
-    expected_sub = round(99900 / 83.33)
+    expected_sub = round(99900 / 83.33)            # 1199
     assert q.display_subtotal_minor == expected_sub
-    expected_markup = round(expected_sub * 5.0 / 100.0)
+    expected_markup = round(expected_sub * 5.0 / 100.0)   # 60
     assert q.display_markup_minor == expected_markup
-    assert q.display_amount_minor == expected_sub + expected_markup
+    # Pre-rounding: 1199 + 60 = 1259 cents. Ceiled to next whole unit
+    # = 1300 cents = $13.00 (rounding adjustment = 41 cents).
+    pre_round = expected_sub + expected_markup
+    import math
+    rounded = math.ceil(pre_round / 100) * 100
+    assert q.display_amount_minor == rounded == 1300
+    assert q.display_rounding_adjustment_minor == rounded - pre_round == 41
     assert abs(q.display_fx_rate - 83.33 * 1.05) < 0.001
 
 
 def test_quote_override_takes_priority_and_has_no_markup_line(db, monkeypatch):
     """Admin override beats live AND markup is NOT applied (admin's
-    rate is final; they baked their own margin in if they wanted)."""
+    rate is final; they baked their own margin in if they wanted).
+    But whole-unit rounding still applies — Razorpay International's
+    integer-amount rule doesn't care which rate produced the number."""
     fresh = datetime.now(timezone.utc).isoformat()
     from app.core import settings_store as ss_module
     monkeypatch.setattr(ss_module.SettingsStore, "get",
@@ -499,8 +514,10 @@ def test_quote_override_takes_priority_and_has_no_markup_line(db, monkeypatch):
     assert q.display_fx_rate_raw is None
     assert q.display_markup_percent == 0.0
     assert q.display_markup_minor == 0
-    assert q.display_amount_minor == 1110     # 99900 / 90
+    # Pre-rounding: 99900 / 90 = 1110 cents. Ceil to 1200 cents = $12.00.
     assert q.display_subtotal_minor == 1110
+    assert q.display_amount_minor == 1200
+    assert q.display_rounding_adjustment_minor == 90
 
 
 def test_quote_stale_live_rate_flags_source(db, monkeypatch):
@@ -546,18 +563,30 @@ def test_quote_currency_case_insensitive(db, fx_live_with_markup):
 def test_quote_offer_in_usd_applies_to_subtotal_then_converts(db, fx_live_with_markup):
     """Offer applied: post-offer SUBTOTAL is what gets converted.
     Discount benefit flows through to international buyers; markup
-    still applies on top of the discounted subtotal."""
+    still applies on top of the discounted subtotal, then the total
+    gets ceiled to whole-unit."""
+    import math
     _make_plan(db, base=100000)
     _make_offer(db, code="SAVE20", kind="percent", value=20)
     q = PricingService(db).quote("exam-bundle", "save20", currency="USD")
     assert q.offer_applied is True
     assert q.subtotal_paise == 80000
-    assert q.display_subtotal_minor == round(80000 / 83.33)
-    assert q.display_markup_minor == round(q.display_subtotal_minor * 5.0 / 100.0)
+    expected_sub = round(80000 / 83.33)
+    expected_markup = round(expected_sub * 5.0 / 100.0)
+    assert q.display_subtotal_minor == expected_sub
+    assert q.display_markup_minor == expected_markup
+    # Pre-round = sub + markup. display_amount = ceil to next whole unit.
+    pre_round = expected_sub + expected_markup
+    rounded = math.ceil(pre_round / 100) * 100
+    assert q.display_amount_minor == rounded
+    assert q.display_rounding_adjustment_minor == rounded - pre_round
 
 
 def test_quote_zero_markup_means_no_markup_line(db, monkeypatch):
-    """markup=0 -> display amount equals subtotal-at-mid-market exactly."""
+    """markup=0 -> display_markup_minor is 0. Whole-unit rounding
+    still applies on the subtotal (it's a Razorpay-rail constraint,
+    independent of fee policy)."""
+    import math
     fresh = datetime.now(timezone.utc).isoformat()
     from app.core import settings_store as ss_module
     monkeypatch.setattr(ss_module.SettingsStore, "get",
@@ -573,7 +602,11 @@ def test_quote_zero_markup_means_no_markup_line(db, monkeypatch):
     q = PricingService(db).quote("exam-bundle", currency="USD")
     assert q.display_markup_percent == 0.0
     assert q.display_markup_minor == 0
-    assert q.display_amount_minor == q.display_subtotal_minor
+    # Subtotal at mid-market, then ceiled.
+    assert q.display_subtotal_minor == round(99900 / 83.33)   # 1199
+    expected_round = math.ceil(q.display_subtotal_minor / 100) * 100
+    assert q.display_amount_minor == expected_round           # 1200
+    assert q.display_rounding_adjustment_minor == expected_round - q.display_subtotal_minor
     assert q.display_fx_rate == 83.33
 
 
@@ -583,3 +616,77 @@ def test_quote_inr_explicit_matches_inr_default(db, fx_live_with_markup):
     a = PricingService(db).quote("exam-bundle")
     b = PricingService(db).quote("exam-bundle", currency="INR")
     assert a.to_dict() == b.to_dict()
+
+
+def test_quote_inr_never_rounds_to_whole_unit(db, fx_live_with_markup):
+    """INR is exempt from whole-unit rounding.
+
+    Razorpay-India accepts paise directly in the ``amount`` field, so
+    a ₹999.00 charge goes through as 99900 paise exactly — no need to
+    ceil to ₹1000. This is a regression guard: international rounding
+    must NOT bleed into the domestic flow.
+    """
+    _make_plan(db, base=99949)            # non-whole-rupee on purpose
+    q = PricingService(db).quote("exam-bundle", currency="INR")
+    # Paise stay as-is, no ceil-to-100, no rounding line.
+    assert q.display_amount_minor == q.final_price_paise
+    assert q.display_amount_minor == 99949 + ((99949 * 18) // 100)
+    assert q.display_rounding_adjustment_minor == 0
+
+
+def test_quote_non_inr_ceils_to_next_whole_unit(db, monkeypatch):
+    """Razorpay International requires whole-unit amounts for several
+    currencies (GBP confirmed in prod: a 0.89 GBP charge got billed
+    as 1 GBP, breaking buyer trust). We pre-empt the mismatch by
+    ceil-ing the final minor amount to the next whole major unit and
+    surfacing the delta as ``display_rounding_adjustment_minor`` so
+    the UI can show it as its own line on the receipt.
+    """
+    import math
+    fresh = datetime.now(timezone.utc).isoformat()
+    from app.core import settings_store as ss_module
+    # GBP rate that produces a fractional-pence pre-round amount.
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent": 0,
+            "pricing.fx_live_raw":       {"GBP": 105.0},
+            "pricing.fx_live_fetched_at": fresh,
+            "pricing.fx_markup_percent":  5.0,
+            "pricing.fx_overrides":      {},
+        }.get(k, default))
+    _make_plan(db, base=89000)        # ₹890 -> ~£8.48 -> ceil to £9.00
+
+    q = PricingService(db).quote("exam-bundle", currency="GBP")
+    sub = round(89000 / 105.0)                       # 848
+    markup = round(sub * 5.0 / 100.0)                # 42
+    pre_round = sub + markup                         # 890 pence
+    rounded = math.ceil(pre_round / 100) * 100       # 900 pence = £9.00
+    assert q.display_subtotal_minor == sub
+    assert q.display_markup_minor == markup
+    assert q.display_amount_minor == rounded
+    assert q.display_rounding_adjustment_minor == rounded - pre_round
+    # Sanity: amount must be cleanly divisible by 100 (whole units).
+    assert q.display_amount_minor % 100 == 0
+
+
+def test_quote_non_inr_already_whole_unit_no_rounding(db, monkeypatch):
+    """If the pre-round amount already lands on a whole major unit,
+    ``display_rounding_adjustment_minor`` stays 0 — no spurious line
+    added to the receipt."""
+    fresh = datetime.now(timezone.utc).isoformat()
+    from app.core import settings_store as ss_module
+    # Rate engineered so 100000 paise * (1+0) / 100.0 = exactly 1000 cents.
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent": 0,
+            "pricing.fx_live_raw":       {"USD": 100.0},
+            "pricing.fx_live_fetched_at": fresh,
+            "pricing.fx_markup_percent":  0.0,
+            "pricing.fx_overrides":      {},
+        }.get(k, default))
+    _make_plan(db, base=100000)
+    q = PricingService(db).quote("exam-bundle", currency="USD")
+    assert q.display_amount_minor == 1000
+    assert q.display_rounding_adjustment_minor == 0
