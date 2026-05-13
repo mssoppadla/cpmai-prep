@@ -465,3 +465,61 @@ the Razorpay dashboard (Settings → International payments). Without
 it, the endpoint returns a clean 502 with the Razorpay error text;
 the admin sees that message and knows to enable. INR-only operation
 needs no Razorpay config beyond what's already in prod.
+
+---
+
+## 42. Razorpay International: ceil non-INR amounts to whole units
+
+**What hit prod:** a quote rendered as `0.89 GBP` got billed as
+`1.00 GBP` on the customer's card. The displayed-vs-charged mismatch
+showed up in failed/disputed payments and shattered trust.
+
+**Root cause:** Razorpay-International's rails round (or outright
+reject) non-whole-unit amounts for several currencies — GBP confirmed
+in production, others likely follow the same rule despite the docs
+claiming the `amount` field is "in subunits (paise/cents/pence)".
+Their docs are technically right for Razorpay-India (paise are valid),
+but the international rail behaves differently and there's no public
+list of which currencies are affected.
+
+**The fix in this repo:**
+
+1. `app/services/pricing_service.py` — `_build_display_block` ceils
+   the final non-INR amount UP to the next whole major unit
+   (`math.ceil(amount_minor / 100) * 100`) and exposes the delta as
+   `display_rounding_adjustment_minor` on the `PriceQuote` dataclass.
+2. The `/pricing` page renders that delta as its own line item —
+   `Rounded to whole unit: +$0.12` — so the buyer sees exactly
+   where the small adjustment came from instead of finding the
+   total mysteriously bigger than `subtotal + fee`.
+3. INR is **explicitly exempt** — Razorpay-India accepts paise
+   natively. Mixing the policies would break domestic INR receipts.
+
+**The buyer sees on a non-INR receipt:**
+
+```
+Subtotal (USD):                       $11.99
+International processing fee (5.0%):  +$0.60
+Rounded to whole unit:                +$0.41
+─────────
+Total to pay (USD):                   $13.00   ← whole-unit, matches Razorpay
+```
+
+**Pinned by:**
+
+- `tests/unit/test_pricing_service.py::test_quote_non_inr_ceils_to_next_whole_unit`
+- `tests/unit/test_pricing_service.py::test_quote_inr_never_rounds_to_whole_unit`
+  (regression guard — INR stays paise-accurate)
+- `tests/unit/test_pricing_service.py::test_quote_non_inr_already_whole_unit_no_rounding`
+  (no spurious +0 line on receipts when the math already lands clean)
+- `tests/integration/test_payment_flow.py::test_order_in_usd_passes_total_to_provider`
+  (asserts `body["amount"] % 100 == 0` — the Razorpay-bound amount
+  is always a whole unit on the international rail)
+
+**Caveat — currencies with non-1:100 subunit ratios:**
+all currencies in our default picker (USD/EUR/GBP/AUD/CAD/SGD/AED/…)
+use the 1:100 minor:major shape. If JPY / KRW / IDR ever land in the
+picker, the `_MINOR_UNITS_PER_MAJOR` constant in `pricing_service.py`
+needs to become per-currency (JPY has no minor unit; KRW is 1:1).
+Catch this with an explicit allow-list in `pricing.supported_currencies`
+before the ceil logic gets fed a wrong divisor.

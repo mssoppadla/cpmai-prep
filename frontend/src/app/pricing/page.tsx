@@ -486,6 +486,19 @@ export default function PricingPage() {
                                                     currentCurrencyOption.symbol)}`}
                             muted />
                         )}
+                        {/* Razorpay International accepts only whole units
+                            for some currencies (GBP confirmed). We ceil the
+                            total to the next whole unit and surface the
+                            delta as its own line so the buyer sees the
+                            cents added, not a silent mismatch between the
+                            quoted price and the card charge. */}
+                        {(quote.display_rounding_adjustment_minor ?? 0) > 0 && (
+                          <Row
+                            label="Rounded to whole unit"
+                            value={`+${formatMinor(quote.display_rounding_adjustment_minor ?? 0,
+                                                    currentCurrencyOption.symbol)}`}
+                            muted />
+                        )}
                       </>
                     )}
                     {/* TOTAL row. INR: final INR. Non-INR: total

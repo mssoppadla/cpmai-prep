@@ -48,6 +48,11 @@ class PriceQuoteOut(BaseModel):
     display_subtotal_minor: int = 0
     display_markup_percent: float = 0.0
     display_markup_minor: int = 0
+    # Razorpay-International requires whole-unit amounts for some
+    # currencies (GBP confirmed). We ceil non-INR totals to the next
+    # whole major unit and surface the delta here so the receipt
+    # remains transparent. Zero for INR.
+    display_rounding_adjustment_minor: int = 0
 
 
 class QuoteRequestIn(BaseModel):

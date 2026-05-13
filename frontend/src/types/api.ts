@@ -603,6 +603,10 @@ export interface PriceQuoteOut {
   display_subtotal_minor?: number;     // amount at mid-market, pre-markup
   display_markup_percent?: number;
   display_markup_minor?: number;       // international processing fee
+  // Ceiling delta to the next whole major unit. Razorpay International
+  // accepts only whole units for some currencies (GBP confirmed in prod).
+  // Zero for INR; non-zero when the pre-round total had fractional units.
+  display_rounding_adjustment_minor?: number;
 }
 
 // ---------- Admin FX dashboard --------------------------------------------

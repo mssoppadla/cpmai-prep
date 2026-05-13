@@ -164,11 +164,19 @@ def test_quote_with_usd_currency_breaks_out_markup(client, db, monkeypatch):
     assert body["display_fx_source"] == "live"
     assert body["display_fx_rate_raw"] == 83.33
     assert body["display_markup_percent"] == 5.0
+    import math
     expected_sub = round(99900 / 83.33)
+    expected_markup = round(expected_sub * 5.0 / 100.0)
+    pre_round = expected_sub + expected_markup
+    expected_total = math.ceil(pre_round / 100) * 100   # ceil to whole unit
     assert body["display_subtotal_minor"] == expected_sub
-    assert body["display_markup_minor"] == round(expected_sub * 5.0 / 100.0)
-    assert body["display_amount_minor"] == (
-        body["display_subtotal_minor"] + body["display_markup_minor"])
+    assert body["display_markup_minor"] == expected_markup
+    # Razorpay-International requires whole-unit amounts for several
+    # currencies (GBP confirmed in prod). The /pricing/quote response
+    # surfaces both the pre-round components and the post-round total.
+    assert body["display_amount_minor"] == expected_total
+    assert body["display_amount_minor"] % 100 == 0
+    assert body["display_rounding_adjustment_minor"] == expected_total - pre_round
     assert body["display_currency_supported"] is True
 
 
@@ -185,6 +193,9 @@ def test_quote_with_default_currency_unchanged(client, db, monkeypatch):
     assert body["display_amount_minor"] == 117882
     assert body["display_fx_source"] == "inr"
     assert body["display_markup_minor"] == 0
+    # INR is exempt from whole-unit ceiling (Razorpay-India accepts
+    # paise directly — only Razorpay-International has the rule).
+    assert body["display_rounding_adjustment_minor"] == 0
     assert body["display_currency_supported"] is True
 
 
