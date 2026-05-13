@@ -2,18 +2,32 @@
 
 Every handler builds its own intent-specific system prompt (e.g.
 ContentHandler's "explain CPMAI concepts…"). On top of that, the
-admin can configure THREE global guardrail strings that get prepended:
+admin can configure FOUR global guardrail strings that get prepended:
 
   - assistant.system_prompt_preamble — high-level identity/persona
     ("You are CPMAI Prep's official assistant. Be concise.")
   - assistant.allowed_topics — comma-or-newline list of topics the
-    bot is happy to discuss ("CPMAI BoK, ML/AI fundamentals, ...")
-  - assistant.banned_topics — topics to refuse politely, with one
-    explicit exception group ("PMP-only methodologies, EXCEPT
-    questions about PMI's CPMAI program itself")
+    bot is happy to discuss freely ("CPMAI BoK, ML/AI fundamentals, ...")
+  - assistant.allowed_exceptions — ADDITIONAL topics the bot may
+    discuss even though they aren't in allowed_topics. Use this for
+    one-off subjects you want to allow without expanding the main
+    scope statement (e.g. "GDPR rules", "PMI exam registration").
+    Items here also override the banned list — if a subject is both
+    banned and excepted, the exception wins.
+  - assistant.banned_topics — topics to refuse politely ("PMP-only
+    methodologies, internal company finance"). Subordinate to
+    allowed_exceptions above.
 
 Combined into one preamble that's stable for the duration of a
 request. Admin edits land in subsequent chats without a deploy.
+
+History note (2026-05-14): `allowed_exceptions` originally only
+extended the banned list and was silently dropped when banned_topics
+was empty. Operator reported that adding "GDPR Rules" to exceptions
+didn't unlock the topic — because banned_topics was empty AND the LLM
+was rejecting GDPR for not being in allowed_topics. Fixed by making
+exceptions a top-level "ALSO ALLOWED" block that's independent of
+both lists. The field name now matches the behavior.
 
 Why a separate module: the LLM-bound handlers (Content/FAQ/Account)
 all need it; PmiReferenceHandler doesn't (it makes no LLM call); and
@@ -40,14 +54,22 @@ def assemble_preamble() -> str:
     if allowed:
         parts.append(
             "TOPIC SCOPE — discuss these subjects freely:\n" + allowed)
+    if exceptions:
+        # Top-level "ALSO ALLOWED" block. Independent of both
+        # allowed_topics and banned_topics: items here are brought
+        # IN-scope even if they aren't in TOPIC SCOPE, and they
+        # override anything in BANNED. The "even if not listed above"
+        # wording is crucial — without it the model tends to treat
+        # this as a no-op when TOPIC SCOPE is already narrow.
+        parts.append(
+            "ALSO ALLOWED — these specific subjects ARE in scope, even "
+            "if they don't appear in TOPIC SCOPE above and even if they "
+            "would otherwise be banned. Answer questions about them the "
+            "same way you would for any in-scope subject:\n" + exceptions)
     if banned:
-        ban_block = (
-            "BANNED — politely decline to discuss these:\n" + banned)
-        if exceptions:
-            ban_block += (
-                "\n\nException — these specific items ARE allowed even when "
-                "they touch the banned list:\n" + exceptions)
-        parts.append(ban_block)
+        parts.append(
+            "BANNED — politely decline to discuss these UNLESS the "
+            "subject is in the ALSO ALLOWED list above:\n" + banned)
 
     if not parts:
         return ""

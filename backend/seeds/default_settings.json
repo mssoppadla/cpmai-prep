@@ -102,7 +102,7 @@
   {
     "key": "assistant.allowed_exceptions",
     "value": "PMI's history with CPMAI, the relationship between PMI and CPMAI certification, where to register for the CPMAI exam on PMI's site.",
-    "description": "Exception clause to the banned list — PMI-adjacent items that ARE allowed even though they touch the PM banned set."
+    "description": "Additional topics the assistant may discuss freely, even if they don't appear in allowed_topics. Folded into the system prompt as 'ALSO ALLOWED'. Items here also override the banned list. Use for one-off subjects you want to unlock without expanding the main scope statement."
   },
   {
     "key": "assistant.no_provider_message",
