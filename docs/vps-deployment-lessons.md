@@ -387,6 +387,22 @@ strict-typed output schema would 500 when serializing a soft-deleted
 user. Validation belongs at input time (SignupIn / LoginIn use
 EmailStr); serialization should round-trip cleanly.
 
+**Re-login after delete is intentionally allowed — soft-delete is
+NOT a ban-list.** When a soft-deleted user clicks "Sign in with
+Google" again, the provisioner's lookup misses on both `google_id`
+(now NULL) and `email` (now `deleted-X@redacted.invalid`), falls
+through to "create new user", and they get a fresh account row with
+a different `user.id`. This is intentional — it's the GDPR "right
+to be forgotten" semantics: the old account is genuinely gone, the
+person can come back as a fresh user. The old row is untouched.
+
+If we ever want admin-delete to mean "ban this signup from coming
+back" (e.g. for repeat spammers), we'd have to keep `google_id` and
+a hash of the original email on the deleted row so the provisioner
+finds it and trips `is_active=False`. That's a product decision, not
+a refactor — pinned by `tests/integration/test_google_relogin_after_delete.py`
+so it can't change silently.
+
 ## 39. GeoIP cron auto-installs via deploy.sh — no SSH needed
 
 **Date:** 2026-05-13.
