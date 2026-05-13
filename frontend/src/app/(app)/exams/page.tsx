@@ -1,11 +1,20 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { auth, exams as examsApi, errMsg } from "@/lib/api";
+import { auth, content, exams as examsApi, errMsg } from "@/lib/api";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { ExamSetSummaryOut, UserOut } from "@/types/api";
 import { ExamSetCard } from "@/components/exam/ExamSetCard";
+
+// Default copy for the anonymous-state banner. Used while /content/landing
+// is in flight, AND as a fallback if the API is unreachable. Kept in sync
+// with the seeded value in backend/seeds/default_settings.json so a
+// freshly-built frontend looks the same regardless of seed state.
+const DEFAULT_ANON_BANNER =
+  "You're not signed in. Free sets are open — start one anonymously and " +
+  "you'll see your result immediately (just not saved to a dashboard). " +
+  "Sign in to save attempts; subscribe to unlock premium sets.";
 
 /**
  * Public Mock Exams list. Reachable by anyone — including visitors who
@@ -17,12 +26,22 @@ export default function ExamSetsPage() {
   const [sets, setSets] = useState<ExamSetSummaryOut[] | null>(null);
   const [me, setMe] = useState<UserOut | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  // Admin-editable anonymous-state banner. Pulled from /content/landing
+  // so non-engineering admins can rephrase without a redeploy. Falls
+  // back to DEFAULT_ANON_BANNER if the API is unreachable.
+  const [anonBanner, setAnonBanner] = useState(DEFAULT_ANON_BANNER);
 
   useEffect(() => {
     examsApi.listSets()
       .then(setSets)
       .catch((e) => setError(errMsg(e)));
     auth.me().then(setMe).catch(() => setMe(null));
+    content.landing()
+      .then((c) => {
+        const v = c.exams_anonymous_banner?.trim();
+        if (v) setAnonBanner(v);
+      })
+      .catch(() => { /* keep default */ });
   }, []);
 
   return (
@@ -42,10 +61,12 @@ export default function ExamSetsPage() {
       {me === null && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1 text-sm text-indigo-900">
-            <strong>You're not signed in.</strong>{" "}
-            Free sets are open — start one anonymously and you'll see your
-            result immediately (just not saved to a dashboard). Sign in to
-            save attempts; subscribe to unlock premium sets.
+            {/* Whole banner copy is admin-editable now (was hardcoded
+                before). The bold "You're not signed in." opener is
+                folded INTO the configured string so admins can change
+                tone or remove the bold-then-explanation pattern as
+                they see fit. Server caps the length at 1000 chars. */}
+            {anonBanner}
           </div>
           <div className="flex gap-2 flex-shrink-0">
             <Link

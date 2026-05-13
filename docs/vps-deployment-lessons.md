@@ -633,3 +633,105 @@ Smart Button SDK. Rationale:
   PayPal endpoint)
 - `tests/integration/test_payment_flow.py::test_verify_rejects_paypal_order`
   (symmetric — PayPal order can't slip through Razorpay's verify)
+
+---
+
+## 44. Configurable content strings — the SettingsStore + /content/* pattern
+
+**Why this exists:** the operator has repeatedly asked to change a piece
+of user-facing copy (chat error wording, landing tagline, "try asking"
+suggestions, exam-page anonymous banner) and we keep landing the change
+as a code edit + redeploy. The codebase already had the right
+infrastructure (SettingsStore + /content/site + /content/landing) but
+not every visible string was wired through it. This row documents the
+canonical pattern so the next "can you just change this string?" turns
+into a five-second admin edit, not a PR.
+
+### The four files that make a string configurable
+
+For ANY visible string the operator might want to tweak without a
+redeploy, edit FOUR files in lockstep — anything less leaves drift:
+
+```
+1. backend/seeds/default_settings.json
+     ↳ {"key": "section.string_name", "value": "...", "description": "..."}
+   The fallback value AND the operator-facing description. Description
+   is what shows up in /admin/settings; write it for an operator, not
+   an engineer.
+
+2. backend/app/api/v1/endpoints/admin/settings.py — EDITABLE dict
+     ↳ "section.string_name": _short_str(max_len)  // or _short_str_list(...)
+   Validator gates what /admin/settings PATCH will accept. Pick a max_len
+   the UI can render comfortably (200 for one-liners, 500–1000 for
+   paragraphs, 2000+ only for genuinely long content).
+
+3. backend/app/api/v1/endpoints/content.py — /content/site or /content/landing
+     ↳ "exposed_field_name": settings_store.get_str("section.string_name",
+                                                     "Hardcoded fallback")
+   The fallback is what the frontend sees when the row isn't seeded yet
+   (fresh DB, dev environment). Keep it in sync with the seed value so
+   "what the user sees" doesn't depend on whether seeds have run.
+
+4. backend/tests/integration/test_settings_editable.py — DRIFT_GUARD dict
+     ↳ "section.string_name": "any non-default value valid by the validator"
+   This is the round-trip test: GET the setting, PATCH it to this value,
+   GET again, assert it round-tripped. Catches mis-typed keys + validator
+   mismatches. If you forget this step, CI may pass but admin saves silently
+   fail in prod.
+```
+
+### Frontend side (3 places)
+
+```
+5. frontend/src/types/api.ts — SiteChrome or LandingCopy interface
+     ↳ exposed_field_name: string;   // or string[] for lists
+   Type alignment with the backend response.
+
+6. The fallback objects (SiteHeader.tsx + SiteFooter.tsx, or the page's
+   FALLBACK_LANDING). New field must be filled with the SAME default the
+   /content/* endpoint serves — otherwise SSR shows one value and CSR
+   shows another, causing a hydration mismatch warning.
+
+7. Wherever the string actually renders. Read it from the fetched
+   chrome/copy object, not from a hardcoded constant. If the string
+   is on a page that doesn't already fetch /content/*, fetch it there
+   (the cache TTL means it's cheap on repeat visits).
+```
+
+### Two real cases worth understanding
+
+**Lists (`assistant.try_asking_suggestions`):** a setting can be a list
+of strings, not just a single string. Validator `_short_str_list(
+max_items=N, max_item_len=M)` enforces both list-size and per-entry-
+length. The frontend treats an empty list as "admin opted out" (suggestions
+hidden), and a missing key as "render the hardcoded default" — those are
+deliberately different states.
+
+**Strings that ALSO appear in error responses
+(`assistant.anonymous_no_identity_message`):** read the setting from
+inside the backend handler/guardrail, not the frontend. The frontend
+only sees the resolved string in the error payload. This pattern lets
+admins change a user-facing error message without the frontend code
+knowing the message exists.
+
+### Pinned by
+
+- `tests/integration/test_settings_editable.py` — drift guard: every key
+  in EDITABLE must round-trip through GET → PATCH → GET. Missing a key
+  here fails CI before it lands.
+- `tests/integration/test_content_endpoints.py` (existing) — asserts
+  /content/site and /content/landing return the expected shape with
+  seeded defaults when no overrides exist.
+
+### When NOT to use this pattern
+
+- Engineering-internal strings (log messages, audit-log actions, error
+  codes). Those stay in code.
+- Strings that change less than once a year AND don't have an audience
+  the operator might want to tune (e.g. legal copy, terms of service).
+  These belong in their own /admin/legal-pages flow if they need
+  editing at all.
+- Strings that need formatting / interpolation beyond simple text
+  (e.g. embedded React components, conditional logic). Configurability
+  for those becomes a CMS-shaped problem; do that explicitly, not via
+  settings_store.

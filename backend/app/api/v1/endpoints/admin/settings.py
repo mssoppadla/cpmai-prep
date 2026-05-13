@@ -72,6 +72,27 @@ def _int_in(lo: int, hi: int):
     return lambda v: isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def _short_str_list(*, max_items: int = 20, max_item_len: int = 200):
+    """List of non-empty strings, e.g. the assistant "try asking" suggestions.
+
+    Each entry: 1..max_item_len chars after strip.
+    Whole list: 0..max_items entries (empty list disables the feature).
+    """
+    def ok(v):
+        if not isinstance(v, list):
+            return False
+        if len(v) > max_items:
+            return False
+        for entry in v:
+            if not isinstance(entry, str):
+                return False
+            s = entry.strip()
+            if not (1 <= len(s) <= max_item_len):
+                return False
+        return True
+    return ok
+
+
 def _float_in(lo: float, hi: float):
     return lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi
 
@@ -275,6 +296,15 @@ EDITABLE: dict[str, Callable] = {
     "assistant.allowed_exceptions":      _optional_str(2000),
     "assistant.no_provider_message":     _optional_str(2000),
     "assistant.widget_subtitle":         _optional_str(200),
+    # Error message thrown from guardrails when an anonymous request
+    # arrives without an anon_id. User-facing — frontend renders verbatim.
+    "assistant.anonymous_no_identity_message":
+                                         _short_str(500),
+    # Starter prompts in the chat widget's empty state. Each one becomes
+    # a clickable chip that pre-fills the chat input. Empty list disables
+    # the suggestions entirely (just the greeting shows).
+    "assistant.try_asking_suggestions":  _short_str_list(
+                                            max_items=10, max_item_len=200),
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),
@@ -297,6 +327,15 @@ EDITABLE: dict[str, Callable] = {
     "landing.lead_post_submit_route":    _short_str(200),
     "landing.premium_upsell_title":      _short_str(120),
     "landing.premium_upsell_body":       _short_str(500),
+    # Public landing-page hero. Bigger limits than the marketing-copy
+    # blocks above because the headline (h1) AND the subtitle (long
+    # supporting sentence) both live here.
+    "landing.hero_headline":             _short_str(200),
+    "landing.hero_subtitle":             _short_str(500),
+    # Exams page anonymous-state banner. Plain text (not markdown),
+    # rendered with the same indigo-50 banner styling as before — only
+    # the wording changes.
+    "exams.anonymous_banner":            _short_str(1000),
     # Site chrome (header + footer, admin-editable per the unified-chrome rollout)
     "site.brand_name":                   _short_str(80),
     "site.tagline":                      _optional_str(240),

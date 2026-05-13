@@ -30,12 +30,23 @@ import type { UserOut, AssistantCitation, SuggestedAction } from "@/types/api";
 import { useAssistant, type ChatTurn } from "./useAssistant";
 
 const DEFAULT_SUBTITLE = "Grounded in our FAQ, pricing & question explanations";
+// EmptyState fallback — matches the previously-hardcoded list so the
+// widget keeps working before /content/site has resolved (and as a
+// guard if an admin nukes the setting entirely).
+const DEFAULT_TRY_ASKING: string[] = [
+  "What's the difference between Phase 2 and Phase 3?",
+  "How much is the exam bundle?",
+  "Where do I register for the actual exam?",
+];
 
 
 export function AssistantWidget({ user }: { user: UserOut | null }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [subtitle, setSubtitle] = useState(DEFAULT_SUBTITLE);
+  // Admin-editable starter prompts. Pulled from the SAME /content/site
+  // fetch as the subtitle so we don't add another round-trip.
+  const [tryAsking, setTryAsking] = useState<string[]>(DEFAULT_TRY_ASKING);
   // Callback-request state. Separate "view" inside the panel so the user
   // can step out of the chat to request a human follow-up without losing
   // the conversation, then return to the chat.
@@ -109,8 +120,19 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
         if (cancelled) return;
         const v = s.assistant_widget_subtitle?.trim();
         if (v) setSubtitle(v);
+        // Suggestions: admin can clear the list entirely (server enforces
+        // 0..10 entries). Treat an empty array as "admin opted out" and
+        // skip rendering the EmptyState block — don't fall back to the
+        // hardcoded default in that case.
+        if (Array.isArray(s.assistant_try_asking_suggestions)) {
+          setTryAsking(
+            s.assistant_try_asking_suggestions
+              .map((x: string) => String(x).trim())
+              .filter(Boolean)
+          );
+        }
       })
-      .catch(() => { /* keep default */ });
+      .catch(() => { /* keep defaults */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -295,7 +317,16 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
               <div ref={scrollRef}
                    className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-white">
                 {turns.length === 0 && notifications.length === 0 && (
-                  <EmptyState />
+                  <EmptyState
+                    suggestions={tryAsking}
+                    onPick={(text) => {
+                      setDraft(text);
+                      // Refocus the input so the keyboard cursor lands
+                      // there immediately and the user can hit Enter
+                      // without an extra click.
+                      setTimeout(() => inputRef.current?.focus(), 0);
+                    }}
+                  />
                 )}
                 {notifications.map((n) => (
                   <SupportReplyBubble key={n.id} notification={n} />
@@ -469,16 +500,40 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
 }
 
 
-function EmptyState() {
+function EmptyState({
+  suggestions, onPick,
+}: {
+  suggestions: string[];
+  /** Called when the learner clicks a suggestion chip. Should pre-fill
+   *  the chat input with the text so the learner can Enter to send. */
+  onPick: (text: string) => void;
+}) {
   return (
-    <div className="text-center py-8 text-slate-500 text-sm space-y-2">
+    <div className="text-center py-8 text-slate-500 text-sm space-y-3">
       <p className="font-medium text-slate-700">Hi! I'm here to help with CPMAI questions.</p>
-      <p className="text-xs">Try asking:</p>
-      <ul className="text-xs space-y-1 text-indigo-700">
-        <li>"What's the difference between Phase 2 and Phase 3?"</li>
-        <li>"How much is the exam bundle?"</li>
-        <li>"Where do I register for the actual exam?"</li>
-      </ul>
+      {suggestions.length > 0 && (
+        <>
+          <p className="text-xs">Try asking:</p>
+          {/* Clickable chips. Buttons (not <li>) so screen readers
+              recognise them as interactive and Enter/Space activate
+              them. type="button" stops the surrounding form from
+              submitting — pre-fill only, don't send yet. */}
+          <ul className="flex flex-col items-center gap-1.5 text-xs">
+            {suggestions.map((s) => (
+              <li key={s}>
+                <button type="button"
+                        onClick={() => onPick(s)}
+                        className="text-left text-indigo-700 hover:text-indigo-900
+                                   hover:underline focus:outline-none focus:ring-2
+                                   focus:ring-indigo-400 rounded px-1 py-0.5
+                                   max-w-full break-words">
+                  &ldquo;{s}&rdquo;
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

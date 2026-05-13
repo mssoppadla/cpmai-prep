@@ -282,6 +282,11 @@ export interface LandingCopy {
   lead_post_submit_route: string;
   premium_upsell_title: string;
   premium_upsell_body: string;
+  /** H1 + supporting paragraph on the public landing page. */
+  hero_headline: string;
+  hero_subtitle: string;
+  /** Banner shown on /exams when the visitor is NOT signed in. */
+  exams_anonymous_banner: string;
 }
 
 /** Admin-editable site-wide chrome (header + footer). */
@@ -296,6 +301,10 @@ export interface SiteChrome {
   show_pricing_link: boolean;
   /** Subtitle shown under "CPMAI Assistant" in the chat-widget header. */
   assistant_widget_subtitle: string;
+  /** Starter prompts in the chat widget's empty state. Each entry is
+   *  rendered as a clickable chip that pre-fills the chat input.
+   *  Empty list disables the suggestions block entirely. */
+  assistant_try_asking_suggestions: string[];
 }
 
 export interface ContactRow {

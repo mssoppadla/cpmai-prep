@@ -115,6 +115,20 @@
     "description": "Subtitle shown under 'CPMAI Assistant' in the chat panel header. Tells learners what the AI is grounded in."
   },
   {
+    "key": "assistant.anonymous_no_identity_message",
+    "value": "Please sign in to continue chatting. Anonymous chat needs a browser identifier — refresh the page or sign in.",
+    "description": "User-facing error message returned when an anonymous request hits the assistant without an anon_id cookie. Edit to friendlier copy if learners report confusion."
+  },
+  {
+    "key": "assistant.try_asking_suggestions",
+    "value": [
+      "What's the difference between Phase 2 and Phase 3?",
+      "How much is the exam bundle?",
+      "Where do I register for the actual exam?"
+    ],
+    "description": "Starter prompts shown in the chat widget's empty state. Each entry becomes a clickable chip that pre-fills the chat input. Max 10 entries, 200 chars each. Empty list disables the suggestions."
+  },
+  {
     "key": "payment.active_provider_id",
     "value": null,
     "description": "Active payment_providers row ID — INR-rail provider (typically Razorpay). Non-INR routing uses payment.non_inr_provider_id below."
@@ -193,6 +207,21 @@
     "key": "landing.premium_upsell_body",
     "value": "Premium unlocks all advanced sets, AI tutor with extended quota, and detailed performance analytics.",
     "description": "Body of the upsell card on the learner dashboard"
+  },
+  {
+    "key": "landing.hero_headline",
+    "value": "Pass the CPMAI certification on your first attempt",
+    "description": "H1 headline on the public landing page (/). Keep under ~50 chars for mobile layout."
+  },
+  {
+    "key": "landing.hero_subtitle",
+    "value": "Realistic mock exams · AI-powered coaching · Detailed answer reasoning for every question across all 6 CPMAI phases.",
+    "description": "Supporting paragraph under the H1 on the public landing page. Bullet-style sentence with middle-dots works well; mobile wraps OK up to ~140 chars."
+  },
+  {
+    "key": "exams.anonymous_banner",
+    "value": "You're not signed in. Free sets are open — start one anonymously and you'll see your result immediately (just not saved to a dashboard). Sign in to save attempts; subscribe to unlock premium sets.",
+    "description": "Banner shown on /exams when the visitor is NOT signed in. Plain text only — frontend renders the same indigo-50 styling regardless of length."
   },
   {
     "key": "site.brand_name",

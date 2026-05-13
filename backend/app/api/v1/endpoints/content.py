@@ -62,7 +62,34 @@ def site_chrome():
             "assistant.widget_subtitle",
             "Grounded in our FAQ, pricing & question explanations",
         ),
+        # Suggested starter prompts shown in the empty-state of the
+        # assistant widget. Admin-editable as a list so they can
+        # rotate the suggestions seasonally / based on what learners
+        # actually ask. List of strings — frontend renders each as a
+        # clickable chip that pre-fills the input.
+        "assistant_try_asking_suggestions": _try_asking_suggestions(),
     }
+
+
+def _try_asking_suggestions() -> list[str]:
+    """Read the configured suggestion list; sanitise so a misconfigured
+    setting can't break the widget render.
+
+    Defaults match the previously-hardcoded EmptyState entries so the
+    widget looks identical before any admin edits.
+    """
+    raw = settings_store.get("assistant.try_asking_suggestions", None)
+    if isinstance(raw, list):
+        clean = [str(x).strip() for x in raw
+                 if isinstance(x, str) and str(x).strip()]
+        if clean:
+            return clean
+    # Fallback — same wording the hardcoded EmptyState used.
+    return [
+        "What's the difference between Phase 2 and Phase 3?",
+        "How much is the exam bundle?",
+        "Where do I register for the actual exam?",
+    ]
 
 
 @router.get("/landing")
@@ -94,5 +121,28 @@ def landing_copy():
             "landing.premium_upsell_body",
             "Premium unlocks all advanced sets, AI tutor with extended quota, "
             "and detailed performance analytics.",
+        ),
+        # Hero block on the public landing page (/). Both headline +
+        # subtitle moved here so non-engineering admins can A/B copy
+        # without a redeploy. Defaults match the previously-shipped
+        # marketing copy.
+        "hero_headline": settings_store.get_str(
+            "landing.hero_headline",
+            "Pass the CPMAI certification on your first attempt",
+        ),
+        "hero_subtitle": settings_store.get_str(
+            "landing.hero_subtitle",
+            "Realistic mock exams · AI-powered coaching · Detailed answer "
+            "reasoning for every question across all 6 CPMAI phases.",
+        ),
+        # Banner shown on /exams when the visitor is NOT signed in.
+        # Plain-text (not HTML) — frontend renders with the same styling
+        # as before; admins can change the wording but not the markup.
+        "exams_anonymous_banner": settings_store.get_str(
+            "exams.anonymous_banner",
+            "You're not signed in. Free sets are open — start one "
+            "anonymously and you'll see your result immediately (just "
+            "not saved to a dashboard). Sign in to save attempts; "
+            "subscribe to unlock premium sets.",
         ),
     }

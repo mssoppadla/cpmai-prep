@@ -74,6 +74,12 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "assistant.allowed_exceptions":      "PMI history.",
     "assistant.no_provider_message":     "Our AI tutor is coming back soon — thanks for your patience.",
     "assistant.widget_subtitle":         "Grounded in CPMAI prep materials.",
+    "assistant.anonymous_no_identity_message":
+                                         "Please sign in to chat.",
+    "assistant.try_asking_suggestions":  [
+                                            "What's a CPMAI phase?",
+                                            "How do I register for the exam?",
+                                         ],
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,
@@ -89,6 +95,9 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "landing.lead_post_submit_route":    "/exams",
     "landing.premium_upsell_title":      "Get the full bank",
     "landing.premium_upsell_body":       "Unlock everything for one year.",
+    "landing.hero_headline":             "Pass the CPMAI cert first try",
+    "landing.hero_subtitle":             "Mock exams + AI coaching.",
+    "exams.anonymous_banner":            "Sign in to save your attempts.",
     # site.*
     "site.brand_name":                   "CPMAI Prep",
     "site.tagline":                      "Pass the CPMAI certification.",
