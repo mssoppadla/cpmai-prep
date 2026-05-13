@@ -248,3 +248,69 @@ docker system df -v           # after — sanity check
 If you ever need to reclaim volume space too (you usually don't):
 inspect first with `docker volume ls` + `docker volume inspect`. Never
 `docker volume prune` on the prod host without a fresh DB backup.
+
+## 37. GeoIP: license key rotation never requires a deploy
+
+**Date:** 2026-05-13.
+**Status:** New invariant, pinning the design.
+
+The MaxMind license key for GeoIP enrichment lives in
+`system_settings` (key: `geoip.maxmind_license_key`, `is_secret=true`),
+NOT in `backend/.env`. Rotating it is an admin-UI action:
+
+1. Generate new key at maxmind.com → My License Keys.
+2. Revoke the old one.
+3. /admin/geoip → license key card → "Rotate" → paste new value.
+4. Click "Test connection". If green, you're done.
+5. Optional: click "Refresh now" to download a fresh DB with the new
+   credentials immediately, otherwise wait for the next scheduled
+   cron run (twice weekly — Wed + Sat 04:17 UTC).
+
+**Do NOT** put the license key in `backend/.env` or anywhere on the
+filesystem. The settings table is the single source of truth, the
+cron reads it via `python -m app.services.geoip refresh`, and the
+admin UI rotates it.
+
+**Bind-mount sanity:** the GeoIP database lives on the host at
+`/srv/cpmai/geoip/` and is bind-mounted into the backend container at
+the same path. `deploy.sh` ensures the directory exists with uid 999
+ownership on every deploy. If the bind mount is missing from
+`docker-compose.prod.yml`, the refresh CLI will write to a container-
+local path that disappears on next `compose up` — and you'll see
+"database_present: false" in /health after every deploy. Fix is to
+add the mount, not to symlink.
+
+**Failure modes ranked by frequency:**
+
+- `401` from MaxMind → license key revoked or wrong (operator rotated
+  at maxmind.com without updating /admin/geoip).
+- `network` error → VPS → download.maxmind.com is blocked or the CDN
+  edge is degraded. Wait, retry. The cron script's `set -e + tee` makes
+  these visible in `/var/log/cpmai/geoip_refresh.log`.
+- `database_present=false` after a deploy → bind mount missing (above).
+- `database_age_days > 35` (stale) → cron didn't run for a long time.
+  Check crontab (`crontab -l | grep geoip`) and the cron log
+  (`/var/log/cpmai/geoip_refresh.log`). With twice-weekly cron, 35 days
+  stale = at least 8 missed runs; this is a real outage of either the
+  cron, the network, or the MaxMind credentials, not a one-off blip.
+
+**The schedule:** Wednesdays + Saturdays at 04:17 UTC, NOT monthly.
+MaxMind releases GeoLite2 twice weekly (Tue + Fri), so a monthly cron
+would leave us 0–35 days stale. The twice-weekly schedule catches each
+release within 6–14 hours. The conditional-GET via If-Modified-Since
+means the 6 of 8 monthly invocations that hit unchanged data return
+304 in milliseconds with no download — so this is essentially free.
+See `scripts/vps/install_geoip_cron.sh` for the rationale + how to
+tune the schedule.
+
+**What if MaxMind has an extended outage:** set
+`geoip.refresh_enabled = false` in /admin/settings. The cron will
+detect this and exit cleanly without making the call (no log spam, no
+false-positive alerts). Re-enable when MaxMind is back.
+
+**The fail-open invariant:** GeoIP enrichment NEVER blocks the lead
+capture request path. If the mmdb is missing, the lookup returns None
+and the lead row stores NULL country/city — but the insert succeeds.
+Same for any internal error (corrupt file, transient I/O). The whole
+package is fail-open by design. See
+`app/services/geoip/lookup.py:lookup()` for the catch-all.

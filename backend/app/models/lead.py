@@ -75,6 +75,13 @@ class Lead(Base):
     # Re-saving via the notes-patch endpoint also recomputes, so admin
     # can opt-in to score old leads one at a time.
     score            = Column(Integer)
+    # GeoIP enrichment (migration 0019). Both nullable — the lookup is
+    # fail-open by design (private IPs, missing mmdb, MaxMind miss all
+    # store NULL) and historical leads pre-date this feature.
+    #   country: ISO-3166-1 alpha-2 (e.g. ``IN``, ``SG``, ``AE``)
+    #   city:    MaxMind English city name, generous 120 chars
+    country          = Column(String(2))
+    city             = Column(String(120))
 
     anon_id           = Column(String(36), index=True)
     converted_user_id = Column(Integer, ForeignKey("users.id"))

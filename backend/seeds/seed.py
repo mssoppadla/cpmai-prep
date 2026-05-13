@@ -46,14 +46,24 @@ def _load(name: str) -> list[dict]:
 
 
 def seed_settings(db) -> int:
+    """Insert default settings for any key that isn't already in the
+    table. Honors the ``is_secret`` flag in the seed file — used so that
+    a fresh install of a secret key correctly opts into masked
+    /admin/settings responses, even before the admin has ever PATCH'd
+    a value. (PATCH later also sets the flag — see admin/settings.py —
+    so this just makes the first-deploy state correct.)
+    """
     rows = _load("default_settings.json")
     existing = {s.key for s in db.query(SystemSetting).all()}
     added = 0
     for r in rows:
         if r["key"] in existing:
             continue
-        db.add(SystemSetting(key=r["key"], value=r["value"],
-                             description=r.get("description")))
+        db.add(SystemSetting(
+            key=r["key"], value=r["value"],
+            description=r.get("description"),
+            is_secret=bool(r.get("is_secret", False)),
+        ))
         added += 1
     db.commit()
     return added

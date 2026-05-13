@@ -248,6 +248,26 @@ mkdir -p backend/logs
 sudo chown 999:999 backend/logs 2>/dev/null || true
 sudo chmod 0755 backend/logs 2>/dev/null || true
 
+# Ensure the GeoIP data directory exists with the right owner before
+# any container starts. The backend container needs read access to read
+# the .mmdb file; the geoip_refresh.sh cron writes to it. We mirror the
+# logs-dir pattern: uid 999 maps to the container's app user.
+#
+# Idempotent — every deploy verifies the layout. The first deploy on a
+# fresh VPS creates the directory; subsequent deploys are no-ops on the
+# already-existing dir. The .mmdb file itself isn't created here — that
+# happens via scripts/vps/install_geoip.sh (one-time) or the twice-weekly
+# refresh cron (Wed + Sat 04:17 UTC). The directory just needs to exist
+# before docker-compose binds it.
+sudo mkdir -p /srv/cpmai/geoip
+sudo chown -R 999:999 /srv/cpmai/geoip 2>/dev/null || true
+sudo chmod 0755 /srv/cpmai/geoip 2>/dev/null || true
+
+# Log dir for the geoip_refresh.sh cron. Created here so a fresh VPS
+# can run install_geoip_cron.sh without "log directory missing" failures.
+sudo mkdir -p /var/log/cpmai
+sudo chown -R "$(id -un):$(id -gn)" /var/log/cpmai 2>/dev/null || true
+
 START_TS=$(date +%s)
 START_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 

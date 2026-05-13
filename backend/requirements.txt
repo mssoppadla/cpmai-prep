@@ -51,3 +51,14 @@ python-docx==1.1.2
 # so its absence couldn't break the app, but we ship it by default now
 # that it's a first-class option alongside OpenAI.
 anthropic==0.34.2
+
+# MaxMind mmdb reader — used by app.services.geoip. mmap-backed, fast,
+# pure-Python (no native build deps). The GeoLite2-City database itself
+# lives at /srv/cpmai/geoip/ and is refreshed by a recurring cron — see
+# scripts/vps/geoip_refresh.sh.
+maxminddb==2.6.2
+# Cron-expression parser — used by app.services.geoip.scheduler to
+# match the admin-configurable refresh schedule (geoip.refresh_schedule)
+# against the current minute. Pure-Python, no native deps. Same library
+# that Apache Airflow + many other schedulers use; well-tested.
+croniter==2.0.5

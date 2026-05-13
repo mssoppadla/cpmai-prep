@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { admin, auth, errMsg } from "@/lib/api";
 import { leadTier } from "@/types/api";
 import type { ContactRow, LeadTier, UserOut } from "@/types/api";
+import { countryAndCity } from "@/lib/country-flag";
 
 export default function ContactsPage() {
   const [rows, setRows] = useState<ContactRow[] | null>(null);
@@ -201,6 +202,9 @@ export default function ContactsPage() {
                 <th className="px-4 py-3">Contact</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Source / role</th>
+                {/* GeoIP-enriched country flag + city. NULL for users
+                    and for leads from before the GeoIP feature shipped. */}
+                <th className="px-4 py-3">Location</th>
                 <th className="px-4 py-3">Score</th>
                 <th className="px-4 py-3">Subscription</th>
                 <th className="px-4 py-3">Last seen</th>
@@ -307,6 +311,11 @@ function Row({
             <div className="text-xs text-slate-500">{row.utm_campaign}</div>
           )}
         </td>
+        <td className="px-4 py-3 text-sm text-slate-700">
+          {row.kind === "lead"
+            ? countryAndCity(row.country, row.city)
+            : <span className="text-xs text-slate-300">—</span>}
+        </td>
         <td className="px-4 py-3 text-sm">
           {row.kind === "lead" ? (
             <ScoreChip score={row.score ?? null} />
@@ -351,7 +360,7 @@ function Row({
       </tr>
       {isOpen && row.kind === "lead" && (
         <tr className="bg-slate-50">
-          <td colSpan={8} className="px-4 py-4">
+          <td colSpan={9} className="px-4 py-4">
             <div className="text-xs font-semibold text-slate-700 mb-2">
               Internal notes (admin-only)
             </div>

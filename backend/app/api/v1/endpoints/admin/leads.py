@@ -80,6 +80,8 @@ def list_contacts(db: Session = Depends(get_db),
                 converted_user_id=L.converted_user_id,
                 target_exam_date=L.target_exam_date,
                 score=L.score,
+                country=L.country,
+                city=L.city,
             ))
 
     if kind != "lead":
@@ -110,6 +112,52 @@ def list_contacts(db: Session = Depends(get_db),
     return rows[offset:offset + limit]
 
 
+# IMPORTANT: ``/export.csv`` MUST be declared BEFORE ``/{lead_id}``.
+# FastAPI matches routes in declaration order; if ``/{lead_id}`` came
+# first, a GET to ``/export.csv`` would try to coerce "export.csv" to
+# an int and return 422 before this handler ever ran.
+@router.get("/export.csv")
+def export_csv(db: Session = Depends(get_db),
+               source: str | None = None, q: str | None = None,
+               from_date: date | None = Query(default=None, alias="from"),
+               to_date: date | None = Query(default=None, alias="to")):
+    rows = (_filter(db.query(Lead), source, q, from_date, to_date)
+            .order_by(Lead.created_at.desc()).all())
+
+    def gen():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "id", "email", "name", "phone", "company", "role", "source",
+            "utm_source", "utm_campaign", "target_exam_date",
+            "consent_marketing", "converted_user_id", "score",
+            "country", "city", "created_at",
+        ])
+        yield buf.getvalue(); buf.seek(0); buf.truncate()
+        for lead in rows:
+            writer.writerow([
+                lead.id, lead.email, lead.name or "", lead.phone or "",
+                lead.company or "", lead.role or "",
+                lead.source.value if hasattr(lead.source, "value") else lead.source,
+                lead.utm_source or "", lead.utm_campaign or "",
+                lead.target_exam_date.isoformat() if lead.target_exam_date else "",
+                lead.consent_marketing,
+                lead.converted_user_id or "",
+                lead.score if lead.score is not None else "",
+                lead.country or "", lead.city or "",
+                lead.created_at.isoformat(),
+            ])
+            yield buf.getvalue(); buf.seek(0); buf.truncate()
+
+    return StreamingResponse(
+        gen(), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=leads.csv"},
+    )
+
+
+# ``/{lead_id}`` routes come AFTER ``/export.csv`` for the route-order
+# reason explained above. Any additional non-parameterized GET routes
+# should also go above this block.
 @router.get("/{lead_id}", response_model=LeadAdminOut)
 def get_lead(lead_id: int, db: Session = Depends(get_db)):
     lead = db.get(Lead, lead_id)
@@ -153,39 +201,3 @@ def delete_lead(lead_id: int,
     db.commit()
     audit_log(db, admin.id, "lead.deleted",
               {"lead_id": lead_id, "email": email})
-
-
-@router.get("/export.csv")
-def export_csv(db: Session = Depends(get_db),
-               source: str | None = None, q: str | None = None,
-               from_date: date | None = Query(default=None, alias="from"),
-               to_date: date | None = Query(default=None, alias="to")):
-    rows = (_filter(db.query(Lead), source, q, from_date, to_date)
-            .order_by(Lead.created_at.desc()).all())
-
-    def gen():
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow([
-            "id", "email", "name", "phone", "company", "role", "source",
-            "utm_source", "utm_campaign", "target_exam_date",
-            "consent_marketing", "converted_user_id", "created_at",
-        ])
-        yield buf.getvalue(); buf.seek(0); buf.truncate()
-        for lead in rows:
-            writer.writerow([
-                lead.id, lead.email, lead.name or "", lead.phone or "",
-                lead.company or "", lead.role or "",
-                lead.source.value if hasattr(lead.source, "value") else lead.source,
-                lead.utm_source or "", lead.utm_campaign or "",
-                lead.target_exam_date.isoformat() if lead.target_exam_date else "",
-                lead.consent_marketing,
-                lead.converted_user_id or "",
-                lead.created_at.isoformat(),
-            ])
-            yield buf.getvalue(); buf.seek(0); buf.truncate()
-
-    return StreamingResponse(
-        gen(), media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=leads.csv"},
-    )

@@ -17,6 +17,7 @@ const NAV = [
   { href: "/admin/settings",           label: "Runtime Settings" },
   { href: "/admin/llm-providers",      label: "LLM Providers" },
   { href: "/admin/payment-providers",  label: "Payment Providers" },
+  { href: "/admin/geoip",              label: "GeoIP" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

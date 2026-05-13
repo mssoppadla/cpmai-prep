@@ -39,3 +39,8 @@ Thumbs.db
 logs/
 *.sqlite
 *.sqlite3
+
+# Synthetic GeoLite2-City test fixture. Regenerated on demand via
+# python -m tests.unit.geoip.fixtures.build_fixture — don't commit
+# the binary. See tests/unit/geoip/fixtures/README.md.
+backend/tests/unit/geoip/fixtures/test-City.mmdb

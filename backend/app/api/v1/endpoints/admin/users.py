@@ -14,7 +14,13 @@ router = APIRouter()
 
 def _to_admin_out(u: User, sub: Subscription | None) -> UserAdminOut:
     """Build the admin-facing user payload, including login-method and
-    subscription summary so the admin UI can show everything in one row."""
+    subscription summary so the admin UI can show everything in one row.
+
+    The GeoIP enrichment fields (country, city, last_login_*) are
+    populated by app.api.v1.endpoints.auth at signup + login time —
+    we just surface them here. Nullable for users that pre-date the
+    feature and for private-IP / lookup-miss cases.
+    """
     return UserAdminOut(
         id=u.id, email=u.email, name=u.name, role=u.role,
         created_at=u.created_at,
@@ -22,6 +28,10 @@ def _to_admin_out(u: User, sub: Subscription | None) -> UserAdminOut:
         failed_login_count=u.failed_login_count,
         locked_until=u.locked_until,
         last_login_at=u.last_login_at,
+        country=u.country,
+        city=u.city,
+        last_login_ip=u.last_login_ip,
+        last_login_country=u.last_login_country,
         has_google=bool(u.google_id),
         has_password=bool(u.password_hash),
         has_active_subscription=bool(sub),

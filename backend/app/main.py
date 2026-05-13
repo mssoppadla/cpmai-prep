@@ -134,4 +134,33 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": app.version}
+    """Liveness + a thin slice of operational state.
+
+    The ``geoip`` block exists so ops monitoring (curl /health from a
+    cron) can alert when the mmdb is missing or stale without a
+    dedicated probe. We intentionally surface only "are we OK" signal —
+    not the full StatusReport — to keep this endpoint cheap and stable.
+
+    GeoIP errors don't fail the overall health response (fail-open): a
+    missing mmdb is a degraded state, not an unhealthy one. The page
+    still works without GeoIP — leads just won't have country/city set.
+    """
+    geoip_block = {"database_present": False, "stale": False}
+    try:
+        # Lazy import so a missing maxminddb dep doesn't break /health.
+        from app.services.geoip import get_status
+        report = get_status()
+        geoip_block = {
+            "database_present": report.database_present,
+            "database_age_days": report.database_age_days,
+            "stale": report.database_stale,
+        }
+    except Exception:
+        # /health must never 500. If geoip is unimportable for any
+        # reason, fall back to the default block above.
+        pass
+    return {
+        "status": "ok",
+        "version": app.version,
+        "geoip": geoip_block,
+    }

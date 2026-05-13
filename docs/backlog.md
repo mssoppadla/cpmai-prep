@@ -249,6 +249,107 @@ Items merged today that haven't been hand-verified on prod yet.
 
 ## Future product (no commitment yet)
 
+### [FEATURE] International pricing — USD column + currency selector
+
+**Ask** (two halves that go together):
+1. **Pricing page** should show an **additional USD column** alongside
+   the INR price. Same plans, two amounts side-by-side. Visitors outside
+   India self-identify with the USD column; visitors in India see INR
+   as the primary.
+2. **User chooses payment currency** on checkout. Selection drives which
+   payment provider opens:
+   - INR → existing Razorpay India flow (UPI, NetBanking, India cards)
+   - USD → Razorpay's international / PayPal handoff (for cards billed
+     in USD by issuers outside India)
+
+**Why this matters**: The GeoIP work (PR-A) now populates
+`users.country` at signup. With that field already in place, the UI can
+default the currency selector intelligently:
+- `country IN` → INR pre-selected
+- `country ∈ {US, GB, AE, SG, CA, AU, …}` → USD pre-selected
+- Anything else → show both with no default
+Without GeoIP, this same feature would have needed an explicit "where
+are you?" prompt. PR-A makes it a one-line conditional.
+
+**Architecture sketch**:
+
+* **Plans model** (`backend/app/models/plan.py`):
+  add `price_usd_cents INTEGER NULL`. Nullable so existing plans don't
+  break — admin fills in via the plans page. Discount + offer logic
+  needs the same dual-column treatment (`discount_price_usd_cents`).
+* **Admin /admin/plans page**: dual price inputs side-by-side; the
+  pricing-page render auto-shows both columns when at least one plan has
+  a USD price set.
+* **Pricing-page** (`/pricing`): two columns under each plan card.
+  Currency-symbol prefix per column (₹ / $). Optionally a subtle
+  "Prices in your currency: USD" pill above the grid based on GeoIP.
+* **Pricing API** (`/api/v1/pricing/quote`): accept a `currency=INR|USD`
+  query param; default from the authed user's `country` (or anon
+  `X-Forwarded-For` lookup). Return `amount_cents` + `currency` in the
+  response. `pricing.gst_percent` only applies to INR (GST is an
+  India-specific tax).
+* **Payment provider routing**: extend the `payment.active_provider_id`
+  pattern to a tuple — `payment.inr_provider_id` and
+  `payment.usd_provider_id`. The /payments/create-order endpoint reads
+  the currency from the request, picks the matching provider config,
+  and uses its credentials. The frontend's checkout button bootstraps
+  Razorpay-INR or Razorpay-international/PayPal accordingly. (Razorpay
+  has a separate "international" key set for USD acceptance — admin
+  configures both in /admin/payment-providers.)
+* **Reconciliation**: webhooks differ — Razorpay-INR sends a different
+  signature header from Razorpay-International. The existing webhook
+  router can dispatch based on a `payment_provider_id` claim on the
+  order metadata.
+
+**Compliance + tax notes**:
+- GST is INR-only. The `pricing.gst_percent` setting must NOT be
+  applied to USD prices. Validate in the pricing-quote endpoint.
+- USD payments may have higher FX + processor fees. Set USD prices to
+  cover the gap; don't compute USD from INR at request time (FX rates
+  drift, prices look weird).
+- For India tax filings, USD-billed customers still need a receipt
+  with their country printed — the GeoIP `country` field plumbs through.
+
+**Frontend defaults using GeoIP** (the bit that ties this to PR-A):
+- Logged-in users: `user.country` decides the default currency.
+- Anonymous visitors: `extract_client_ip(request)` → geoip lookup at
+  page render time (server component). Same fail-open contract: if
+  GeoIP misses, no pre-selection, user picks manually.
+
+**Tradeoffs**:
+- Two prices to maintain. Admin needs to keep USD price aligned with
+  INR price after FX moves; can build a "suggest USD from INR at
+  today's FX" helper if it becomes painful.
+- Two payment provider configs to keep working. If the
+  international Razorpay account ever goes inactive, USD checkout silently
+  breaks — needs the same `test connection` button we built for GeoIP.
+- Customer support: refund flows have to know which provider issued
+  the original charge. The webhook dispatcher already keys on
+  `payment_provider_id` in our metadata, so this works as long as
+  refund flow honours that field.
+
+**Open questions** (decide before coding):
+- Which payment processor for USD? Razorpay International is the
+  obvious choice (single backoffice for both currencies). PayPal is a
+  separate integration with its own webhook shape — meaningful work.
+  Default plan: Razorpay International first, defer PayPal unless a
+  customer specifically asks.
+- Pin USD prices in cents (e.g. $99.00 = `9900`) OR allow a float?
+  Strongly prefer cents — same model as INR `price_paise`. No floats.
+- Should the user be able to OVERRIDE the GeoIP-based default
+  (e.g. an Indian using a US card)? Yes — the dropdown is always
+  visible; GeoIP just picks the initial value.
+
+**Estimate**: ~500 LOC backend + ~200 LOC frontend + ~5 unit tests
++ 1 migration. ~1.5 days. Could split as:
+- Phase 1: USD column + manual currency selector (no provider routing
+  — both currencies still use INR razorpay; nothing actually charges
+  USD). Ships value via the "Indians see INR, foreigners see USD"
+  display alone. ~0.5 day.
+- Phase 2: International payment provider + webhook routing. ~1 day.
+- Phase 3: GeoIP-driven default + currency-aware GST. ~0.5 day.
+
+
 ### [FEATURE] Anonymous chat widget on marketing pages
 
 **Ask**: Show the chat to anon visitors on landing/pricing so prospects
