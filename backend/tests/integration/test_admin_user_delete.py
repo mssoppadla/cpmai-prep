@@ -254,6 +254,69 @@ def test_admin_users_list_hides_deleted_by_default(client, db, super_admin):
     assert any(u["id"] == target_id for u in r.json())
 
 
+def test_admin_delete_two_different_users_in_sequence(client, db, super_admin):
+    """REGRESSION GUARD for "maybe it allows first delete alone but not
+    successive" (operator concern, 2026-05-13).
+
+    The idempotency test deletes the SAME user twice. This test is a
+    distinct scenario: the operator deletes one user, then immediately
+    deletes a DIFFERENT user — both should succeed. Failure modes this
+    catches:
+
+      * Stale session state on the second request (would 500 / 409).
+      * Email-collision on the redacted ``deleted-{id}@redacted.invalid``
+        pattern if the unique constraint isn't actually scoped per row.
+      * Audit-log foreign-key issue if the deleted user's audit row
+        breaks the second user's audit insert.
+      * Anything that mutates global state (settings cache, redis key)
+        in a way that survives across requests.
+    """
+    target_a = _user_with_fk_refs(db, email="seq-a@example.com")
+    target_b = _user_with_fk_refs(db, email="seq-b@example.com")
+    a_id, b_id = target_a.id, target_b.id
+    assert a_id != b_id
+
+    # Delete A.
+    ra = client.delete(f"/api/v1/admin/users/{a_id}",
+                       headers=auth_header(client, super_admin.email))
+    assert ra.status_code == 204, ra.text
+
+    # Delete B — must also succeed. THIS is the regression check.
+    rb = client.delete(f"/api/v1/admin/users/{b_id}",
+                       headers=auth_header(client, super_admin.email))
+    assert rb.status_code == 204, rb.text
+
+    db.expire_all()
+    a = db.get(User, a_id)
+    b = db.get(User, b_id)
+    assert a.deleted_at is not None
+    assert b.deleted_at is not None
+    assert a.email == f"deleted-{a_id}@redacted.invalid"
+    assert b.email == f"deleted-{b_id}@redacted.invalid"
+    # And the redacted emails MUST be distinct (different IDs).
+    assert a.email != b.email
+
+
+def test_admin_delete_many_users_in_sequence(client, db, super_admin):
+    """Stronger version of the above — five sequential deletes in one
+    test, each on a different user. If the operator is clearing out a
+    pile of junk signups, every click must work."""
+    user_ids = []
+    for i in range(5):
+        u = _user_with_fk_refs(db, email=f"bulk-delete-{i}@example.com")
+        user_ids.append(u.id)
+
+    for uid in user_ids:
+        r = client.delete(f"/api/v1/admin/users/{uid}",
+                          headers=auth_header(client, super_admin.email))
+        assert r.status_code == 204, \
+            f"delete of user {uid} failed: {r.status_code} {r.text}"
+
+    db.expire_all()
+    for uid in user_ids:
+        assert db.get(User, uid).deleted_at is not None
+
+
 def test_admin_delete_post_delete_login_is_blocked(client, db, super_admin):
     """Functional check on the is_active=False side-effect — the deleted
     user can't log in afterward. This is what makes the soft-delete
