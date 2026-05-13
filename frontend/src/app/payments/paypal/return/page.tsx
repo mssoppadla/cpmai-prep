@@ -18,12 +18,41 @@
  * We render a spinner + status text and explicit fallback to
  * /pricing if anything goes wrong.
  */
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { payments, errMsg } from "@/lib/api";
 
 
+// Next.js 14 strict build refuses to prerender pages that call
+// useSearchParams() at the top level — the search params can only be
+// resolved at request time, so the static path-collection phase bails
+// out with a build error. Wrapping in <Suspense> tells the prerenderer
+// that the inner component is intentionally request-time; it renders
+// the fallback at build time and hydrates with the real params on the
+// client. Mirrors the pattern used in /login.
 export default function PayPalReturnPage() {
+  return (
+    <Suspense fallback={<CapturingPlaceholder />}>
+      <PayPalReturnInner />
+    </Suspense>
+  );
+}
+
+function CapturingPlaceholder() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+      <div className="bg-white rounded-xl border border-slate-200 p-8 max-w-md w-full text-center space-y-4">
+        <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600
+                        rounded-full animate-spin mx-auto" />
+        <h1 className="text-lg font-semibold text-slate-900">
+          Finalizing your payment…
+        </h1>
+      </div>
+    </div>
+  );
+}
+
+function PayPalReturnInner() {
   const router = useRouter();
   const params = useSearchParams();
   const [status, setStatus] = useState<"capturing" | "success" | "pending" | "error">(
