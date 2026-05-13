@@ -22,6 +22,22 @@ from app.services.assistant.rag.retrieve import (
 )
 
 
+# Source types that represent admin-curated knowledge applicable to ANY
+# subject-matter handler (FAQ, Content). Currently just admin uploads
+# via /admin/rag-sources, but a future "manual notes" or "policy
+# library" source would belong here too. Excludes:
+#   - "plan" (account-specific data; lives in AccountHandler only)
+#   - "question_explanation" (one source per handler — ContentHandler's
+#     primary source, not part of the cross-cutting knowledge pool)
+#   - "faq" (FAQHandler's primary source)
+#
+# Handlers spread this into their source_types filter so admin-uploaded
+# documents are searchable from any topical handler. Without this an
+# operator who uploads a 250-chunk knowledge base never sees those
+# chunks reach the LLM (the upload corpus is orphaned from retrieval).
+SHARED_KNOWLEDGE_SOURCES: tuple[str, ...] = ("upload",)
+
+
 def retrieve_context(
     db: Session, query: str, *, source_types: Iterable[str] | None = None,
     k: int | None = None,
@@ -91,6 +107,13 @@ def _short_tag(c: RetrievedChunk) -> str:
         return f"Plan: {name}"
     if c.source_type == "question_explanation":
         return "Question explanation"
+    if c.source_type == "upload":
+        # Admin-uploaded reference document. The chunker stores the
+        # filename in metadata; surface it here so a citation chip
+        # shows e.g. "Doc: CPMAI_Knowledge_Base.md" rather than just
+        # the opaque "upload" source_type.
+        fname = c.metadata.get("filename")
+        return f"Doc: {fname}" if fname else "Document"
     return c.source_type
 
 
@@ -99,6 +122,16 @@ def _title(c: RetrievedChunk) -> str:
         return c.metadata.get("faq_question") or c.content[:120]
     if c.source_type == "plan":
         return c.metadata.get("plan_name") or "Pricing plan"
+    if c.source_type == "upload":
+        # Prefix with filename + chunk index when available so multiple
+        # chunks from the same doc are distinguishable in the citations
+        # tray. Falls back to a content excerpt otherwise.
+        fname = c.metadata.get("filename")
+        idx   = c.metadata.get("chunk_index")
+        if fname and idx is not None:
+            return f"{fname} (#{idx})"
+        if fname:
+            return fname
     return c.content[:120]
 
 
@@ -109,4 +142,7 @@ def _deep_link(c: RetrievedChunk) -> str | None:
     if c.source_type == "faq":
         # No deep-link per FAQ row today; landing FAQ section anchor.
         return "/#faq-heading"
+    # Uploaded docs are admin-only — no public deep-link to the raw
+    # file (we discard the bytes after chunking; only the rag_chunks
+    # rows persist). Citation chip stays clickable but routes nowhere.
     return None
