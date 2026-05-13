@@ -3,6 +3,24 @@
 Loads the active PaymentProviderConfig from DB, decrypts secrets, and
 caches the built provider with TTL. Same shape as LLMRegistry — admin
 changes propagate within ~30s with no restart.
+
+Currency routing
+----------------
+Two routes are supported and configured independently in admin:
+
+  * INR (and the default) → ``payment.active_provider_id``
+    (typically Razorpay; the historical path, kept unchanged so the
+    Indian-customer flow is untouched by the international work).
+
+  * Non-INR → ``payment.non_inr_provider_id`` (typically PayPal).
+    If unset, /orders for non-INR raises a clear error pointing the
+    admin at /admin/payment-providers — we don't fall through to the
+    INR provider silently because Razorpay International requires its
+    own approval gate that we can't auto-detect.
+
+The cache keys on provider_id so both routes can be hot at once; an
+admin swapping a key propagates within payment.cache_ttl_seconds
+(default 30) without a restart.
 """
 import time
 from threading import Lock
@@ -12,10 +30,12 @@ from app.core.crypto import crypto
 from app.core.exceptions import AppError
 from app.models.payment_provider import PaymentProviderConfig
 from app.services.razorpay_service import RazorpayProvider
+from app.services.paypal_service import PayPalProvider
 
 
 PROVIDER_CLASSES = {
     "razorpay": RazorpayProvider,
+    "paypal":   PayPalProvider,
     # "stripe": StripeProvider,  # add when needed
 }
 
@@ -30,11 +50,18 @@ class _CacheEntry:
 
 
 class PaymentRegistry:
-    _cache: _CacheEntry | None = None
+    # Two slots so INR and non-INR providers can both live hot. Keyed
+    # by provider_id (NOT currency) so the cache is correct even when
+    # admin renumbers the routing.
+    _cache: dict[int, _CacheEntry] = {}
     _lock = Lock()
 
     @classmethod
-    def get_active(cls) -> RazorpayProvider:
+    def get_active(cls):
+        """Backward-compat: returns the INR provider (the historical
+        single-provider behaviour). New code should use
+        ``get_for_currency()`` instead so non-INR is routed correctly.
+        """
         active_id = settings_store.get("payment.active_provider_id")
         if active_id is None:
             raise AppError("Payments not configured. Add a payment provider in admin.",
@@ -42,22 +69,42 @@ class PaymentRegistry:
         return cls._get(int(active_id))
 
     @classmethod
-    def get_by_id(cls, provider_id: int) -> RazorpayProvider:
+    def get_for_currency(cls, currency: str):
+        """Pick the provider for a given ISO-4217 currency.
+
+        INR (and missing/empty currency) → active_provider_id (Razorpay).
+        Anything else → non_inr_provider_id (PayPal), with a clear error
+        if it isn't configured yet.
+        """
+        ccy = (currency or "INR").strip().upper()
+        if ccy == "INR":
+            return cls.get_active()
+        non_inr_id = settings_store.get("payment.non_inr_provider_id")
+        if not non_inr_id:
+            raise AppError(
+                f"No non-INR payment provider configured. Add one in "
+                f"/admin/payment-providers and set it as the 'Non-INR' "
+                f"provider, then retry. Requested currency: {ccy}.",
+                status_code=503)
+        return cls._get(int(non_inr_id))
+
+    @classmethod
+    def get_by_id(cls, provider_id: int):
         return cls._get(provider_id)
 
     @classmethod
     def invalidate(cls):
         with cls._lock:
-            cls._cache = None
+            cls._cache.clear()
 
     @classmethod
-    def _get(cls, provider_id: int) -> RazorpayProvider:
+    def _get(cls, provider_id: int):
         ttl = settings_store.get_int("payment.cache_ttl_seconds", 30)
         now = time.monotonic()
         with cls._lock:
-            if (cls._cache and cls._cache.expires_at > now
-                    and cls._cache.config_id == provider_id):
-                return cls._cache.provider
+            entry = cls._cache.get(provider_id)
+            if entry and entry.expires_at > now:
+                return entry.provider
 
         with SessionLocal() as db:
             row = db.get(PaymentProviderConfig, provider_id)
@@ -86,5 +133,5 @@ class PaymentRegistry:
             )
 
         with cls._lock:
-            cls._cache = _CacheEntry(provider, now + ttl, provider_id)
+            cls._cache[provider_id] = _CacheEntry(provider, now + ttl, provider_id)
         return provider

@@ -235,10 +235,6 @@ export default function PricingPage() {
               "Pick another currency or contact the admin.");
       return;
     }
-    if (!window.Razorpay) {
-      setErr("Razorpay checkout script hasn't loaded yet. Refresh and try again.");
-      return;
-    }
 
     setCheckoutBusy(true); setErr(null);
     let order: CreateOrderOut;
@@ -251,6 +247,42 @@ export default function PricingPage() {
       });
     } catch (e) {
       setErr(errMsg(e)); setCheckoutBusy(false); return;
+    }
+
+    // Dispatch by the gateway the backend picked (currency-routed).
+    // INR → Razorpay popup (existing flow, unchanged).
+    // non-INR → PayPal hosted approval page (redirect; buyer returns
+    //    to /payments/paypal/return where we capture).
+    if (order.provider === "paypal") {
+      if (!order.paypal_approval_url) {
+        setErr("PayPal returned no approval URL. Check the PayPal " +
+                "provider configuration in admin.");
+        setCheckoutBusy(false);
+        return;
+      }
+      // Stash plan_slug in sessionStorage so the return page can route
+      // the buyer to the right post-purchase landing without a server
+      // round-trip. (The Payment row also knows the plan, so the
+      // return page can fall back to a server lookup if the storage
+      // is cleared between tabs.)
+      try {
+        sessionStorage.setItem(`paypal:plan:${order.order_id}`,
+                                selectedPlan.slug);
+      } catch { /* storage disabled — return page will server-fetch */ }
+      window.location.href = order.paypal_approval_url;
+      return;
+    }
+
+    // Razorpay path — needs the Checkout script to be loaded.
+    if (!window.Razorpay) {
+      setErr("Razorpay checkout script hasn't loaded yet. Refresh and try again.");
+      setCheckoutBusy(false);
+      return;
+    }
+    if (!order.razorpay_key_id) {
+      setErr("Razorpay key missing from order response.");
+      setCheckoutBusy(false);
+      return;
     }
 
     // Open Razorpay's hosted checkout in the selected currency.

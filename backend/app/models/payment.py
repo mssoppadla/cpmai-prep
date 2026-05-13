@@ -9,8 +9,18 @@ class Payment(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     subscription_id = Column(Integer, ForeignKey("subscriptions.id"))
     plan_id = Column(Integer, ForeignKey("plans.id"), index=True)
-    razorpay_order_id   = Column(String(64), unique=True, nullable=False)
-    razorpay_payment_id = Column(String(64))
+    # Provider-agnostic columns (migration 0020 renamed razorpay_* → provider_*).
+    # `provider_name` tells callers which gateway minted the IDs:
+    #   "razorpay" → INR rail; provider_order_id is Razorpay order id,
+    #                provider_payment_id is razorpay_payment_id.
+    #   "paypal"   → non-INR rail; provider_order_id is PayPal order id,
+    #                provider_payment_id is PayPal capture id.
+    # The discriminator drives which provider's verify/webhook handlers
+    # apply when reconciling a Payment row.
+    provider_name        = Column(String(32), nullable=False, default="razorpay",
+                                   index=True)
+    provider_order_id    = Column(String(64), unique=True, nullable=False)
+    provider_payment_id  = Column(String(64))
     amount_paise = Column(Integer, nullable=False)         # final charged amount (post-discount)
     base_amount_paise   = Column(Integer)                  # pre-discount, for audit
     discount_paise      = Column(Integer, default=0)

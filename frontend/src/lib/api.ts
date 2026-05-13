@@ -16,6 +16,7 @@ import type {
   OfferCodeAdminOut, OfferCodeCreate, OfferCodeUpdate,
   PriceQuoteOut, CreateOrderIn, CreateOrderOut, CurrenciesOut,
   VerifyPaymentIn, VerifyPaymentOut,
+  PayPalCaptureIn, PayPalCaptureOut,
   GeoIPStatusOut, GeoIPRefreshOut, GeoIPTestKeyOut, GeoIPLookupOut,
   GeoIPSchedulePreviewOut,
   FXStatusOut, FXRefreshOut,
@@ -343,6 +344,17 @@ export const payments = {
     });
     return data;
   },
+  /** PayPal-specific 2-step capture. Called from the Smart Button's
+   *  onApprove callback after the buyer approves on PayPal's domain.
+   *  Razorpay uses verify() above — PayPal needs this because the
+   *  Orders v2 flow separates authorization from capture. */
+  async paypalCapture(payload: PayPalCaptureIn): Promise<PayPalCaptureOut> {
+    const { data } = await request<PayPalCaptureOut>(
+      "/payments/paypal/capture", {
+        method: "POST", authed: true, json: payload,
+    });
+    return data;
+  },
 };
 
 // ---------- Leads ----------------------------------------------------------
@@ -664,6 +676,14 @@ export const admin = {
     async activate(id: number) {
       const { data } = await request<PaymentProviderOut>(
         `/admin/payment-providers/${id}/activate`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    /** Make this provider the non-INR-rail provider (typically PayPal).
+     *  Razorpay continues to handle INR via activate() above. */
+    async activateNonInr(id: number) {
+      const { data } = await request<PaymentProviderOut>(
+        `/admin/payment-providers/${id}/activate-non-inr`,
         { method: "POST", authed: true });
       return data;
     },

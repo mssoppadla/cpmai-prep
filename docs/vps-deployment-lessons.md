@@ -523,3 +523,113 @@ picker, the `_MINOR_UNITS_PER_MAJOR` constant in `pricing_service.py`
 needs to become per-currency (JPY has no minor unit; KRW is 1:1).
 Catch this with an explicit allow-list in `pricing.supported_currencies`
 before the ceil logic gets fed a wrong divisor.
+
+---
+
+## 43. PayPal as the non-INR rail (Razorpay International workaround)
+
+**Why this exists:** Razorpay India is rejecting international cards with
+"International cards are not allowed" even with International Payments
+enabled on the account — that's a separate account-tier approval gate
+that's slow / discretionary on Razorpay's end. Rather than wait, we
+split the payment routing: **INR keeps going through Razorpay
+(unchanged), non-INR goes through PayPal directly.** PayPal's
+relationship is merchant-level (we own it), so there's no third-party
+approval blocker.
+
+### Routing shape
+
+```
+Request {plan_slug, currency: INR}
+  → PaymentRegistry.get_for_currency("INR")
+  → payment.active_provider_id setting
+  → Razorpay provider (HISTORICAL FLOW, UNCHANGED)
+  → /payments/verify (HMAC signature) on success
+
+Request {plan_slug, currency: USD/GBP/EUR/...}
+  → PaymentRegistry.get_for_currency("USD")
+  → payment.non_inr_provider_id setting
+  → PayPal provider
+  → /payments/paypal/capture on buyer return
+  → /payments/paypal/webhook for dropped-tab cases
+```
+
+### What changed in the data model (migration 0020)
+
+`payments.razorpay_order_id` → `payments.provider_order_id` (renamed)
+plus a new `payments.provider_name` column ("razorpay" or "paypal").
+Existing Razorpay rows backfill with `provider_name='razorpay'` via
+the column DEFAULT. Forward-only migration; rolling back means a new
+migration that explicitly handles existing PayPal rows.
+
+The constraint name was renamed too
+(`payments_razorpay_order_id_key` → `payments_provider_order_id_key`)
+so DB-introspection tools don't show stale names.
+
+### Setup checklist for the admin
+
+1. **Get PayPal sandbox credentials first** — developer.paypal.com →
+   Apps & Credentials → Sandbox → Create App ("Merchant"). Note the
+   Client ID + Secret.
+2. **Register a sandbox webhook** — same screen → Webhooks → Add Webhook
+   → URL `<your-tunnel>/api/v1/payments/paypal/webhook` → subscribe
+   to events: `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`,
+   `PAYMENT.CAPTURE.REFUNDED`. Note the Webhook ID.
+3. **In /admin/payment-providers**, click "Add Provider" → choose
+   PayPal type → paste Client ID into Public Key, Client Secret into
+   API Secret, Webhook ID into PayPal Webhook ID. Mode = "test".
+4. **Activate (Non-INR)** the new row. Razorpay row stays on "Activate
+   (INR)" — they're independent.
+5. **Smoke-test** via the Test button (does an OAuth round-trip; no
+   real order created).
+
+### Promoting sandbox → live
+
+When the OPC's PayPal Business account is verified:
+
+1. Add a SECOND PayPal provider row with mode = "live" + the live
+   Client ID/Secret/Webhook ID.
+2. Activate (Non-INR) the new live row. The sandbox row stays in the
+   table but inactive — useful for staging tests.
+3. The /payments/paypal/webhook URL stays the same; PayPal's live
+   merchant just needs to point at it.
+
+### Account-type caveat
+
+PayPal **Individual** (Personal) accounts in India CANNOT receive
+commercial payments — this isn't a code-side limitation, it's PayPal's
+India compliance rule. Live PayPal flows MUST use a Business account
+registered to the OPC. The sandbox integration works regardless of
+real account type, which lets us ship + iterate without waiting on
+KYC. See the email chain titled "PayPal as Individual account in India"
+for the original analysis.
+
+### Why redirect-style instead of Smart Button
+
+We use PayPal's hosted approval page (redirect flow), not their JS
+Smart Button SDK. Rationale:
+
+* No JS SDK bundle (~30KB saved on /pricing).
+* No client-side dependency on PayPal's CDN (which we don't fully
+  control vs. blocking it for analytics).
+* Simpler return-handling — buyer lands on
+  `/payments/paypal/return?token=...`, we capture, we redirect.
+* Smart Button is the recommended path for cleaner UX (no full-page
+  redirect); revisit if buyers complain about the bounce.
+
+### Pinned by
+
+- `tests/unit/test_paypal_service.py` (16 tests — OAuth, create, capture,
+  webhook verify, amount formatting, idempotent capture, sandbox/live
+  base URL switch)
+- `tests/integration/test_payment_flow.py::test_inr_order_still_routes_to_razorpay`
+  (regression guard — INR flow unchanged)
+- `tests/integration/test_payment_flow.py::test_usd_order_routes_to_paypal_and_returns_approval_url`
+- `tests/integration/test_payment_flow.py::test_non_inr_provider_unconfigured_503`
+- `tests/integration/test_payment_flow.py::test_paypal_capture_activates_subscription`
+- `tests/integration/test_payment_flow.py::test_paypal_webhook_activates_on_capture_completed`
+- `tests/integration/test_payment_flow.py::test_paypal_capture_rejects_razorpay_order`
+  (cross-rail safety — Razorpay order can't be captured through the
+  PayPal endpoint)
+- `tests/integration/test_payment_flow.py::test_verify_rejects_paypal_order`
+  (symmetric — PayPal order can't slip through Razorpay's verify)
