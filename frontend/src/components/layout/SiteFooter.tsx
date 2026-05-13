@@ -28,6 +28,9 @@ const SITE_FALLBACK: SiteChrome = {
   // Empty default — backend sends the seeded list. Footer never reads
   // this anyway, but TypeScript requires the field to be present.
   assistant_try_asking_suggestions: [],
+  assistant_anonymous_no_identity_message:
+    "Please sign in to continue chatting. Anonymous chat needs a " +
+    "browser identifier — refresh the page or sign in.",
 };
 
 export function SiteFooter() {

@@ -305,6 +305,11 @@ export interface SiteChrome {
    *  rendered as a clickable chip that pre-fills the chat input.
    *  Empty list disables the suggestions block entirely. */
   assistant_try_asking_suggestions: string[];
+  /** Inline message shown to anonymous (not-signed-in) visitors when
+   *  they open the chat widget — typically "please sign in to chat".
+   *  Same setting the backend's no_identity guardrail raises, so
+   *  edits propagate to both surfaces from one place. */
+  assistant_anonymous_no_identity_message: string;
 }
 
 export interface ContactRow {

@@ -45,6 +45,9 @@ const SITE_FALLBACK: SiteChrome = {
   // SiteChrome type so the AssistantWidget can pull it from the same
   // already-fetched payload.
   assistant_try_asking_suggestions: [],
+  assistant_anonymous_no_identity_message:
+    "Please sign in to continue chatting. Anonymous chat needs a " +
+    "browser identifier — refresh the page or sign in.",
 };
 
 function destinationFor(role: UserOut["role"]): string {

@@ -84,6 +84,8 @@ beforeEach(() => {
       "How much is the exam bundle?",
       "Where do I register for the actual exam?",
     ],
+    assistant_anonymous_no_identity_message:
+      "Please sign in to continue chatting.",
   };
   global.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
