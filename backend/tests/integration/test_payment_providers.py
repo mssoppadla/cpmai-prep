@@ -87,3 +87,115 @@ def test_rotate_secret_replaces_ciphertext(client, admin, db):
     assert new_ct != old_ct
     from app.core.crypto import crypto
     assert crypto.decrypt(new_ct) == "new-secret"
+
+
+# ===================================================== PayPal-specific tests
+
+def test_paypal_activates_non_inr_without_webhook_id(client, admin):
+    """Webhook_id used to hard-block activation. Operators don't always
+    have a webhook registered yet when they're setting up — and PayPal's
+    in-browser capture flow works without webhooks. Activation must
+    succeed; webhook authentication just stays in 'reject everything'
+    mode until the ID is configured."""
+    h = auth_header(client, admin.email)
+    r = client.post("/api/v1/admin/payment-providers", headers=h, json={
+        "name": "PayPal Sandbox", "provider_type": "paypal", "mode": "test",
+        "public_key": "AcDeClient",
+        "api_secret": "ECkDeSecret",
+        # No config.webhook_id — explicitly the case we're testing.
+    })
+    assert r.status_code == 201, r.text
+    pid = r.json()["id"]
+    r = client.post(f"/api/v1/admin/payment-providers/{pid}/activate-non-inr",
+                    headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["is_non_inr_active"] is True
+
+
+def test_paypal_activates_non_inr_with_webhook_id(client, admin):
+    """Happy path — admin supplies webhook_id at create time; activation
+    proceeds and the config persists for the webhook handler to read."""
+    h = auth_header(client, admin.email)
+    r = client.post("/api/v1/admin/payment-providers", headers=h, json={
+        "name": "PayPal Live", "provider_type": "paypal", "mode": "live",
+        "public_key": "AcLiveClient", "api_secret": "ECkLive",
+        "config": {"webhook_id": "WH-LIVE-123"},
+    })
+    pid = r.json()["id"]
+    r = client.post(f"/api/v1/admin/payment-providers/{pid}/activate-non-inr",
+                    headers=h)
+    assert r.status_code == 200, r.text
+
+
+# ===================================================== Razorpay webhook diagnostic
+
+def test_test_webhook_signature_matches_returns_ok(client, admin):
+    """Round-trip the diagnostic: paste a body + the signature our own
+    HMAC would produce → endpoint says ok=true. Lets the admin verify
+    their secret matches the gateway without needing real prod traffic."""
+    import hmac, hashlib
+    h = auth_header(client, admin.email)
+    r = client.post("/api/v1/admin/payment-providers", headers=h, json={
+        "name": "RZP Diag", "provider_type": "razorpay", "mode": "test",
+        "public_key": "rzp_test_diag", "api_secret": "k_secret_diag",
+        "webhook_secret": "whsec_secret_for_test",
+    })
+    pid = r.json()["id"]
+    body = '{"event":"payment.captured","entity":"event"}'
+    sig = hmac.new(b"whsec_secret_for_test", body.encode(),
+                   hashlib.sha256).hexdigest()
+    r = client.post(
+        f"/api/v1/admin/payment-providers/{pid}/test-webhook-signature",
+        headers=h, json={"payload": body, "signature": sig})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["secret_configured"] is True
+
+
+def test_test_webhook_signature_mismatch_returns_actionable_reason(
+        client, admin):
+    """When the signature doesn't match (the common operator situation
+    where they've rotated the secret on the gateway dashboard but not
+    here), we must tell them WHY and HOW to fix it — not just 'false'."""
+    h = auth_header(client, admin.email)
+    r = client.post("/api/v1/admin/payment-providers", headers=h, json={
+        "name": "RZP MM", "provider_type": "razorpay", "mode": "test",
+        "public_key": "rzp_test_mm", "api_secret": "k_secret",
+        "webhook_secret": "whsec_correct",
+    })
+    pid = r.json()["id"]
+    r = client.post(
+        f"/api/v1/admin/payment-providers/{pid}/test-webhook-signature",
+        headers=h, json={"payload": '{"x":1}',
+                          "signature": "deadbeef" * 8})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert body["secret_configured"] is True
+    # The reason must mention rotating / re-copying the secret so the
+    # admin has a clear next action. Pin both alternatives so the
+    # wording can evolve without the test going stale on minor edits.
+    assert ("re-copy" in body["reason"]
+            or "regenerate" in body["reason"])
+
+
+def test_test_webhook_signature_no_secret_configured(client, admin):
+    """If the provider row has no webhook_secret saved at all, the
+    diagnostic must say so explicitly — otherwise the admin will copy
+    secrets back and forth wondering why nothing matches."""
+    h = auth_header(client, admin.email)
+    r = client.post("/api/v1/admin/payment-providers", headers=h, json={
+        "name": "RZP NoSecret", "provider_type": "razorpay", "mode": "test",
+        "public_key": "rzp_test_ns", "api_secret": "k_secret",
+        # No webhook_secret.
+    })
+    pid = r.json()["id"]
+    r = client.post(
+        f"/api/v1/admin/payment-providers/{pid}/test-webhook-signature",
+        headers=h, json={"payload": '{"x":1}', "signature": "aaaa"})
+    body = r.json()
+    assert body["ok"] is False
+    assert body["secret_configured"] is False
+    assert "no webhook secret" in body["reason"].lower()

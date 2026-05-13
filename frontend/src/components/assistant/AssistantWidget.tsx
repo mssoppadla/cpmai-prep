@@ -562,22 +562,20 @@ function AnonChatState({
       <p className="text-sm text-slate-700 max-w-[280px] leading-relaxed">
         {message}
       </p>
-      <div className="flex flex-col gap-2 w-full max-w-[220px]">
+      <div className="w-full max-w-[220px]">
+        {/* Sign-in only — the app's authentication is Google-only (no
+            email/password signup page exists). The /login route hosts
+            the Google one-tap flow; signing in there also serves as
+            the account-creation path for first-time visitors. */}
         <a href={`/login?next=${next}`}
-           className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold
-                      rounded-lg hover:bg-indigo-700 transition-colors">
-          Sign in
-        </a>
-        <a href={`/signup?next=${next}`}
-           className="px-4 py-2 bg-white text-indigo-700 text-sm font-medium
-                      border border-indigo-200 rounded-lg hover:bg-indigo-50
-                      transition-colors">
-          Create free account
+           className="block px-4 py-2 bg-indigo-600 text-white text-sm font-semibold
+                      rounded-lg hover:bg-indigo-700 transition-colors text-center">
+          Sign in with Google
         </a>
       </div>
       <p className="text-xs text-slate-400 max-w-[260px]">
-        Free accounts get a daily message allowance. Premium unlocks the
-        full conversation history and extended quota.
+        New here? Signing in with Google creates your account
+        automatically — no separate signup needed.
       </p>
     </div>
   );

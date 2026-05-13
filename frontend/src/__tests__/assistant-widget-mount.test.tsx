@@ -187,8 +187,10 @@ describe("AssistantWidgetMount — chat bubble visibility contract", () => {
         .toBeInTheDocument();
     });
     // Sign In link must be present and routed through /login with the
-    // current pathname captured for post-login redirect.
-    const signIn = screen.getByRole("link", { name: /^sign in$/i });
+    // current pathname captured for post-login redirect. Label is
+    // "Sign in with Google" because the app's auth is Google-only —
+    // no separate signup/password flow.
+    const signIn = screen.getByRole("link", { name: /sign in with google/i });
     expect(signIn).toBeInTheDocument();
     expect(signIn.getAttribute("href")).toMatch(/^\/login\?next=/);
 

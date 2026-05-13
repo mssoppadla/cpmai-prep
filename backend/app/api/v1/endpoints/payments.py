@@ -359,7 +359,36 @@ async def webhook(request: Request,
     # Razorpay's INR provider is always the "active" one in our setup.
     provider = PaymentRegistry.get_active()
     if not provider.verify_webhook_signature(body, x_razorpay_signature):
-        raise AppError("Invalid webhook signature.", status_code=400)
+        # Operator-facing diagnostic. Razorpay auto-disables an endpoint
+        # that keeps rejecting deliveries, and the usual cause is a
+        # secret-mismatch between our /admin/payment-providers row and
+        # the Razorpay dashboard. Log just enough context for the admin
+        # to spot which side is stale, without leaking the secrets:
+        #   * presence flag — was webhook_secret configured at all?
+        #   * first-8 chars of the signature Razorpay sent — non-secret,
+        #     used as a copy-paste correlation hint when comparing with
+        #     the test-webhook-signature endpoint
+        #   * body length + first 32 chars — enough to identify the event
+        #     in Razorpay's dashboard "Recent deliveries" view
+        from app.core.audit import audit_log
+        body_preview = body[:64].decode("utf-8", errors="replace")
+        audit_log(
+            db, None, "razorpay.webhook_rejected_invalid_signature",
+            {
+                "received_sig_prefix": (x_razorpay_signature or "")[:8] or None,
+                "body_length": len(body),
+                "body_preview": body_preview,
+                "secret_configured": bool(
+                    getattr(provider, "_webhook_secret", None)),
+            },
+        )
+        raise AppError(
+            "Invalid webhook signature. Most likely the webhook secret "
+            "in /admin/payment-providers doesn't match the one in the "
+            "Razorpay dashboard. Open admin → Payment Providers → "
+            "click 'Test Webhook Signature' on the Razorpay row to "
+            "verify against a sample delivery.",
+            status_code=400)
 
     event = json.loads(body)
     event_id = (event.get("id")

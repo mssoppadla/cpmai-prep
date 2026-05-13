@@ -577,11 +577,19 @@ so DB-introspection tools don't show stale names.
    `PAYMENT.CAPTURE.REFUNDED`. Note the Webhook ID.
 3. **In /admin/payment-providers**, click "Add Provider" → choose
    PayPal type → paste Client ID into Public Key, Client Secret into
-   API Secret, Webhook ID into PayPal Webhook ID. Mode = "test".
+   API Secret. Webhook ID is **optional** — if you haven't registered
+   a webhook in developer.paypal.com yet, leave it blank; the in-
+   browser capture flow works without it. The only thing you give
+   up by skipping it is auto-activation on dropped-browser-tab
+   purchases (which a buyer can recover by re-opening the page).
+   Mode = "test".
 4. **Activate (Non-INR)** the new row. Razorpay row stays on "Activate
    (INR)" — they're independent.
 5. **Smoke-test** via the Test button (does an OAuth round-trip; no
    real order created).
+6. **Add the Webhook ID later** once you've registered the webhook
+   in PayPal's dashboard. Edit the provider row → paste the ID into
+   the "PayPal Webhook ID" field → save. No re-activation needed.
 
 ### Promoting sandbox → live
 

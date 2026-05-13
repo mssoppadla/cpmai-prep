@@ -157,22 +157,27 @@ def activate_non_inr_provider(provider_id: int,
         raise ValidationError("Provider not found or disabled.")
     if not row.public_key or not row.api_secret_encrypted:
         raise ValidationError("Provider missing public_key or api_secret.")
-    # Sanity check: if it's a PayPal provider, ensure webhook_id is set
-    # in config — without it /paypal/webhook can't authenticate inbound
-    # events and all webhook deliveries will 400.
+    # PayPal-specific note: webhook_id is RECOMMENDED but not required.
+    # If unset, /paypal/webhook rejects all inbound events as
+    # unverified — that just means dropped-tab buyer flows don't
+    # auto-activate via webhook. The primary in-browser capture path
+    # (/payments/paypal/capture) still works for both sandbox testing
+    # and live checkouts, so admins can spin up PayPal without first
+    # registering a webhook in the PayPal Developer dashboard. We
+    # surface a soft warning in the audit log so the admin sees in
+    # /admin/audit-logs that they're running without webhook
+    # verification and can fix it later.
+    webhook_id_status = "configured"
     if row.provider_type == "paypal":
         wh = (row.config or {}).get("webhook_id")
         if not wh:
-            raise ValidationError(
-                "PayPal provider is missing config.webhook_id. "
-                "Set it from the PayPal developer dashboard before "
-                "activating, otherwise webhooks cannot be verified."
-            )
+            webhook_id_status = "missing"
     settings_store.set("payment.non_inr_provider_id", provider_id,
                        db=db, updated_by=admin.id)
     PaymentRegistry.invalidate()
     audit_log(db, admin.id, "payment.non_inr_provider_activated",
-              {"id": provider_id, "type": row.provider_type})
+              {"id": provider_id, "type": row.provider_type,
+                "paypal_webhook_id_status": webhook_id_status})
     active_id = settings_store.get("payment.active_provider_id")
     return PaymentProviderOut.from_row(
         row, is_active=(row.id == active_id),
@@ -190,6 +195,84 @@ def test_provider(provider_id: int, admin: User = Depends(get_admin_user)):
         return {"ok": False, **body}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+@router.post("/{provider_id}/test-webhook-signature")
+def test_webhook_signature(provider_id: int,
+                            payload: dict,
+                            _admin: User = Depends(get_admin_user)):
+    """Diagnose webhook-signature mismatches without prod-log access.
+
+    Razorpay (and any other HMAC-signed gateway) auto-disables a webhook
+    endpoint that consistently 400s on signature verification. Recovering
+    from that is a back-and-forth — re-copy the secret from the
+    dashboard, hope the next delivery succeeds, repeat. This endpoint
+    closes the loop: paste a real delivery's body + signature header
+    from the gateway's "Recent deliveries" view, and we tell you
+    whether our currently-configured secret would accept it.
+
+    Body shape:
+        {
+            "payload":   "<raw event body, exactly as gateway sent it>",
+            "signature": "<x-razorpay-signature header value>"
+        }
+
+    Returns:
+        {
+            "ok":              true | false,
+            "reason":          short human-readable reason,
+            "secret_configured": bool,
+        }
+
+    Doesn't touch state — pure verifier round-trip. Safe to re-run.
+    """
+    raw_body  = payload.get("payload")
+    signature = payload.get("signature")
+    if not isinstance(raw_body, str) or not isinstance(signature, str):
+        return {"ok": False, "reason": "payload + signature must both be strings",
+                "secret_configured": False}
+
+    try:
+        provider = PaymentRegistry.get_by_id(provider_id)
+    except AppError as e:
+        return {"ok": False, "reason": str(e.detail),
+                "secret_configured": False}
+
+    secret_configured = bool(getattr(provider, "_webhook_secret", None))
+    if not secret_configured:
+        return {
+            "ok": False,
+            "reason": ("This provider has no webhook secret configured. "
+                       "Open the row → Edit → fill in 'Webhook secret' → Save."),
+            "secret_configured": False,
+        }
+
+    # provider.verify_webhook_signature wants raw bytes (matches the
+    # /payments/webhook code path). UTF-8 encode the pasted body the
+    # same way Razorpay sends it.
+    try:
+        ok = provider.verify_webhook_signature(
+            raw_body.encode("utf-8"), signature)
+    except Exception as e:
+        return {"ok": False, "reason": f"verifier crashed: {e}",
+                "secret_configured": True}
+
+    if ok:
+        return {
+            "ok": True,
+            "reason": "Signature matches — this exact delivery would activate.",
+            "secret_configured": True,
+        }
+    return {
+        "ok": False,
+        "reason": ("Signature does NOT match. The webhook secret stored "
+                   "here disagrees with the one the gateway used to sign "
+                   "this delivery. Either (a) re-copy the secret from "
+                   "the gateway dashboard into /admin/payment-providers, "
+                   "or (b) regenerate the secret in the dashboard and "
+                   "paste the new value here. Don't forget to Save."),
+        "secret_configured": True,
+    }
 
 
 @router.delete("/{provider_id}", status_code=204)
