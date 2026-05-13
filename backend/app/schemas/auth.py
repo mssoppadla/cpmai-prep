@@ -37,7 +37,15 @@ class PasswordChangeIn(BaseModel):
 
 class UserOut(BaseModel):
     id: int
-    email: EmailStr
+    # Output schema uses plain ``str``, NOT ``EmailStr``. After GDPR
+    # soft-delete the email is rewritten to ``deleted-{id}@redacted.invalid``
+    # — a RFC 2606 reserved domain that Pydantic's EmailStr rejects.
+    # Validation belongs at INPUT time (SignupIn, LoginIn — both use
+    # EmailStr). Once the value is stored, serialization should
+    # round-trip cleanly without re-validating against the strict
+    # email_validator rules. This caught a 500 from GET /admin/users/{id}
+    # on soft-deleted users.
+    email: str
     name: str | None
     role: UserRole
     created_at: datetime
@@ -51,6 +59,12 @@ class UserAdminOut(UserOut):
     failed_login_count: int
     locked_until: datetime | None
     last_login_at: datetime | None
+    # Set when the user has gone through the GDPR / admin soft-delete
+    # flow. After this is non-null: email is "deleted-{id}@redacted.invalid",
+    # name/password_hash/google_id are NULL, is_active=False. The admin
+    # UI dims these rows and labels them "deleted" so operators don't
+    # confuse them with active accounts.
+    deleted_at: datetime | None = None
     # GeoIP enrichment (PR-A). ``country`` / ``city`` are signup-time
     # snapshots; ``last_login_country`` / ``last_login_ip`` are the
     # most-recent-login snapshot. All nullable for historical rows

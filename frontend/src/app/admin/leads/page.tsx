@@ -15,9 +15,13 @@ import { countryAndCity } from "@/lib/country-flag";
 export default function ContactsPage() {
   const [rows, setRows] = useState<ContactRow[] | null>(null);
   const [me, setMe] = useState<UserOut | null>(null);
-  const [filter, setFilter] = useState<{ kind: "" | "lead" | "user"; q: string }>(
-    { kind: "", q: "" }
-  );
+  const [filter, setFilter] = useState<{
+    kind: "" | "lead" | "user";
+    q: string;
+    // Off by default — operators almost always want active contacts.
+    // Toggle on to investigate forensics / audit.
+    includeDeleted: boolean;
+  }>({ kind: "", q: "", includeDeleted: false });
   // Client-side sort. "recent" preserves the API's created_at-desc
   // ordering. "score" surfaces warmest leads first (with scoreless
   // rows demoted to the bottom).
@@ -31,9 +35,10 @@ export default function ContactsPage() {
     setBusy(true);
     setErr(null);
     try {
-      const params: Record<string, string | number> = { limit: 500 };
+      const params: Record<string, string | number | boolean> = { limit: 500 };
       if (filter.kind) params.kind = filter.kind;
       if (filter.q) params.q = filter.q;
+      if (filter.includeDeleted) params.include_deleted = true;
       setRows(await admin.contacts.list(params as any));
     } catch (e) {
       console.error("[admin/contacts] list", e);
@@ -46,7 +51,7 @@ export default function ContactsPage() {
     reload();
     auth.me().then(setMe).catch(() => setMe(null));
     /* eslint-disable-next-line */
-  }, []);
+  }, [filter.includeDeleted]);
 
   // Client-side resort. Memoize so we don't re-sort on every render.
   // For score-sort: higher score first, NULL scores last, ties broken
@@ -65,9 +70,13 @@ export default function ContactsPage() {
   async function deleteRow(row: ContactRow) {
     const isUser = row.kind === "user";
     const msg = isUser
-      ? `Permanently DELETE user ${row.email}?\n\n` +
-        "Wipes the account. Exam attempts and audit history are preserved " +
-        "(the user_id reference is dropped). Use only for junk signups."
+      ? `Delete user ${row.email}?\n\n` +
+        "This is a SOFT delete — the account is marked inactive, " +
+        "PII (name / password / Google link) is wiped, and the email " +
+        "is replaced with 'deleted-{id}@redacted.invalid'. The row " +
+        "stays so audit logs / payments / exam attempts referencing " +
+        "this user remain valid (required for tax + compliance retention). " +
+        "Login is blocked immediately. Use for junk signups."
       : `Permanently DELETE this lead (${row.email})?\n\n` +
         "Removes the landing-form submission. Cannot be undone.";
     if (!confirm(msg)) return;
@@ -148,12 +157,13 @@ export default function ContactsPage() {
         </button>
       </header>
 
-      <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex gap-2">
+      <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4
+                      flex gap-2 flex-wrap items-center">
         <input
           value={filter.q}
           onChange={(e) => setFilter({ ...filter, q: e.target.value })}
           placeholder="Search email or name…"
-          className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded"
+          className="flex-1 min-w-[200px] px-3 py-1.5 text-sm border border-slate-300 rounded"
         />
         <select
           value={filter.kind}
@@ -173,6 +183,17 @@ export default function ContactsPage() {
           <option value="recent">Sort: recent first</option>
           <option value="score">Sort: warmest leads first</option>
         </select>
+        {/* Toggle: include soft-deleted users in the feed. Off by
+            default — operators almost always want active contacts.
+            Forensics / abuse investigation flip this on. */}
+        <label className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-slate-600">
+          <input
+            type="checkbox"
+            checked={filter.includeDeleted}
+            onChange={(e) => setFilter({ ...filter, includeDeleted: e.target.checked })}
+          />
+          Show deleted users
+        </label>
         <button
           onClick={reload}
           disabled={busy}
@@ -218,10 +239,16 @@ export default function ContactsPage() {
                 const isOpen = editing === key;
                 // Super-admin can delete anything except their own user row.
                 // Admin can delete leads (junk landing-form entries) but not users.
+                // Already-soft-deleted users get the button hidden — no second
+                // delete pass is meaningful (the row is already redacted and
+                // the soft-delete service is idempotent, but operators don't
+                // need the visual noise).
                 const canDelete = me
                   ? (r.kind === "lead"
                       ? (me.role === "super_admin" || me.role === "admin")
-                      : (me.role === "super_admin" && r.id !== me.id))
+                      : (me.role === "super_admin"
+                         && r.id !== me.id
+                         && !r.deleted_at))
                   : false;
                 return (
                   <Row
@@ -267,19 +294,27 @@ function Row({
   row, isOpen, notes, setNotes, canDelete,
   onToggle, onSaveNotes, onDelete, onCancel,
 }: RowProps) {
+  // Soft-deleted users: dim the whole row + replace the user badge with
+  // a "deleted" badge so operators can tell at a glance which rows are
+  // active accounts vs. tombstones.
+  const isDeleted = row.kind === "user" && !!row.deleted_at;
   return (
     <>
       <tr
-        className={`hover:bg-slate-50 ${row.kind === "lead" ? "cursor-pointer" : ""}`}
+        className={`hover:bg-slate-50 ${row.kind === "lead" ? "cursor-pointer" : ""} ${
+          isDeleted ? "opacity-50" : ""
+        }`}
         onClick={onToggle}
       >
         <td className="px-4 py-3">
-          <div className="text-sm font-medium text-slate-900">{row.email}</div>
+          <div className={`text-sm font-medium text-slate-900 ${
+            isDeleted ? "line-through" : ""
+          }`}>{row.email}</div>
           {row.name && <div className="text-xs text-slate-500">{row.name}</div>}
           {row.kind === "lead" && row.converted_user_id && (
             <span className="text-xs text-emerald-700 font-medium">✓ converted</span>
           )}
-          {row.kind === "user" && (
+          {row.kind === "user" && !isDeleted && (
             <div className="flex flex-wrap gap-1 mt-1">
               {row.has_google && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
@@ -298,6 +333,11 @@ function Row({
           {row.kind === "lead" ? (
             <span className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-medium">
               lead
+            </span>
+          ) : isDeleted ? (
+            <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 font-medium"
+                  title={`Soft-deleted on ${row.deleted_at}`}>
+              deleted
             </span>
           ) : (
             <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">

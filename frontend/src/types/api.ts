@@ -52,6 +52,14 @@ export interface UserAdminOut extends UserOut {
   failed_login_count: number;
   locked_until: string | null;
   last_login_at: string | null;
+  /** Set after GDPR self-delete OR admin-triggered soft-delete (via the
+   *  /admin/users delete button). When non-null: email is redacted to
+   *  "deleted-{id}@redacted.invalid", PII is wiped, login blocked. Admin
+   *  UI dims/strikethrough's these rows so they aren't mistaken for
+   *  active accounts. Soft-delete (not hard) because the row is FK-
+   *  referenced by audit_logs / payments / etc. which must be retained
+   *  for compliance. */
+  deleted_at: string | null;
   /** GeoIP enrichment (PR-A). Signup-time snapshot — never overwritten
    *  on subsequent logins. `null` for historical users / private-IP
    *  signups / lookup misses. */
@@ -315,6 +323,10 @@ export interface ContactRow {
   has_password?: boolean | null;
   has_active_subscription?: boolean | null;
   last_login_at?: string | null;
+  /** Non-null when the user has been soft-deleted (GDPR self-delete OR
+   *  admin delete). UI dims the row + shows a "deleted" badge so it
+   *  isn't confused with active accounts. Always null for lead rows. */
+  deleted_at?: string | null;
 }
 
 export interface LeadAdminOut {

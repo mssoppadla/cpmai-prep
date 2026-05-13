@@ -349,6 +349,44 @@ There's a pytest regression guard at
 `tests/unit/geoip/test_refresh.py::test_refresh_sends_license_key_as_query_param_not_basic_auth`
 that fails CI if anyone reintroduces basic auth.
 
+## 40. User deletion is ALWAYS soft, never hard
+
+**Date:** 2026-05-13. **Status:** Invariant.
+
+Both `DELETE /users/me` (GDPR self-service) and
+`DELETE /admin/users/{id}` (admin junk-account cleanup) MUST go
+through `app.services.user_deletion.soft_delete_user`. A hard delete
+on a `users` row will fail because no model-level cascades are
+configured for the FKs pointing at it (audit_logs, payments,
+journey_events, leads.converted_user_id, etc.) — and even if cascades
+WERE configured, hard-delete would wipe rows we're legally required
+to keep (Indian tax law: 7-year retention on financial records).
+
+A regression that re-introduced hard delete would surface as a
+generic 409 "This change conflicts with existing data — most often
+a unique field…" (our IntegrityError catch-all in `app/main.py`). The
+operator wouldn't get any clear signal about what failed.
+
+Pinned by `tests/integration/test_admin_user_delete.py`:
+* `test_admin_delete_user_soft_deletes_and_succeeds`
+* `test_admin_delete_preserves_fk_referencing_rows`
+* `test_admin_delete_post_delete_login_is_blocked`
+
+The soft-delete contract (`app/services/user_deletion.py`):
+* `email → "deleted-{id}@redacted.invalid"`
+* `name, password_hash, google_id → NULL`
+* `is_active → False` (blocks login)
+* `deleted_at → now()`
+* Idempotent: re-deleting a soft-deleted user is a no-op (returns
+  False from the service function; the audit log records
+  `was_already_deleted: True`).
+
+Related: `UserOut.email` is typed `str`, NOT `EmailStr`. Pydantic's
+`EmailStr` rejects RFC 2606 reserved domains (`.invalid`), so a
+strict-typed output schema would 500 when serializing a soft-deleted
+user. Validation belongs at input time (SignupIn / LoginIn use
+EmailStr); serialization should round-trip cleanly.
+
 ## 39. GeoIP cron auto-installs via deploy.sh — no SSH needed
 
 **Date:** 2026-05-13.

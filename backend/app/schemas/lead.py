@@ -93,3 +93,10 @@ class ContactRow(BaseModel):
     has_password: bool | None = None
     has_active_subscription: bool | None = None
     last_login_at: datetime | None = None
+    # Non-null after the user has been soft-deleted (via GDPR self-
+    # service OR admin delete). UI dims the row and shows a small
+    # "deleted" badge so operators don't mistake them for active
+    # accounts. The redacted email pattern (deleted-{id}@redacted.invalid)
+    # is also visible, but having a dedicated field lets the UI mark
+    # the row without string-sniffing.
+    deleted_at: datetime | None = None

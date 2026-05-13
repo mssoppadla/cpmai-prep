@@ -137,39 +137,17 @@ def delete_my_account(user: User = Depends(get_current_user),
                       request: Request = None):
     """GDPR account deletion: soft-delete + PII redaction.
 
-    What this does:
-      • email → `deleted-{id}@redacted.invalid` (preserves FKs from
-        leads-by-email lookups but makes the row unsearchable as the
-        original person)
-      • name, password_hash, google_id → NULL
-      • is_active → False (login blocked everywhere; get_current_user
-        + refresh both reject)
-      • deleted_at → now()
-
-    What this DOESN'T touch:
-      • payments, subscriptions — retained for tax-law compliance
-        (Indian Income Tax Act: 7-year retention on financial records)
-      • exam_sessions — kept linked to the (now redacted) user row so
-        aggregate stats survive. PII fields on the user row are gone.
-      • assistant_logs — `redacted_input` was already PII-redacted at
-        capture; `response_preview` is the model's reply (no user PII).
-        We leave both for product-analytics continuity.
-      • audit_logs — kept for compliance / abuse investigation.
+    Delegates to ``app.services.user_deletion.soft_delete_user`` so the
+    redaction contract stays in lockstep with the admin-triggered
+    delete path (``DELETE /admin/users/{id}``). See that module for
+    the full contract + rationale.
 
     Idempotent: calling on an already-deleted user is a no-op (the
     auth layer would have rejected the token before reaching here, but
     we handle it defensively).
     """
-    if user.deleted_at is not None:
-        return  # already deleted, defensive no-op
-
-    user.email = f"deleted-{user.id}@redacted.invalid"
-    user.name = None
-    user.password_hash = None
-    user.google_id = None
-    user.is_active = False
-    user.deleted_at = datetime.now(timezone.utc)
-    db.commit()
+    from app.services.user_deletion import soft_delete_user
+    soft_delete_user(db, user)
 
     audit_log(db, user.id, "user.self_deleted",
               ip=getattr(request.state, "ip", None) if request else None,

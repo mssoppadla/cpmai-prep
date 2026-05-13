@@ -504,9 +504,15 @@ export const admin = {
     },
   },
   contacts: {
-    /** Unified feed: leads (landing-form) + users (signed up) in one stream. */
+    /** Unified feed: leads (landing-form) + users (signed up) in one stream.
+     *
+     *  ``include_deleted`` defaults to false on the server — soft-deleted
+     *  users are hidden unless the admin clicks the "Show deleted" toggle
+     *  on /admin/leads. */
     async list(p?: {
-      kind?: "lead" | "user"; q?: string; limit?: number; offset?: number;
+      kind?: "lead" | "user"; q?: string;
+      include_deleted?: boolean;
+      limit?: number; offset?: number;
     }) {
       const { data } = await request<ContactRow[]>(
         `/admin/leads/contacts${qs(p)}`, { authed: true });

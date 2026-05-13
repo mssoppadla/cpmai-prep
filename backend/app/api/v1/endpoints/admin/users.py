@@ -28,6 +28,7 @@ def _to_admin_out(u: User, sub: Subscription | None) -> UserAdminOut:
         failed_login_count=u.failed_login_count,
         locked_until=u.locked_until,
         last_login_at=u.last_login_at,
+        deleted_at=u.deleted_at,
         country=u.country,
         city=u.city,
         last_login_ip=u.last_login_ip,
@@ -45,9 +46,21 @@ def list_users(db: Session = Depends(get_db),
                q: str | None = None,
                role: UserRole | None = None,
                method: str | None = Query(None, pattern="^(google|password|both)$"),
+               include_deleted: bool = Query(
+                   False,
+                   description="If true, include soft-deleted users in the "
+                               "list. Default false — admins rarely want to "
+                               "see tombstones unless they're investigating "
+                               "an audit/abuse case.",
+               ),
                limit: int = Query(50, le=200),
                offset: int = 0):
     query = db.query(User)
+    if not include_deleted:
+        # Default: hide soft-deleted users. They stay searchable when
+        # the operator explicitly passes include_deleted=true (the
+        # admin UI surfaces this as a "Show deleted" toggle).
+        query = query.filter(User.deleted_at.is_(None))
     if q:
         query = query.filter(
             (User.email.ilike(f"%{q}%")) | (User.name.ilike(f"%{q}%"))
@@ -167,12 +180,30 @@ def set_chat_limit_override(user_id: int, payload: _ChatLimitOverrideIn,
 def delete_user(user_id: int,
                 db: Session = Depends(get_db),
                 admin: User = Depends(get_super_admin_user)):
-    """Hard-delete a user. Super-admin only. Cannot delete self.
+    """Soft-delete a user. Super-admin only. Cannot delete self.
 
-    Cascades on FK-bound rows are configured at the model level for child
-    rows (e.g. exam_attempt_answers); rows that reference users without
-    cascade (created_by columns) are nulled out implicitly via SET NULL —
-    the audit history is preserved so we still know who did what.
+    Uses the SAME redaction flow as ``DELETE /users/me`` (GDPR
+    self-service deletion). Why soft-delete instead of hard:
+
+    The User row is referenced as a FK by ~10 child tables (audit_logs,
+    leads.converted_user_id, subscriptions, payments, journey_events,
+    assistant_logs, exam_sessions, etc.) with NO model-level cascades.
+    A hard ``db.delete(u) + db.commit()`` would fail with an integrity
+    error from any of those — which is exactly the symptom reported
+    on 2026-05-13: "This change conflicts with existing data — most
+    often a unique field…" (our generic IntegrityError catch-all).
+
+    Adding cascades isn't the answer either — wiping audit history +
+    payment records on user delete would violate Indian tax-law
+    retention (7 years on financial rows) and lose forensic data.
+
+    Soft-delete keeps everything intact, redacts the PII, and blocks
+    login. The admin can still see the row in /admin/users
+    (now with email = ``deleted-{id}@redacted.invalid``), which is
+    intentional — junk-account cleanup means "make this account
+    unusable", not "scrub all evidence of it ever existing".
+
+    See ``app/services/user_deletion.py`` for the full contract.
     """
     if user_id == admin.id:
         raise AppError("You cannot delete your own account.",
@@ -185,7 +216,8 @@ def delete_user(user_id: int,
     if u.role == UserRole.SUPER_ADMIN:
         remaining = (db.query(User)
                      .filter(User.role == UserRole.SUPER_ADMIN,
-                             User.id != user_id)
+                             User.id != user_id,
+                             User.deleted_at.is_(None))
                      .count())
         if remaining == 0:
             raise AppError(
@@ -193,8 +225,12 @@ def delete_user(user_id: int,
                 status_code=400, code="last_super_admin",
             )
 
-    email = u.email  # capture for audit before delete
-    db.delete(u)
-    db.commit()
+    original_email = u.email   # capture before redaction
+    from app.services.user_deletion import soft_delete_user
+    applied = soft_delete_user(db, u)
+
     audit_log(db, admin.id, "user.deleted",
-              {"target_user_id": user_id, "email": email})
+              {"target_user_id": user_id,
+               "email": original_email,
+               "was_already_deleted": not applied,
+               "mode": "soft_delete"})
