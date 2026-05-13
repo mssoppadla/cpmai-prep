@@ -53,6 +53,12 @@ def list_leads(db: Session = Depends(get_db),
 def list_contacts(db: Session = Depends(get_db),
                   q: str | None = None,
                   kind: str | None = Query(None, pattern="^(lead|user)$"),
+                  include_deleted: bool = Query(
+                      False,
+                      description="Include soft-deleted users in the feed. "
+                                  "Default false — admins normally want "
+                                  "the active-contacts view.",
+                  ),
                   limit: int = Query(200, le=500), offset: int = 0):
     """Unified feed of leads (landing-form submissions) + users
     (sign-ups via password or Google).
@@ -60,6 +66,9 @@ def list_contacts(db: Session = Depends(get_db),
     Single ordered stream by created_at, so the admin can see "all the
     people who showed interest or signed up" in one place. Filter by
     kind=lead or kind=user when needed.
+
+    Soft-deleted users are hidden by default; pass
+    ``include_deleted=true`` to see tombstones (forensics / audit case).
     """
     rows: list[ContactRow] = []
 
@@ -86,6 +95,8 @@ def list_contacts(db: Session = Depends(get_db),
 
     if kind != "lead":
         uq = db.query(User)
+        if not include_deleted:
+            uq = uq.filter(User.deleted_at.is_(None))
         if q:
             uq = uq.filter(
                 (User.email.ilike(f"%{q}%")) | (User.name.ilike(f"%{q}%"))
@@ -106,6 +117,7 @@ def list_contacts(db: Session = Depends(get_db),
                 has_password=bool(U.password_hash),
                 has_active_subscription=U.id in sub_ids,
                 last_login_at=U.last_login_at,
+                deleted_at=U.deleted_at,
                 # GeoIP enrichment surfaced in the unified Contacts feed.
                 # users.country/city are signup-time snapshots — "where
                 # this person was when they created the account". For
