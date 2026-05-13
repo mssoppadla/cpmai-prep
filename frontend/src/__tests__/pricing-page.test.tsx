@@ -31,6 +31,20 @@ const QUOTE_NO_OFFER = {
   subtotal_paise: 100_000,
   gst_percent: 0, gst_paise: 0,
   final_price_paise: 100_000, stack_offer_with_discount: false,
+  // International-pricing display block. Mirrors INR when the user
+  // hasn't switched currency. Existing tests are INR-only, so
+  // display_amount_minor == final_price_paise and there's no markup.
+  display_currency: "INR", display_amount_minor: 100_000,
+  display_fx_rate: 1.0, display_currency_supported: true,
+  display_fx_source: "inr", display_fx_rate_raw: null,
+  display_fx_fetched_at: null,
+  display_subtotal_minor: 100_000,
+  display_markup_percent: 0.0,
+  display_markup_minor: 0,
+};
+
+const CURRENCIES_INR_ONLY = {
+  options: [{ code: "INR", symbol: "₹", has_fx_rate: true }],
 };
 
 const QUOTE_WITH_OFFER = {
@@ -71,6 +85,11 @@ function buildFetch(quoteResponse: typeof QUOTE_NO_OFFER | typeof QUOTE_WITH_OFF
     const url = typeof input === "string" ? input : input.toString();
     if (url.endsWith("/pricing/plans")) {
       return new Response(JSON.stringify([PLAN]), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.endsWith("/pricing/currencies")) {
+      return new Response(JSON.stringify(CURRENCIES_INR_ONLY), {
         status: 200, headers: { "Content-Type": "application/json" },
       });
     }

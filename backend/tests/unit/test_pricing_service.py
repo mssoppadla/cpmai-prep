@@ -403,3 +403,183 @@ def test_gst_zero_subtotal_means_zero_gst(db, gst_18):
     assert q.subtotal_paise == 0
     assert q.gst_paise == 0
     assert q.final_price_paise == 0
+
+
+# ============================================================ currencies
+# International pricing — live FX (Frankfurter) + transparent markup +
+# admin overrides. The display block in PriceQuote breaks out the
+# markup as a separate "international processing fee" line so the
+# buyer can see it on the receipt instead of having it baked into a
+# weird-looking FX rate.
+
+from datetime import datetime, timezone
+
+
+@pytest.fixture
+def fx_live_with_markup(monkeypatch):
+    """Stack-off + GST 18% + live FX rates configured.
+
+    Mocks the new live-FX settings:
+      pricing.fx_live_raw          {"USD": 83.33, "EUR": 90.91}
+      pricing.fx_live_fetched_at   now (so source=LIVE, not STALE)
+      pricing.fx_markup_percent    5.0
+      pricing.fx_overrides         {}
+    """
+    fresh = datetime.now(timezone.utc).isoformat()
+    from app.core import settings_store as ss_module
+    def _get(self, k, default=None):
+        return {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent":               18,
+            "pricing.fx_live_raw":               {"USD": 83.33, "EUR": 90.91},
+            "pricing.fx_live_fetched_at":        fresh,
+            "pricing.fx_markup_percent":         5.0,
+            "pricing.fx_overrides":              {},
+        }.get(k, default)
+    monkeypatch.setattr(ss_module.SettingsStore, "get", _get)
+
+
+def test_quote_default_currency_is_inr(db, fx_live_with_markup):
+    """No currency argument -> INR. Display mirrors INR final, no markup."""
+    _make_plan(db, base=99900)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.display_currency == "INR"
+    assert q.display_amount_minor == q.final_price_paise
+    assert q.display_fx_rate == 1.0
+    assert q.display_fx_source == "inr"
+    assert q.display_markup_minor == 0
+    assert q.display_currency_supported is True
+
+
+def test_quote_in_usd_breaks_out_markup_as_fee(db, fx_live_with_markup):
+    """Non-INR + LIVE source: subtotal at mid-market + markup as
+    separate line + total = subtotal + markup. GST is dropped."""
+    _make_plan(db, base=99900)
+    q = PricingService(db).quote("exam-bundle", currency="USD")
+
+    # INR breakdown unchanged (canonical for receipts).
+    assert q.subtotal_paise == 99900
+    assert q.gst_percent == 18
+    assert q.gst_paise == (99900 * 18) // 100
+    assert q.final_price_paise == 99900 + 17982
+
+    # USD display block — broken out.
+    assert q.display_currency == "USD"
+    assert q.display_fx_source == "live"
+    assert q.display_fx_rate_raw == 83.33
+    assert q.display_markup_percent == 5.0
+
+    expected_sub = round(99900 / 83.33)
+    assert q.display_subtotal_minor == expected_sub
+    expected_markup = round(expected_sub * 5.0 / 100.0)
+    assert q.display_markup_minor == expected_markup
+    assert q.display_amount_minor == expected_sub + expected_markup
+    assert abs(q.display_fx_rate - 83.33 * 1.05) < 0.001
+
+
+def test_quote_override_takes_priority_and_has_no_markup_line(db, monkeypatch):
+    """Admin override beats live AND markup is NOT applied (admin's
+    rate is final; they baked their own margin in if they wanted)."""
+    fresh = datetime.now(timezone.utc).isoformat()
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent": 18,
+            "pricing.fx_live_raw":       {"USD": 83.33},
+            "pricing.fx_live_fetched_at": fresh,
+            "pricing.fx_markup_percent":  5.0,
+            "pricing.fx_overrides":      {"USD": 90.0},
+        }.get(k, default))
+    _make_plan(db, base=99900)
+
+    q = PricingService(db).quote("exam-bundle", currency="USD")
+    assert q.display_fx_source == "override"
+    assert q.display_fx_rate == 90.0
+    assert q.display_fx_rate_raw is None
+    assert q.display_markup_percent == 0.0
+    assert q.display_markup_minor == 0
+    assert q.display_amount_minor == 1110     # 99900 / 90
+    assert q.display_subtotal_minor == 1110
+
+
+def test_quote_stale_live_rate_flags_source(db, monkeypatch):
+    """Last-fetched older than 7 days -> source=STALE. Still chargeable
+    so the UI can warn rather than blocking sales."""
+    from datetime import timedelta
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent": 0,
+            "pricing.fx_live_raw":       {"USD": 83.33},
+            "pricing.fx_live_fetched_at": old,
+            "pricing.fx_markup_percent":  5.0,
+            "pricing.fx_overrides":      {},
+        }.get(k, default))
+    _make_plan(db, base=99900)
+    q = PricingService(db).quote("exam-bundle", currency="USD")
+    assert q.display_fx_source == "stale"
+    assert q.display_currency_supported is True
+
+
+def test_quote_unsupported_currency_falls_back_with_flag(db, fx_live_with_markup):
+    """Currency with no live rate AND no override -> UNAVAILABLE.
+    UI shows the INR final + display_currency_supported=False."""
+    _make_plan(db, base=99900)
+    q = PricingService(db).quote("exam-bundle", currency="JPY")
+    assert q.display_currency == "INR"
+    assert q.display_currency_supported is False
+    assert q.display_fx_source == "unavailable"
+    assert q.display_amount_minor == q.final_price_paise
+
+
+def test_quote_currency_case_insensitive(db, fx_live_with_markup):
+    """Lowercase 'usd' resolves to USD."""
+    _make_plan(db, base=99900)
+    q = PricingService(db).quote("exam-bundle", currency="usd")
+    assert q.display_currency == "USD"
+    assert q.display_currency_supported is True
+
+
+def test_quote_offer_in_usd_applies_to_subtotal_then_converts(db, fx_live_with_markup):
+    """Offer applied: post-offer SUBTOTAL is what gets converted.
+    Discount benefit flows through to international buyers; markup
+    still applies on top of the discounted subtotal."""
+    _make_plan(db, base=100000)
+    _make_offer(db, code="SAVE20", kind="percent", value=20)
+    q = PricingService(db).quote("exam-bundle", "save20", currency="USD")
+    assert q.offer_applied is True
+    assert q.subtotal_paise == 80000
+    assert q.display_subtotal_minor == round(80000 / 83.33)
+    assert q.display_markup_minor == round(q.display_subtotal_minor * 5.0 / 100.0)
+
+
+def test_quote_zero_markup_means_no_markup_line(db, monkeypatch):
+    """markup=0 -> display amount equals subtotal-at-mid-market exactly."""
+    fresh = datetime.now(timezone.utc).isoformat()
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent": 0,
+            "pricing.fx_live_raw":       {"USD": 83.33},
+            "pricing.fx_live_fetched_at": fresh,
+            "pricing.fx_markup_percent":  0.0,
+            "pricing.fx_overrides":      {},
+        }.get(k, default))
+    _make_plan(db, base=99900)
+    q = PricingService(db).quote("exam-bundle", currency="USD")
+    assert q.display_markup_percent == 0.0
+    assert q.display_markup_minor == 0
+    assert q.display_amount_minor == q.display_subtotal_minor
+    assert q.display_fx_rate == 83.33
+
+
+def test_quote_inr_explicit_matches_inr_default(db, fx_live_with_markup):
+    """currency='INR' explicit == omitting the parameter."""
+    _make_plan(db, base=99900)
+    a = PricingService(db).quote("exam-bundle")
+    b = PricingService(db).quote("exam-bundle", currency="INR")
+    assert a.to_dict() == b.to_dict()

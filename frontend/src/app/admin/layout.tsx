@@ -18,6 +18,7 @@ const NAV = [
   { href: "/admin/llm-providers",      label: "LLM Providers" },
   { href: "/admin/payment-providers",  label: "Payment Providers" },
   { href: "/admin/geoip",              label: "GeoIP" },
+  { href: "/admin/pricing",            label: "Pricing / FX" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

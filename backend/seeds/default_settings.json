@@ -132,7 +132,37 @@
   {
     "key": "pricing.gst_percent",
     "value": 18,
-    "description": "GST percentage applied on top of the post-offer subtotal. Computed server-side and shown as a separate line in the order summary. Set to 0 to disable."
+    "description": "GST percentage applied on top of the post-offer subtotal. Computed server-side and shown as a separate line in the order summary. Set to 0 to disable. GST applies to INR-currency checkouts ONLY — international currencies skip GST automatically."
+  },
+  {
+    "key": "pricing.supported_currencies",
+    "value": ["INR", "USD", "EUR", "GBP", "SGD", "AED"],
+    "description": "ISO-4217 codes the /pricing currency selector offers. Must include INR (Plan.base_price_paise is denominated in INR, FX is INR-relative). Add codes here AND populate the matching FX rate in pricing.fx_rates_inr_per_unit before the option becomes usable."
+  },
+  {
+    "key": "pricing.fx_rates_inr_per_unit",
+    "value": {},
+    "description": "LEGACY admin-managed FX rates. Empty by default. The live cron writes to pricing.fx_live_raw instead — this setting is retained for backward compatibility but new deployments should leave it empty. To force a specific rate for a single currency (e.g. promo pricing), use pricing.fx_overrides."
+  },
+  {
+    "key": "pricing.fx_live_raw",
+    "value": {},
+    "description": "AUTO-MANAGED: raw mid-market rates fetched from Frankfurter (ECB-published) by the daily cron. Format: {\"USD\": 83.33, ...} (INR per 1 unit). Admins should NOT edit this by hand — use pricing.fx_overrides instead. Empty until first cron run."
+  },
+  {
+    "key": "pricing.fx_live_fetched_at",
+    "value": "",
+    "description": "AUTO-MANAGED: ISO-8601 timestamp of the last successful FX fetch from Frankfurter. Empty until first cron run. /health surfaces an fx_stale flag when this is > 7 days old."
+  },
+  {
+    "key": "pricing.fx_markup_percent",
+    "value": 5.0,
+    "description": "Markup applied on top of the live mid-market rate to cover Razorpay's ~3% international FX fee + ~2% buffer for FX drift between quote-time and capture-time. Shown transparently to international buyers as a separate 'international processing fee' line on the order summary (not buried in the rate). Range: 0-50%. Default 5% is conservative but safe; lower if you want leaner pricing AT YOUR OWN RISK."
+  },
+  {
+    "key": "pricing.fx_overrides",
+    "value": {},
+    "description": "Admin-set FX rates that WIN over the live cron (priority order: override > live > stale). Use for: (a) currencies Razorpay supports but Frankfurter doesn't cover (AED, SAR, KWD — Middle East peggers; KES, GHS, NGN — African); (b) promo pricing in a specific country at a fixed rate. Same shape as fx_live_raw: {\"AED\": 22.6, ...}. Markup is NOT applied to overrides — the admin's number is the final effective rate."
   },
   {
     "key": "landing.lead_section_heading",

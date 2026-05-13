@@ -14,10 +14,11 @@ import type {
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
   PlanPublicOut, PlanAdminOut, PlanCreate, PlanUpdate,
   OfferCodeAdminOut, OfferCodeCreate, OfferCodeUpdate,
-  PriceQuoteOut, CreateOrderIn, CreateOrderOut,
+  PriceQuoteOut, CreateOrderIn, CreateOrderOut, CurrenciesOut,
   VerifyPaymentIn, VerifyPaymentOut,
   GeoIPStatusOut, GeoIPRefreshOut, GeoIPTestKeyOut, GeoIPLookupOut,
   GeoIPSchedulePreviewOut,
+  FXStatusOut, FXRefreshOut,
 } from "@/types/api";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -304,11 +305,26 @@ export const pricing = {
     const { data } = await request<PlanPublicOut[]>("/pricing/plans");
     return data;
   },
-  async quote(plan_slug: string, offer_code?: string): Promise<PriceQuoteOut> {
+  async quote(plan_slug: string,
+              offer_code?: string,
+              currency?: string): Promise<PriceQuoteOut> {
     const { data } = await request<PriceQuoteOut>("/pricing/quote", {
       method: "POST",
-      json: { plan_slug, offer_code: offer_code || null },
+      json: {
+        plan_slug,
+        offer_code: offer_code || null,
+        // Default to INR matches the backend default — keeps existing
+        // callers (e.g. mid-page re-quote without picker change) working
+        // when they don't pass a currency.
+        currency: (currency || "INR").toUpperCase(),
+      },
     });
+    return data;
+  },
+  /** Currencies the picker should offer. Public, no auth — same surface
+   *  as /pricing/plans. */
+  async listCurrencies(): Promise<CurrenciesOut> {
+    const { data } = await request<CurrenciesOut>("/pricing/currencies");
     return data;
   },
 };
@@ -576,6 +592,22 @@ export const admin = {
       const { data } = await request<GeoIPSchedulePreviewOut>(
         "/admin/geoip/schedule-preview",
         { method: "POST", json: { expression, count }, authed: true });
+      return data;
+    },
+  },
+  pricing: {
+    /** /admin/pricing/fx-status — current rates + last-fetched-at +
+     *  per-currency provenance. Drives the /admin/pricing dashboard. */
+    async fxStatus() {
+      const { data } = await request<FXStatusOut>(
+        "/admin/pricing/fx-status", { authed: true });
+      return data;
+    },
+    /** /admin/pricing/fx-refresh-now — admin-triggered pull from
+     *  Frankfurter. Rate-limited to 5/hour. */
+    async fxRefreshNow() {
+      const { data } = await request<FXRefreshOut>(
+        "/admin/pricing/fx-refresh-now", { method: "POST", authed: true });
       return data;
     },
   },

@@ -48,7 +48,20 @@ def create_order(payload: CreateOrderIn,
                  user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     pricing = PricingService(db)
-    quote = pricing.quote(payload.plan_slug, payload.offer_code)
+    requested_currency = (payload.currency or "INR").upper()
+    quote = pricing.quote(payload.plan_slug, payload.offer_code,
+                          currency=requested_currency)
+
+    # If the caller asked for a currency we can't charge in, REJECT
+    # rather than silently downgrading to INR. /pricing/quote falls
+    # back to INR for the display block, but here we're about to
+    # actually charge — they'd be very upset if they thought they
+    # were paying $X and we charged ₹X*83.
+    if not quote.display_currency_supported:
+        raise AppError(
+            f"Currency '{requested_currency}' is not supported for payment. "
+            "Refresh the pricing page and pick from the available list.",
+            status_code=400)
 
     if quote.final_price_paise <= 0:
         # 100% off: no Razorpay round-trip needed. Caller can short-
@@ -58,6 +71,23 @@ def create_order(payload: CreateOrderIn,
         raise AppError(
             "This combination would result in a free order. "
             "Activate the plan via the admin console instead.",
+            status_code=400)
+
+    # Charge currency + minor-unit amount that Razorpay will see.
+    # For INR this is unchanged (paise, "INR"). For non-INR this is
+    # the FX-converted amount in the target currency's minor units
+    # AND we explicitly drop GST (international customers don't pay
+    # Indian GST).
+    charge_currency = quote.display_currency
+    charge_amount_minor = quote.display_amount_minor
+
+    if charge_amount_minor <= 0:
+        # Defensive — shouldn't happen given the final_price_paise check
+        # above, but FX rounding on tiny prices could theoretically zero
+        # out the converted amount.
+        raise AppError(
+            f"Converted amount for {charge_currency} is zero. "
+            "Check the FX rate in /admin/settings (pricing.fx_rates_inr_per_unit).",
             status_code=400)
 
     provider = PaymentRegistry.get_active()
@@ -73,12 +103,14 @@ def create_order(payload: CreateOrderIn,
     # which our caller can act on except by re-entering credentials.
     try:
         order = provider.create_order(
-            quote.final_price_paise, receipt=receipt,
-            currency=quote.currency)
+            charge_amount_minor, receipt=receipt,
+            currency=charge_currency)
     except Exception as e:
         raise AppError(
             f"Payment gateway rejected the order: {e}. "
-            "Verify the active provider's keys in admin → Payment Providers.",
+            "Verify the active provider's keys in admin → Payment Providers. "
+            "If you're using a non-INR currency, also check that the Razorpay "
+            "account has international payments enabled.",
             status_code=502)
 
     # Reserve a redemption seat NOW so concurrent buyers can't both grab
@@ -98,23 +130,30 @@ def create_order(payload: CreateOrderIn,
     # against the post-offer SUBTOTAL (pre-GST), not final_price_paise
     # (which now includes GST).
     discount = quote.base_price_paise - quote.subtotal_paise
+    # amount_paise on the Payment row stores what we ACTUALLY charge
+    # (in the charge currency's minor units, not always paise — the
+    # column name is historic, kept for compatibility). The currency
+    # column distinguishes INR from non-INR.
     db.add(Payment(
         user_id=user.id, plan_id=quote.plan_id,
         razorpay_order_id=order["id"],
-        amount_paise=quote.final_price_paise,
+        amount_paise=charge_amount_minor,
         base_amount_paise=quote.base_price_paise,
         discount_paise=max(0, discount),
         offer_code=quote.offer_code if quote.offer_applied else None,
         referrer=payload.referrer,
-        currency=quote.currency, status="created",
+        currency=charge_currency, status="created",
         idempotency_key=receipt,
     ))
     db.commit()
     emit_event(db, "payment.order_created", user_id=user.id,
                metadata={"order_id": order["id"], "plan_slug": quote.plan_slug,
                           "offer_code": quote.offer_code,
-                          "amount_paise": quote.final_price_paise,
-                          "gst_paise": quote.gst_paise})
+                          "currency": charge_currency,
+                          "amount_minor": charge_amount_minor,
+                          "amount_inr_paise": quote.final_price_paise,
+                          "gst_paise": quote.gst_paise,
+                          "fx_rate": quote.display_fx_rate})
 
     return CreateOrderOut(
         order_id=order["id"],
@@ -124,11 +163,13 @@ def create_order(payload: CreateOrderIn,
         base_amount=quote.base_price_paise,
         discount_amount=max(0, discount),
         subtotal_amount=quote.subtotal_paise,
-        gst_percent=quote.gst_percent,
-        gst_amount=quote.gst_paise,
+        gst_percent=quote.gst_percent if charge_currency == "INR" else 0,
+        gst_amount=quote.gst_paise if charge_currency == "INR" else 0,
         offer_code=quote.offer_code,
         offer_applied=quote.offer_applied,
         offer_reason=quote.offer_reason,
+        final_inr_paise=quote.final_price_paise,
+        fx_rate=float(quote.display_fx_rate or 1.0),
     )
 
 

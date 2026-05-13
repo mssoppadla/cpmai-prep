@@ -290,6 +290,16 @@ if [ -x scripts/vps/install_geoip_cron.sh ]; then
            "APP_DIR=$APP_DIR ./scripts/vps/install_geoip_cron.sh"
 fi
 
+# FX-rate refresh cron — pulls daily from Frankfurter (ECB-published)
+# so admin doesn't have to manually update pricing.fx_live_raw. See
+# scripts/vps/install_fx_cron.sh for the rationale.
+if [ -x scripts/vps/install_fx_cron.sh ]; then
+  ./scripts/vps/install_fx_cron.sh 2>&1 | sed 's/^/  /' || \
+      warn "install_fx_cron.sh exited non-zero — FX refresh cron may "\
+           "not be installed. Run it manually with: "\
+           "APP_DIR=$APP_DIR ./scripts/vps/install_fx_cron.sh"
+fi
+
 START_TS=$(date +%s)
 START_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 

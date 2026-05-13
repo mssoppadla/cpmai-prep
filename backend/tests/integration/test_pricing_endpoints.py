@@ -89,3 +89,117 @@ def test_quote_returns_gst_breakdown_when_admin_enables_it(client, db, monkeypat
     assert body["gst_percent"] == 18
     assert body["gst_paise"] == 18_000
     assert body["final_price_paise"] == 118_000
+
+
+# ============================================================ currencies
+# /pricing/currencies + /pricing/quote with currency param.
+# These tests use the NEW live-FX system (pricing.fx_live_raw +
+# pricing.fx_markup_percent), not the legacy fx_rates_inr_per_unit
+# which is now an empty/deprecated setting.
+
+from datetime import datetime, timezone
+
+
+def _mock_fx_live(monkeypatch, *, rates: dict, markup: float = 5.0,
+                   overrides: dict | None = None, gst: int = 0,
+                   supported_filter: list | None = None):
+    """Helper: monkeypatch settings_store.get to return live FX state."""
+    fresh = datetime.now(timezone.utc).isoformat()
+    state = {
+        "pricing.stack_offer_with_discount": False,
+        "pricing.gst_percent":               gst,
+        "pricing.fx_live_raw":               rates,
+        "pricing.fx_live_fetched_at":        fresh,
+        "pricing.fx_markup_percent":         markup,
+        "pricing.fx_overrides":              overrides or {},
+    }
+    if supported_filter is not None:
+        state["pricing.supported_currencies"] = supported_filter
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: state.get(k, default))
+
+
+def test_list_currencies_returns_codes_with_live_rates(client, db, monkeypatch):
+    """The picker offers currencies that have either a live rate OR
+    an admin override. INR is always present."""
+    _mock_fx_live(monkeypatch, rates={"USD": 83.33, "EUR": 90.91},
+                   overrides={"AED": 22.6})
+    r = client.get("/api/v1/pricing/currencies")
+    assert r.status_code == 200
+    body = r.json()
+    codes = sorted(o["code"] for o in body["options"])
+    assert "INR" in codes
+    assert "USD" in codes
+    assert "EUR" in codes
+    assert "AED" in codes  # via override
+
+
+def test_list_currencies_with_no_live_rates_only_shows_inr(client, db, monkeypatch):
+    """Fresh deploy: no cron has run yet, no admin overrides. The
+    picker only offers INR — frontend hides the dropdown entirely."""
+    _mock_fx_live(monkeypatch, rates={}, overrides={})
+    r = client.get("/api/v1/pricing/currencies")
+    body = r.json()
+    codes = [o["code"] for o in body["options"]]
+    assert codes == ["INR"]
+
+
+def test_quote_with_usd_currency_breaks_out_markup(client, db, monkeypatch):
+    """End-to-end: POST /pricing/quote with currency=USD includes
+    the broken-out markup line + skips Indian GST."""
+    _mock_fx_live(monkeypatch, rates={"USD": 83.33}, markup=5.0, gst=18)
+    _seed_plan(db, base=99900)
+
+    r = client.post("/api/v1/pricing/quote", json={
+        "plan_slug": "exam-bundle", "currency": "USD"})
+    assert r.status_code == 200
+    body = r.json()
+    # INR breakdown still includes GST (canonical reference).
+    assert body["gst_percent"] == 18
+    assert body["gst_paise"] == 17982
+    assert body["final_price_paise"] == 117882
+    # USD display block — subtotal + markup = total.
+    assert body["display_currency"] == "USD"
+    assert body["display_fx_source"] == "live"
+    assert body["display_fx_rate_raw"] == 83.33
+    assert body["display_markup_percent"] == 5.0
+    expected_sub = round(99900 / 83.33)
+    assert body["display_subtotal_minor"] == expected_sub
+    assert body["display_markup_minor"] == round(expected_sub * 5.0 / 100.0)
+    assert body["display_amount_minor"] == (
+        body["display_subtotal_minor"] + body["display_markup_minor"])
+    assert body["display_currency_supported"] is True
+
+
+def test_quote_with_default_currency_unchanged(client, db, monkeypatch):
+    """REGRESSION GUARD: existing INR-only callers see no behavior
+    change. Display block mirrors the INR final."""
+    _mock_fx_live(monkeypatch, rates={"USD": 83.33}, markup=5.0, gst=18)
+    _seed_plan(db, base=99900)
+
+    r = client.post("/api/v1/pricing/quote", json={"plan_slug": "exam-bundle"})
+    body = r.json()
+    assert body["final_price_paise"] == 117882
+    assert body["display_currency"] == "INR"
+    assert body["display_amount_minor"] == 117882
+    assert body["display_fx_source"] == "inr"
+    assert body["display_markup_minor"] == 0
+    assert body["display_currency_supported"] is True
+
+
+def test_quote_with_unsupported_currency_falls_back_with_flag(client, db, monkeypatch):
+    """Currency without a live rate or override → UNAVAILABLE.
+    Returns INR final + display_currency_supported=false; frontend
+    refuses checkout."""
+    _mock_fx_live(monkeypatch, rates={"USD": 83.33})
+    _seed_plan(db, base=99900)
+
+    r = client.post("/api/v1/pricing/quote", json={
+        "plan_slug": "exam-bundle", "currency": "JPY"})
+    body = r.json()
+    assert body["display_currency_supported"] is False
+    assert body["display_currency"] == "INR"
+    assert body["display_fx_source"] == "unavailable"
+
+

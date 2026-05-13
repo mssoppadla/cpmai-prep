@@ -46,6 +46,10 @@ export interface UserOut {
   name: string | null;
   role: UserRole;
   created_at: string;
+  /** GeoIP-resolved signup country (ISO-3166-1 alpha-2). Surfaced so
+   *  /pricing can default the currency picker. Null for legacy users
+   *  / private IPs / lookup misses. */
+  country?: string | null;
 }
 export interface UserAdminOut extends UserOut {
   is_active: boolean;
@@ -430,22 +434,33 @@ export interface CreateOrderIn {
   plan_slug: string;
   offer_code?: string | null;
   referrer?: string | null;
+  /** ISO-4217 code. Default "INR" — pass the user's selected currency
+   *  so Razorpay opens the popup in that currency. Unsupported codes
+   *  get rejected by the backend (we don't silently fall back when
+   *  we're about to actually charge). */
+  currency?: string;
 }
 export interface CreateOrderOut {
   order_id: string;
-  amount: number;             // final amount (post-discount + GST)
-  currency: string;
+  amount: number;             // minor units of `currency` (paise / cents)
+  currency: string;           // what Razorpay will charge in
   razorpay_key_id: string;
   plan_slug: string;
   plan_name: string;
-  base_amount: number;
-  discount_amount: number;
-  subtotal_amount: number;    // post-discount, pre-GST
+  base_amount: number;        // INR paise (canonical breakdown stays in INR)
+  discount_amount: number;    // INR paise
+  subtotal_amount: number;    // post-discount, pre-GST, INR paise
   gst_percent: number;
-  gst_amount: number;
+  gst_amount: number;         // 0 for non-INR orders (no Indian GST)
   offer_code: string | null;
   offer_applied: boolean;
   offer_reason: string | null;
+  /** INR-side reference final (= subtotal + GST). For non-INR orders
+   *  the actual charge is `amount` in `currency`; this stays for
+   *  receipts and admin audits. */
+  final_inr_paise?: number;
+  /** FX rate used (INR per 1 unit of `currency`). 1.0 for INR. */
+  fx_rate?: number;
 }
 export interface VerifyPaymentIn {
   order_id: string;
@@ -570,9 +585,62 @@ export interface PriceQuoteOut {
   // GST line — gst_percent==0 means "no GST line shown".
   gst_percent: number;
   gst_paise: number;
-  // final_price_paise = subtotal_paise + gst_paise. What the user pays.
+  // final_price_paise = subtotal_paise + gst_paise. What an INR-currency
+  // user pays. Non-INR users pay display_amount_minor in display_currency.
   final_price_paise: number;
   stack_offer_with_discount: boolean;
+  // Display block — currency the caller asked us to compute for.
+  // For non-INR + LIVE source: subtotal-at-mid-market + transparent
+  // markup line = total. UI breaks out the markup so the buyer can
+  // see it on the receipt instead of having it baked into the rate.
+  display_currency: string;
+  display_amount_minor: number;        // minor units of display_currency
+  display_fx_rate: number | null;      // effective rate (post-markup for LIVE)
+  display_fx_rate_raw?: number | null; // raw mid-market (pre-markup, LIVE/STALE only)
+  display_currency_supported: boolean;
+  display_fx_source?: string;          // "inr"|"live"|"override"|"stale"|"unavailable"
+  display_fx_fetched_at?: string | null;
+  display_subtotal_minor?: number;     // amount at mid-market, pre-markup
+  display_markup_percent?: number;
+  display_markup_minor?: number;       // international processing fee
+}
+
+// ---------- Admin FX dashboard --------------------------------------------
+export interface FXCurrencyStatus {
+  code: string;
+  symbol: string;
+  razorpay_supported: boolean;
+  frankfurter_supported: boolean;
+  has_live_rate: boolean;
+  has_override: boolean;
+  raw_inr_per_unit: number | null;
+  effective_inr_per_unit: number | null;
+  source: string;                       // RateSource enum value
+  in_picker: boolean;
+}
+export interface FXStatusOut {
+  last_fetched_at: string | null;
+  age_days: number | null;
+  stale: boolean;
+  markup_percent: number;
+  currencies: FXCurrencyStatus[];
+}
+export interface FXRefreshOut {
+  updated: boolean;
+  fetched_at: string | null;
+  rates_count: number;
+  rejected_codes: string[];
+  elapsed_seconds: number;
+  message: string;
+}
+
+export interface CurrencyOption {
+  code: string;        // ISO-4217 (e.g. "USD")
+  symbol: string;      // display symbol (e.g. "$")
+  has_fx_rate: boolean;  // false if admin half-configured (code listed but no FX rate)
+}
+export interface CurrenciesOut {
+  options: CurrencyOption[];
 }
 
 // ---------- Assistant ------------------------------------------------------

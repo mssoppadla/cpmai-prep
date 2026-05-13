@@ -49,6 +49,14 @@ class UserOut(BaseModel):
     name: str | None
     role: UserRole
     created_at: datetime
+    # GeoIP-resolved signup country (ISO-3166-1 alpha-2). Surfaced on
+    # the user-facing UserOut so /pricing can default the currency
+    # picker (IN → INR; other → USD by default). Nullable for users
+    # who pre-date the GeoIP feature or whose IP resolved to a
+    # private/unknown range. PII-fine to expose to the user themselves
+    # (it's their own country); admins see this same field via
+    # UserAdminOut.
+    country: str | None = None
 
     class Config:
         from_attributes = True
