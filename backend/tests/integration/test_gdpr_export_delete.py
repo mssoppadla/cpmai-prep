@@ -18,7 +18,7 @@ def test_export_returns_user_scoped_collections(client, user, db):
     ))
     db.add(Payment(
         user_id=user.id, amount_paise=99900, currency="INR",
-        razorpay_order_id="order_test_1",
+        provider_order_id="order_test_1",
         idempotency_key="idem_test_1",
         status="captured",
     ))
@@ -72,7 +72,7 @@ def test_delete_redacts_pii_and_soft_deletes(client, user, db):
 def test_delete_preserves_financial_rows(client, user, db):
     db.add(Payment(
         user_id=user.id, amount_paise=99900, currency="INR",
-        razorpay_order_id="order_keep_me",
+        provider_order_id="order_keep_me",
         idempotency_key="idem_keep_me",
         status="captured",
     ))

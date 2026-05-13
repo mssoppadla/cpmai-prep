@@ -107,10 +107,12 @@ def activate_subscription_for_payment(db: Session, payment: Payment) -> Subscrip
                metadata={"plan_slug": plan.slug,
                          "amount_paise": payment.amount_paise,
                          "offer_code": payment.offer_code,
-                         "razorpay_order_id": payment.razorpay_order_id})
+                         "provider_name": payment.provider_name,
+                         "provider_order_id": payment.provider_order_id})
     audit_log(db, payment.user_id, "payment.success",
               {"plan_slug": plan.slug,
-               "order_id": payment.razorpay_order_id,
+               "provider_name": payment.provider_name,
+               "order_id": payment.provider_order_id,
                "amount_paise": payment.amount_paise})
     return sub
 
@@ -146,7 +148,8 @@ def mark_payment_failed(db: Session, payment: Payment) -> None:
 
     db.commit()
     emit_event(db, "payment.failed", user_id=payment.user_id,
-               metadata={"razorpay_order_id": payment.razorpay_order_id})
+               metadata={"provider_name": payment.provider_name,
+                          "provider_order_id": payment.provider_order_id})
 
 
 def find_payment_for_event(db: Session, event: dict) -> Payment | None:
@@ -158,13 +161,64 @@ def find_payment_for_event(db: Session, event: dict) -> Payment | None:
       order.paid                        → payload.order.entity.id
     Returns None if the event doesn't reference a known order — the
     webhook handler still persists the row to WebhookEvent for audit.
+
+    PayPal-shaped events use a different shape and are dispatched by
+    ``find_payment_for_paypal_event`` instead; this function is the
+    Razorpay-specific path called from /payments/webhook.
     """
     payload = event.get("payload", {}) or {}
-    razorpay_order_id = (
+    rzp_order_id = (
         payload.get("payment", {}).get("entity", {}).get("order_id")
         or payload.get("order", {}).get("entity", {}).get("id")
     )
-    if not razorpay_order_id:
+    if not rzp_order_id:
         return None
     return (db.query(Payment)
-            .filter_by(razorpay_order_id=razorpay_order_id).first())
+            .filter_by(provider_order_id=rzp_order_id,
+                        provider_name="razorpay").first())
+
+
+def find_payment_for_paypal_event(db: Session, event: dict) -> Payment | None:
+    """Pull the Payment row a PayPal webhook event refers to.
+
+    PayPal's Orders v2 events put the order_id in different places:
+
+      * PAYMENT.CAPTURE.* events nest it under
+        ``resource.supplementary_data.related_ids.order_id`` (the
+        capture is on the order, and PayPal includes the parent
+        order_id in the related_ids block).
+      * Some payloads also include a ``custom_id`` on the resource
+        that equals our internal idempotency key — a fallback path
+        if related_ids is missing.
+
+    Returns None if neither lookup finds a matching Payment row. The
+    webhook handler still records the WebhookEvent for audit so an
+    operator can investigate the orphan event.
+    """
+    res = (event.get("resource") or {})
+    # Primary path — most PAYMENT.CAPTURE.* events carry the parent
+    # order_id under supplementary_data.related_ids.
+    paypal_order_id = (((res.get("supplementary_data") or {})
+                        .get("related_ids") or {})
+                       .get("order_id"))
+    # Fallback — CHECKOUT.ORDER.* events put the order_id directly on
+    # resource.id (the resource IS the order, not a capture). We were
+    # tempted to fold this into a single expression with `or` + ternary,
+    # but Python's precedence makes that buggy. Two lines, no surprise.
+    if not paypal_order_id and (event.get("event_type") or "").startswith(
+            "CHECKOUT.ORDER."):
+        paypal_order_id = res.get("id")
+    if paypal_order_id:
+        match = (db.query(Payment)
+                 .filter_by(provider_order_id=paypal_order_id,
+                            provider_name="paypal").first())
+        if match:
+            return match
+    # Fallback: custom_id lookup against our idempotency_key — useful
+    # when an event arrives with a degraded payload.
+    custom_id = res.get("custom_id")
+    if custom_id:
+        return (db.query(Payment)
+                .filter_by(idempotency_key=custom_id,
+                            provider_name="paypal").first())
+    return None

@@ -57,6 +57,7 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "llm.fallback_provider_id":          None,
     "llm.cache_ttl_seconds":             30,
     "payment.active_provider_id":        None,
+    "payment.non_inr_provider_id":       None,
     "payment.cache_ttl_seconds":         30,
     # embeddings + RAG
     "embeddings.provider_id":            None,

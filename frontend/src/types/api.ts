@@ -443,8 +443,18 @@ export interface CreateOrderIn {
 export interface CreateOrderOut {
   order_id: string;
   amount: number;             // minor units of `currency` (paise / cents)
-  currency: string;           // what Razorpay will charge in
-  razorpay_key_id: string;
+  currency: string;           // what the gateway will charge in
+  /** Which gateway minted this order. Frontend reads this to decide
+   *  whether to render the Razorpay popup or the PayPal Smart Button. */
+  provider: "razorpay" | "paypal";
+  /** Set when provider="razorpay". Public key — ship to Razorpay SDK. */
+  razorpay_key_id: string | null;
+  /** Set when provider="paypal". Client ID — ship to PayPal JS SDK. */
+  paypal_client_id: string | null;
+  /** Set when provider="paypal". Hosted-page redirect URL — fallback
+   *  if the Smart Button can't render (very old browsers / blocked
+   *  third-party scripts). */
+  paypal_approval_url: string | null;
   plan_slug: string;
   plan_name: string;
   base_amount: number;        // INR paise (canonical breakdown stays in INR)
@@ -461,6 +471,18 @@ export interface CreateOrderOut {
   final_inr_paise?: number;
   /** FX rate used (INR per 1 unit of `currency`). 1.0 for INR. */
   fx_rate?: number;
+}
+
+/** PayPal 2-step capture body — sent from Smart Button onApprove. */
+export interface PayPalCaptureIn {
+  order_id: string;
+}
+export interface PayPalCaptureOut {
+  /** "active" = subscription live; "pending" = PayPal in risk review,
+   *  webhook will activate later. */
+  status: "active" | "pending";
+  plan_slug: string;
+  expires_at?: string | null;
 }
 export interface VerifyPaymentIn {
   order_id: string;
@@ -721,7 +743,7 @@ export interface LLMProviderUpdate {
 }
 
 // ---------- Payment providers --------------------------------------------
-export type PaymentProviderType = "razorpay" | "stripe";
+export type PaymentProviderType = "razorpay" | "paypal" | "stripe";
 export type PaymentMode = "test" | "live";
 
 export interface PaymentProviderOut {
@@ -734,7 +756,10 @@ export interface PaymentProviderOut {
   config: Record<string, unknown>;
   is_enabled: boolean;
   priority: number;
+  /** True if this is the INR-rail provider (typically Razorpay). */
   is_active: boolean;
+  /** True if this is the non-INR-rail provider (typically PayPal). */
+  is_non_inr_active: boolean;
   has_api_secret: boolean;
   has_webhook_secret: boolean;
 }

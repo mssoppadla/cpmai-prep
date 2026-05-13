@@ -117,7 +117,12 @@
   {
     "key": "payment.active_provider_id",
     "value": null,
-    "description": "Active payment_providers row ID"
+    "description": "Active payment_providers row ID — INR-rail provider (typically Razorpay). Non-INR routing uses payment.non_inr_provider_id below."
+  },
+  {
+    "key": "payment.non_inr_provider_id",
+    "value": null,
+    "description": "Active payment_providers row ID for non-INR currencies (typically PayPal). Null = non-INR payments rejected with 503 until configured."
   },
   {
     "key": "payment.cache_ttl_seconds",

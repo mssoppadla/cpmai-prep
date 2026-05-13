@@ -16,8 +16,14 @@ from tests.conftest import auth_header
 
 # ----------------------------------------------------------- fake provider
 class FakeProvider:
-    """Same surface as RazorpayProvider but no network."""
-    name = "fake"; key_id = "rzp_test_fake"; mode = "test"
+    """Same surface as RazorpayProvider but no network.
+
+    ``name = "razorpay"`` because /verify and the Razorpay webhook now
+    gate on provider_name to dispatch between the Razorpay HMAC path
+    and the PayPal certificate-verify path — the fake represents a
+    Razorpay-rail provider in tests.
+    """
+    name = "razorpay"; key_id = "rzp_test_fake"; mode = "test"
 
     def __init__(self):
         self._sigs: dict[str, str] = {}    # order_id|payment_id → signature
@@ -38,8 +44,19 @@ class FakeProvider:
 
 @pytest.fixture
 def fake_provider(monkeypatch):
+    """Wire FakeProvider into every PaymentRegistry entry point so the
+    /orders, /verify, and webhook code paths all use it regardless of
+    currency. Existing tests rely on a single shared instance to make
+    assertions on ``last_order_amount`` after the request."""
     p = FakeProvider()
-    monkeypatch.setattr(PaymentRegistry, "get_active", classmethod(lambda cls: p))
+    monkeypatch.setattr(PaymentRegistry, "get_active",
+                        classmethod(lambda cls: p))
+    # /orders now routes through get_for_currency. INR currency lands
+    # on the active provider (the fake); non-INR also routes here in
+    # tests that don't override (the fx_live_settings tests use this
+    # fixture for the non-INR rail too — fake-as-paypal stand-in).
+    monkeypatch.setattr(PaymentRegistry, "get_for_currency",
+                        classmethod(lambda cls, ccy: p))
     return p
 
 
@@ -75,7 +92,7 @@ def test_order_records_referrer(client, db, user, fake_provider):
     r = client.post("/api/v1/payments/orders", headers=h, json={
         "plan_slug": "exam-bundle", "referrer": "alice@example.com"})
     assert r.status_code == 201
-    pay = (db.query(Payment).filter_by(razorpay_order_id=r.json()["order_id"])
+    pay = (db.query(Payment).filter_by(provider_order_id=r.json()["order_id"])
            .first())
     assert pay.referrer == "alice@example.com"
 
@@ -368,7 +385,7 @@ def test_webhook_payment_failed_releases_offer_seat(
     db.refresh(code)
     assert code.used_count == 0, "failed payment should release the seat"
 
-    pay = db.query(Payment).filter_by(razorpay_order_id=oid).first()
+    pay = db.query(Payment).filter_by(provider_order_id=oid).first()
     assert pay.status == "failed"
 
 
@@ -513,7 +530,7 @@ def test_order_in_eur_persists_currency_on_payment_row(
     r = client.post("/api/v1/payments/orders", headers=h, json={
         "plan_slug": "exam-bundle", "currency": "EUR"})
     assert r.status_code == 201
-    pay = (db.query(Payment).filter_by(razorpay_order_id=r.json()["order_id"])
+    pay = (db.query(Payment).filter_by(provider_order_id=r.json()["order_id"])
            .first())
     assert pay.currency == "EUR"
     expected_sub = round(99900 / 90.91)
@@ -549,3 +566,308 @@ def test_order_with_admin_override_skips_markup(client, db, user,
     # No markup line (admin's rate is final), but rounding still applies.
     assert r.json()["amount"] == 1200
     assert r.json()["amount"] % 100 == 0
+
+
+# ====================================================== PayPal currency routing
+# PayPal-rail tests use a separate fake provider with name="paypal" so
+# the new currency-routing in PaymentRegistry / provider_name dispatch
+# in /verify + /paypal/capture exercise the right code paths.
+
+
+class FakePayPal:
+    """Same surface as PayPalProvider but no network. Distinct from
+    FakeProvider above (which poses as Razorpay) so we can pin the
+    currency-routing path without the test fixtures bleeding into
+    each other."""
+    name = "paypal"; key_id = "AcDe-PayPalClient"; mode = "test"
+
+    def __init__(self):
+        self.last_order_amount = None
+        self.last_currency = None
+        self.last_return_url = None
+        self._captures: dict[str, dict] = {}
+
+    def create_order(self, amount_minor, receipt=None, currency="USD",
+                     return_url=None, cancel_url=None):
+        self.last_order_amount = amount_minor
+        self.last_currency = currency
+        self.last_return_url = return_url
+        oid = f"PP-ORDER-{receipt or 'test'}"
+        # Pre-cache a happy-path capture for this order so the capture
+        # endpoint can return realistic data later.
+        self._captures[oid] = {
+            "order_id": oid, "capture_id": f"PP-CAP-{oid}",
+            "status": "COMPLETED",
+            "amount_minor": amount_minor, "currency": currency,
+        }
+        return {
+            "id": oid, "amount": amount_minor, "currency": currency,
+            "status": "CREATED",
+            "approval_url": f"https://sandbox.paypal.com/approve?token={oid}",
+        }
+
+    def capture_order(self, order_id):
+        # Return the canned capture; raise if unknown to mirror real
+        # PayPal's 422 ORDER_NOT_FOUND for sanity.
+        cap = self._captures.get(order_id)
+        if not cap:
+            from app.core.exceptions import AppError
+            raise AppError("PayPal: order not found", status_code=502)
+        return cap
+
+    def verify_webhook(self, headers, body):
+        # Tests pass a marker header to opt-in to "valid" verification
+        # without round-tripping a mocked PayPal verify-signature call.
+        return headers.get("x-test-paypal-valid") == "1"
+
+    def verify_payment_signature(self, *_args, **_kw):
+        return False   # PayPal doesn't use this code path
+
+    def verify_webhook_signature(self, *_args, **_kw):
+        return False   # Razorpay-shape verifier, intentionally rejects
+
+
+@pytest.fixture
+def paypal_settings(monkeypatch):
+    """Live FX + non-INR routing pointed at the fake PayPal."""
+    fresh = datetime.now(timezone.utc).isoformat()
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent":               18,
+            "pricing.fx_live_raw":               {"USD": 83.33, "GBP": 105.0},
+            "pricing.fx_live_fetched_at":        fresh,
+            "pricing.fx_markup_percent":         5.0,
+            "pricing.fx_overrides":              {},
+            # Both INR and non-INR rails configured (different IDs so
+            # the registry distinguishes them when get_for_currency
+            # routes by currency).
+            "payment.active_provider_id":        1,
+            "payment.non_inr_provider_id":       2,
+        }.get(k, default))
+
+
+@pytest.fixture
+def mixed_providers(monkeypatch, paypal_settings):
+    """Two providers active: Razorpay (INR) + PayPal (non-INR).
+    PaymentRegistry.get_for_currency dispatches between them by ISO code."""
+    razorpay = FakeProvider()
+    paypal = FakePayPal()
+
+    def by_id(cls, provider_id):
+        # active_provider_id=1 → razorpay; non_inr_provider_id=2 → paypal.
+        return razorpay if provider_id == 1 else paypal
+
+    def by_ccy(cls, ccy):
+        return razorpay if (ccy or "INR").upper() == "INR" else paypal
+
+    monkeypatch.setattr(PaymentRegistry, "get_active",
+                        classmethod(lambda cls: razorpay))
+    monkeypatch.setattr(PaymentRegistry, "get_by_id", classmethod(by_id))
+    monkeypatch.setattr(PaymentRegistry, "get_for_currency",
+                        classmethod(by_ccy))
+    return {"razorpay": razorpay, "paypal": paypal}
+
+
+def test_inr_order_still_routes_to_razorpay(
+        client, db, user, mixed_providers):
+    """REGRESSION GUARD: INR orders MUST stay on the Razorpay rail
+    even with PayPal configured for non-INR. Routing must not bleed."""
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders", headers=h, json={
+        "plan_slug": "exam-bundle"})   # default INR
+    assert r.status_code == 201
+    body = r.json()
+    assert body["provider"] == "razorpay"
+    assert body["razorpay_key_id"] == "rzp_test_fake"
+    # PayPal fields stay null on a Razorpay-rail order.
+    assert body["paypal_client_id"] is None
+    assert body["paypal_approval_url"] is None
+    assert mixed_providers["razorpay"].last_order_amount == 99900 + 17982
+    assert mixed_providers["paypal"].last_order_amount is None
+
+
+def test_usd_order_routes_to_paypal_and_returns_approval_url(
+        client, db, user, mixed_providers):
+    """Non-INR orders land on the PayPal rail; response payload shape
+    matches what the frontend redirect flow expects."""
+    import math
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders",
+                    headers={**h, "Origin": "https://app.example.com"},
+                    json={"plan_slug": "exam-bundle", "currency": "USD"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["provider"] == "paypal"
+    assert body["razorpay_key_id"] is None
+    assert body["paypal_client_id"] == "AcDe-PayPalClient"
+    assert body["paypal_approval_url"].startswith("https://sandbox.paypal.com/")
+    # Amount is the ceil-to-whole-unit total (Razorpay-International rule
+    # still applies to the displayed price — PayPal accepts it cleanly).
+    expected_sub = round(99900 / 83.33)
+    expected_markup = round(expected_sub * 5.0 / 100.0)
+    expected_total = math.ceil((expected_sub + expected_markup) / 100) * 100
+    assert body["amount"] == expected_total
+    assert body["currency"] == "USD"
+    # PayPal saw the return URL derived from the request's Origin.
+    assert (mixed_providers["paypal"].last_return_url
+            == "https://app.example.com/payments/paypal/return")
+
+
+def test_usd_order_without_origin_header_400(
+        client, db, user, mixed_providers):
+    """If the request didn't come from a browser (no Origin header),
+    we can't build a return URL for PayPal — reject with a clear 400
+    so the operator knows to check the call site."""
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    # Suppress the Origin TestClient adds by default by overriding it.
+    r = client.post("/api/v1/payments/orders",
+                    headers={**h, "Origin": ""},
+                    json={"plan_slug": "exam-bundle", "currency": "USD"})
+    assert r.status_code == 400
+    assert "Origin" in r.json()["error"]["message"]
+
+
+def test_non_inr_provider_unconfigured_503(client, db, user, monkeypatch):
+    """If the admin hasn't configured a non-INR provider yet, non-INR
+    orders should 503 with a clear pointer to /admin/payment-providers
+    rather than silently falling through to the INR provider.
+
+    This test does NOT use the fake_provider fixture — it exercises
+    the REAL PaymentRegistry.get_for_currency code path so the
+    unconfigured-503 branch fires."""
+    from app.core import settings_store as ss_module
+    fresh = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.stack_offer_with_discount": False,
+            "pricing.gst_percent":               18,
+            "pricing.fx_live_raw":               {"USD": 83.33},
+            "pricing.fx_live_fetched_at":        fresh,
+            "pricing.fx_markup_percent":         5.0,
+            "pricing.fx_overrides":              {},
+            # payment.active_provider_id stays None too (we don't even
+            # reach the INR-rail lookup — routing rejects on USD first).
+        }.get(k, default))
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    r = client.post("/api/v1/payments/orders",
+                    headers={**h, "Origin": "https://app.example.com"},
+                    json={"plan_slug": "exam-bundle", "currency": "USD"})
+    assert r.status_code == 503, r.text
+    assert "non-INR payment provider" in r.json()["error"]["message"]
+
+
+def test_paypal_capture_activates_subscription(
+        client, db, user, mixed_providers):
+    """The frontend Smart-Button-onApprove / return-page flow hits
+    /payments/paypal/capture with the order_id. On COMPLETED status
+    we activate the subscription same as Razorpay's /verify path.
+
+    Idempotency: calling capture again returns "active" again (the
+    activation function short-circuits on already-set subscription_id)."""
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    create = client.post("/api/v1/payments/orders",
+                          headers={**h, "Origin": "https://app.example.com"},
+                          json={"plan_slug": "exam-bundle", "currency": "USD"})
+    assert create.status_code == 201
+    order_id = create.json()["order_id"]
+
+    cap = client.post("/api/v1/payments/paypal/capture", headers=h,
+                       json={"order_id": order_id})
+    assert cap.status_code == 200, cap.text
+    body = cap.json()
+    assert body["status"] == "active"
+    assert body["plan_slug"] == "exam-bundle"
+    # The Payment row got provider_payment_id (the capture id) set.
+    pay = (db.query(Payment).filter_by(provider_order_id=order_id).first())
+    assert pay.status == "captured"
+    assert pay.provider_name == "paypal"
+    assert pay.provider_payment_id == f"PP-CAP-{order_id}"
+
+
+def test_paypal_capture_rejects_razorpay_order(
+        client, db, user, mixed_providers):
+    """A buyer can't accidentally (or maliciously) submit a Razorpay
+    order_id to the PayPal capture endpoint and back-door an INR
+    payment through the wrong code path."""
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    rzp_create = client.post("/api/v1/payments/orders",
+                              headers=h, json={"plan_slug": "exam-bundle"})
+    razorpay_order_id = rzp_create.json()["order_id"]
+
+    cap = client.post("/api/v1/payments/paypal/capture", headers=h,
+                       json={"order_id": razorpay_order_id})
+    assert cap.status_code == 400
+    assert "razorpay" in cap.json()["error"]["message"].lower()
+
+
+def test_verify_rejects_paypal_order(
+        client, db, user, mixed_providers):
+    """Symmetric guard: a PayPal order can't slip through Razorpay's
+    /verify endpoint (which uses HMAC signature verification)."""
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    pp_create = client.post("/api/v1/payments/orders",
+                             headers={**h, "Origin": "https://app.example.com"},
+                             json={"plan_slug": "exam-bundle", "currency": "USD"})
+    paypal_order_id = pp_create.json()["order_id"]
+
+    v = client.post("/api/v1/payments/verify", headers=h, json={
+        "order_id": paypal_order_id,
+        "payment_id": "fake",
+        "signature": "fake"})
+    assert v.status_code == 400
+    assert "paypal" in v.json()["error"]["message"].lower()
+
+
+def test_paypal_webhook_activates_on_capture_completed(
+        client, db, user, mixed_providers):
+    """Out-of-band webhook flow (dropped browser tab between PayPal
+    approval and our /paypal/capture call). Webhook activates the
+    subscription via the same lifecycle function."""
+    _seed_plan(db, base_price_paise=99900)
+    h = auth_header(client, user.email)
+    create = client.post("/api/v1/payments/orders",
+                          headers={**h, "Origin": "https://app.example.com"},
+                          json={"plan_slug": "exam-bundle", "currency": "USD"})
+    order_id = create.json()["order_id"]
+
+    event = {
+        "id": "WH-EVT-1",
+        "event_type": "PAYMENT.CAPTURE.COMPLETED",
+        "resource": {
+            "id": f"PP-CAP-{order_id}",
+            "status": "COMPLETED",
+            "supplementary_data": {
+                "related_ids": {"order_id": order_id}},
+        },
+    }
+    r = client.post("/api/v1/payments/paypal/webhook",
+                    data=json.dumps(event),
+                    headers={"content-type": "application/json",
+                              "x-test-paypal-valid": "1"})
+    assert r.status_code == 200, r.text
+    assert r.json()["action"] == "activated"
+    pay = (db.query(Payment).filter_by(provider_order_id=order_id).first())
+    assert pay.status == "captured"
+    assert pay.provider_payment_id == f"PP-CAP-{order_id}"
+
+
+def test_paypal_webhook_rejects_unverified(
+        client, db, user, mixed_providers):
+    """Inbound webhook without the verify-signature marker → 400.
+    Real-world equivalent: PayPal's verify-signature API returned
+    FAILURE, or required transmission headers missing."""
+    event = {"id": "WH-EVT-X", "event_type": "PAYMENT.CAPTURE.COMPLETED",
+             "resource": {}}
+    r = client.post("/api/v1/payments/paypal/webhook",
+                    data=json.dumps(event),
+                    headers={"content-type": "application/json"})
+    assert r.status_code == 400

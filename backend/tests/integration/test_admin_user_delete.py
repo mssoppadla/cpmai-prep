@@ -49,7 +49,7 @@ def _user_with_fk_refs(db, email: str = "fk-user@example.com") -> User:
     # FK refs across the schema.
     db.add(Payment(
         user_id=u.id, amount_paise=99900, currency="INR",
-        razorpay_order_id=f"order_{u.id}",
+        provider_order_id=f"order_{u.id}",
         idempotency_key=f"idem_{u.id}",
         status="captured",
     ))
