@@ -84,22 +84,97 @@ def configured(settings, tmp_path):
 # ----------------------------------------------------------- credentials
 
 def test_refresh_no_credentials_raises_credentials_error(settings, tmp_path):
-    """Empty settings → CredentialsError BEFORE any HTTP call."""
+    """Empty settings → CredentialsError BEFORE any HTTP call.
+
+    Only the license_key is required (account_id is metadata, not used
+    by the direct-download URL). The error message must point the
+    operator at /admin/geoip, the actual fix UI.
+    """
     dest = tmp_path / "GeoLite2-City.mmdb"
     (tmp_path).mkdir(exist_ok=True)
     with pytest.raises(CredentialsError) as exc:
         refresh_database(destination=dest, settings=settings)
-    assert "credentials not configured" in str(exc.value).lower()
+    msg = str(exc.value).lower()
+    assert "license key" in msg
+    assert "/admin/geoip" in msg
+
+
+def test_refresh_only_requires_license_key_not_account_id(settings, tmp_path):
+    """account_id is metadata for future geoipupdate-CLI adoption; the
+    direct-download URL only consults license_key. Setting just the
+    license_key must be enough to reach the network call.
+
+    We assert this by setting license_key + leaving account_id None,
+    then expecting a NetworkError (which means we got past the
+    credentials gate) when the mocked HTTP call fails. Without this
+    relaxation, the call would short-circuit with CredentialsError
+    before any HTTP attempt.
+    """
+    settings.set(SettingsKeys.MAXMIND_LICENSE_KEY, "fake_key_xyz")
+    # NOTE: account_id NOT set.
+    dest = tmp_path / "geoip" / "GeoLite2-City.mmdb"
+    dest.parent.mkdir()
+
+    import respx as _respx
+    with _respx.mock:
+        _respx.get(MAXMIND_DOWNLOAD_URL).mock(
+            side_effect=httpx.ConnectError("nope"))
+        with pytest.raises(NetworkError):
+            refresh_database(destination=dest, settings=settings)
 
 
 @respx.mock
-def test_refresh_401_from_maxmind_raises_credentials_error(configured):
+def test_refresh_sends_license_key_as_query_param_not_basic_auth(configured):
+    """REGRESSION GUARD for the 2026-05-13 Test-Connection 401 issue.
+
+    The earlier draft passed credentials via HTTP basic auth
+    (Authorization: Basic base64(account_id:license_key)). MaxMind's
+    /app/geoip_download accepts both, but the documented public shape
+    is `?license_key=…` in the query string — and that's what the
+    operator can paste verbatim into a curl for ad-hoc debugging.
+
+    This test asserts the request hits MaxMind with license_key as a
+    query param, NOT as an Authorization header, so a future refactor
+    can't silently swap back to basic auth.
+    """
+    settings, dest = configured
+
+    captured = {}
+
+    def _route(request):
+        captured["url"] = str(request.url)
+        captured["params"] = dict(request.url.params)
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(401, text="Invalid license key")
+
+    respx.get(MAXMIND_DOWNLOAD_URL).mock(side_effect=_route)
+    with pytest.raises(CredentialsError):
+        refresh_database(destination=dest, settings=settings)
+
+    # The license_key MUST be in the query string.
+    assert captured["params"].get("license_key") == "fake_license_key_xyz"
+    # And there must be NO Authorization header.
+    assert "authorization" not in {k.lower() for k in captured["headers"]}
+
+
+@respx.mock
+def test_refresh_401_from_maxmind_raises_credentials_error_with_diagnostic_body(configured):
+    """The 401 path must surface the key's last-4 suffix AND MaxMind's
+    response body so the operator can debug WHY the key is being
+    rejected (revoked / missing GeoIP-Update permission / etc.)."""
     settings, dest = configured
     respx.get(MAXMIND_DOWNLOAD_URL).mock(
-        return_value=httpx.Response(401, text="unauthorized"))
+        return_value=httpx.Response(401, text="Invalid license key"))
     with pytest.raises(CredentialsError) as exc:
         refresh_database(destination=dest, settings=settings)
-    assert "rejected" in str(exc.value).lower()
+    msg = str(exc.value)
+    assert "rejected" in msg.lower()
+    # Last 4 chars of "fake_license_key_xyz" is "_xyz".
+    assert "_xyz" in msg
+    # Response body surfaced.
+    assert "Invalid license key" in msg
+    # Helpful next steps for the operator.
+    assert "GeoIP Update" in msg or "permission" in msg.lower()
 
 
 # --------------------------------------------------------------- 304 path

@@ -122,3 +122,95 @@ def test_admin_users_endpoint_surfaces_geo_fields(client, db, admin):
     assert found["city"] == "Dubai"
     assert found["last_login_country"] == "AE"
     assert found["last_login_ip"] == "1.1.1.1"
+
+
+def test_admin_contacts_feed_surfaces_user_location(client, db, admin):
+    """The unified Contacts feed at /admin/leads/contacts must surface
+    country + city for USER rows, not just lead rows.
+
+    Why this exists: the original Contacts endpoint built ContactRow
+    for users WITHOUT setting country/city, even though those fields
+    are populated on the User model at signup time. The Contacts page
+    rendered "—" in the Location column for every user. Pin both the
+    backend mapping and the UI contract here so a future refactor
+    doesn't silently strip the location off user rows again.
+    """
+    from tests.conftest import auth_header
+    # Sign up a user with geo fields populated via the auth hook.
+    with patch("app.api.v1.endpoints.auth.geo_lookup",
+               return_value=GeoLocation(country="SG", city="Singapore")):
+        client.post("/api/v1/auth/signup",
+            headers={"X-Forwarded-For": "1.1.1.1"}, json={
+                "email": "contacts-feed-user@example.com",
+                "password": "asecurepassword123",
+                "name": "ContactsFeedUser",
+            })
+
+    r = client.get(
+        "/api/v1/admin/leads/contacts?q=contacts-feed-user",
+        headers=auth_header(client, admin.email),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    user_row = next(row for row in body
+                    if row["kind"] == "user"
+                    and row["email"] == "contacts-feed-user@example.com")
+    assert user_row["country"] == "SG"
+    assert user_row["city"] == "Singapore"
+
+
+def test_admin_contacts_feed_user_falls_back_to_last_login_country(client, db, admin):
+    """If a user pre-dates the signup-time enrichment (their
+    user.country is NULL) but has a populated user.last_login_country
+    from a more recent login, the Contacts feed should still surface a
+    flag rather than rendering "—".
+
+    This is the legacy-user-friendly case: existing users who signed up
+    before PR-A have NULL country/city, but their next login will set
+    last_login_*. We fall back to that so the admin sees something
+    useful immediately rather than waiting for "users created since
+    PR-A merge" to be the only enriched rows.
+    """
+    from tests.conftest import auth_header
+    from app.models.user import User
+    from app.core.security import hash_password
+
+    # Create a user as if they predated GeoIP — country/city NULL.
+    legacy = User(
+        email="legacy-user@example.com",
+        password_hash=hash_password("asecurepassword123"),
+        name="Legacy",
+    )
+    db.add(legacy); db.commit()
+
+    # Now simulate that they logged in once (PR-A's login hook fires),
+    # setting last_login_country/last_login_ip but NOT touching
+    # country/city (snapshot semantics — never overwritten).
+    with patch("app.api.v1.endpoints.auth.geo_lookup",
+               return_value=GeoLocation(country="IN", city="Bengaluru")):
+        client.post("/api/v1/auth/login",
+            headers={"X-Forwarded-For": "1.1.1.1"}, json={
+                "email": "legacy-user@example.com",
+                "password": "asecurepassword123",
+            })
+
+    db.refresh(legacy)
+    assert legacy.country is None              # never overwritten
+    assert legacy.last_login_country == "IN"   # updated on login
+
+    r = client.get(
+        "/api/v1/admin/leads/contacts?q=legacy-user",
+        headers=auth_header(client, admin.email),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    user_row = next(row for row in body
+                    if row["kind"] == "user"
+                    and row["email"] == "legacy-user@example.com")
+    # Falls back to last_login_country for country (legacy user has no
+    # signup-time snapshot).
+    assert user_row["country"] == "IN"
+    # city is NOT populated from last_login (we don't store
+    # last_login_city). That's fine — the UI renders just the flag
+    # when city is missing.
+    assert user_row["city"] is None

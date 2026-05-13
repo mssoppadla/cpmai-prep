@@ -37,12 +37,23 @@ import type {
  * card. The labels are intentionally human-language; the cron expression
  * lives in the second tuple element. Operators who want something
  * custom can type into the text field directly.
+ *
+ * Cadence rationale:
+ *   MaxMind GeoLite2-City releases TWICE A WEEK (Tuesdays + Fridays,
+ *   ~14:00-22:00 UTC). So:
+ *     - "Twice weekly" (default) catches both releases within 6-14 hours
+ *     - "Weekly" catches Tuesday's, misses Friday's for up to 4 days
+ *     - "Monthly" gets at most 4 of 8 monthly releases — data can be
+ *       up to 30 days stale, but bandwidth + DB-churn savings can matter
+ *     - "Daily" / "Hourly" exist mostly for testing or paranoid setups —
+ *       most ticks return 304 Not Modified (free).
  */
 const SCHEDULE_PRESETS: ReadonlyArray<[string, string]> = [
-  ["Twice weekly (Wed + Sat 04:17 UTC)", "17 4 * * 3,6"],
-  ["Weekly (Wednesday 04:17 UTC)", "17 4 * * 3"],
-  ["Daily (04:00 UTC)", "0 4 * * *"],
-  ["Hourly (on the hour)", "0 * * * *"],
+  ["Twice weekly — Wed + Sat 04:17 UTC (recommended, matches MaxMind release cadence)", "17 4 * * 3,6"],
+  ["Weekly — Wednesday 04:17 UTC", "17 4 * * 3"],
+  ["Monthly — 5th of month 04:17 UTC (less fresh data; saves bandwidth)", "17 4 5 * *"],
+  ["Daily — 04:00 UTC", "0 4 * * *"],
+  ["Hourly — on the hour (for testing only)", "0 * * * *"],
 ];
 
 
@@ -84,8 +95,11 @@ export default function GeoIPPage() {
       <header>
         <h1 className="text-2xl font-bold text-slate-900">GeoIP enrichment</h1>
         <p className="text-slate-600 mt-1 text-sm">
-          IP-to-country/city lookup for incoming leads. Database is the
-          free MaxMind GeoLite2-City, refreshed monthly by cron.{" "}
+          IP-to-country/city enrichment for incoming leads and user
+          signups. The data source is a MaxMind <strong>GeoLite2-City</strong>
+          binary file (the <code className="text-xs">.mmdb</code> shown
+          below) that lives on the server's filesystem — separate from
+          our Postgres database. Lookups are local + sub-millisecond.{" "}
           <a href="/admin/settings" className="text-indigo-600 hover:underline">
             See all settings →
           </a>
@@ -321,58 +335,141 @@ function DatabaseCard({
     }
   }
 
+  // Distinguish three states so the UX matches what the admin needs to
+  // do next, rather than dumping a single dl regardless of state.
+  //   STATE 1: not loaded yet (spinner)
+  //   STATE 2: no credentials -> point them at Credentials card
+  //   STATE 3: credentials but no database -> prominent "Install now"
+  //   STATE 4: database installed -> normal status display
+  const credsOK = !!status?.credentials_configured;
+  const dbPresent = !!status?.database_present;
+  const installButtonLabel = dbPresent ? "Refresh now" : "Install database now";
+
   return (
     <section className="bg-white rounded-xl border border-slate-200 p-6
                         space-y-3">
-      <h2 className="text-lg font-semibold text-slate-900">Database</h2>
-
-      {!status ? (
-        <p className="text-sm text-slate-500">Loading…</p>
-      ) : !status.database_present ? (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800
-                        p-3 rounded text-sm">
-          <strong>No database installed.</strong> Click "Refresh now" below
-          to download GeoLite2-City for the first time. (Requires
-          credentials above.)
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            GeoLite2-City data file
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            The MaxMind <code className="text-[11px]">.mmdb</code> file
+            stored on the server's filesystem. Not related to our
+            Postgres database — this is just the IP-lookup data MaxMind
+            publishes.
+          </p>
         </div>
-      ) : (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-          <dt className="text-slate-500">Size</dt>
-          <dd className="text-slate-800">{status.database_size_human}</dd>
-          <dt className="text-slate-500">Last refresh (UTC)</dt>
-          <dd className="text-slate-800">
-            {status.database_mtime
-              ? new Date(status.database_mtime).toLocaleString()
-              : "—"}
-          </dd>
-          <dt className="text-slate-500">Age</dt>
-          <dd className={status.database_stale
-              ? "text-amber-700 font-medium" : "text-slate-800"}>
-            {status.database_age_days?.toFixed(1)} days
-            {status.database_stale && " — STALE (>35d)"}
-          </dd>
-          <dt className="text-slate-500">Lookups this process</dt>
-          <dd className="text-slate-800">{status.last_lookup_count}</dd>
-        </dl>
-      )}
-
-      <div className="pt-3 border-t border-slate-100 flex items-center gap-3">
-        <button onClick={refresh} disabled={busy}
-                className="px-3 py-1.5 bg-indigo-600 text-white text-sm
-                           rounded hover:bg-indigo-700 disabled:opacity-50">
-          {busy ? "Refreshing…" : "Refresh now"}
-        </button>
-        {refreshResult && (
-          <span className="text-sm text-emerald-700">
-            ✓ {refreshResult.message}
-          </span>
-        )}
-        {refreshError && (
-          <span className="text-sm text-rose-700">
-            ✗ {refreshError}
+        {dbPresent && (
+          <span className="text-xs text-emerald-700 bg-emerald-50
+                           border border-emerald-200 rounded px-2 py-0.5
+                           shrink-0 ml-3">
+            ✓ Installed
           </span>
         )}
       </div>
+
+      {!status ? (
+        <p className="text-sm text-slate-500">Loading…</p>
+      ) : !credsOK ? (
+        // STATE 2 — no credentials yet. Block install path entirely and
+        // point at the Credentials card above.
+        <div className="bg-slate-50 border border-slate-200 text-slate-700
+                        p-4 rounded text-sm space-y-2">
+          <div className="font-medium">Set credentials first.</div>
+          <ol className="list-decimal list-inside text-xs space-y-1 ml-1">
+            <li>Paste your MaxMind license key in the Credentials card above.</li>
+            <li>Click <strong>Test connection</strong> — should turn green.</li>
+            <li>Come back here and click <strong>Install database now</strong>.</li>
+          </ol>
+          <div className="text-xs text-slate-500">
+            Don't have a key? Get one at{" "}
+            <a href="https://www.maxmind.com" target="_blank" rel="noreferrer"
+               className="text-indigo-600 hover:underline">maxmind.com</a>
+            {" "}→ My License Keys → Create new license key{" "}
+            <em>(check "GeoIP Update" permission)</em>. Free.
+          </div>
+        </div>
+      ) : !dbPresent ? (
+        // STATE 3 — creds present but mmdb missing. This is the
+        // first-install case AND the recovery case after a failed deploy.
+        // Make the action one big, obvious button — no SSH needed.
+        <div className="bg-indigo-50 border border-indigo-200 text-indigo-900
+                        p-4 rounded text-sm space-y-3">
+          <div>
+            <div className="font-medium">
+              MaxMind data file not installed yet — click the button below.
+            </div>
+            <div className="text-xs text-indigo-900/70 mt-1">
+              Downloads MaxMind GeoLite2-City (~30 MB) to the server,
+              verifies sha256, and atomically installs it. Takes 5-15
+              seconds. Lookups start working immediately — no app
+              restart needed (the reader hot-reloads on mtime change).
+            </div>
+          </div>
+          <button onClick={refresh} disabled={busy}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm
+                             font-medium rounded hover:bg-indigo-700
+                             disabled:opacity-50">
+            {busy ? "Installing…" : "Install database now"}
+          </button>
+          {refreshError && (
+            <div className="text-sm text-rose-700">
+              ✗ {refreshError}
+            </div>
+          )}
+          {refreshResult && refreshResult.updated && (
+            <div className="text-sm text-emerald-700 font-medium">
+              ✓ {refreshResult.message}
+            </div>
+          )}
+        </div>
+      ) : (
+        // STATE 4 — database installed. Show status + a smaller refresh
+        // button (rare-action) instead of the big primary CTA.
+        <>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            <dt className="text-slate-500">Size</dt>
+            <dd className="text-slate-800">{status.database_size_human}</dd>
+            <dt className="text-slate-500">Last refresh (UTC)</dt>
+            <dd className="text-slate-800">
+              {status.database_mtime
+                ? new Date(status.database_mtime).toLocaleString()
+                : "—"}
+            </dd>
+            <dt className="text-slate-500">Age</dt>
+            <dd className={status.database_stale
+                ? "text-amber-700 font-medium" : "text-slate-800"}>
+              {status.database_age_days?.toFixed(1)} days
+              {status.database_stale && " — STALE (>35 days)"}
+            </dd>
+            <dt className="text-slate-500">Lookups this process</dt>
+            <dd className="text-slate-800">{status.last_lookup_count}</dd>
+          </dl>
+
+          <div className="pt-3 border-t border-slate-100 flex items-center gap-3 flex-wrap">
+            <button onClick={refresh} disabled={busy}
+                    className="px-3 py-1.5 bg-indigo-600 text-white text-sm
+                               rounded hover:bg-indigo-700 disabled:opacity-50">
+              {busy ? "Refreshing…" : "Refresh now"}
+            </button>
+            <span className="text-xs text-slate-500">
+              The cron handles this automatically — manual is for "I just
+              rotated the key and want to verify" cases.
+            </span>
+            {refreshResult && (
+              <span className="text-sm text-emerald-700 w-full">
+                ✓ {refreshResult.message}
+              </span>
+            )}
+            {refreshError && (
+              <span className="text-sm text-rose-700 w-full">
+                ✗ {refreshError}
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </section>
   );
 }

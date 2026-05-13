@@ -98,11 +98,17 @@ def refresh_database(
 
     account_id = settings.get(SettingsKeys.MAXMIND_ACCOUNT_ID)
     license_key = settings.get(SettingsKeys.MAXMIND_LICENSE_KEY)
-    if not account_id or not license_key:
+    # Only the license key is REQUIRED for the public direct-download
+    # endpoint (https://download.maxmind.com/app/geoip_download). The
+    # account_id is stored as metadata and used by the geoipupdate tool
+    # config if/when we adopt it — not by this code path. Relaxing the
+    # requirement means admins who have only the license key (the
+    # default for "Create new license key" without GeoIP Update enabled)
+    # can still operate.
+    if not license_key:
         raise CredentialsError(
-            "MaxMind credentials not configured. Set "
-            f"{SettingsKeys.MAXMIND_ACCOUNT_ID} and "
-            f"{SettingsKeys.MAXMIND_LICENSE_KEY} via /admin/settings."
+            f"MaxMind license key not configured. Set "
+            f"{SettingsKeys.MAXMIND_LICENSE_KEY} via /admin/geoip."
         )
 
     destination = Path(destination)
@@ -115,7 +121,6 @@ def refresh_database(
             f"Run scripts/vps/install_geoip.sh first."
         )
 
-    auth = (account_id, license_key)
     headers = {"User-Agent": USER_AGENT}
 
     # 1. Conditional GET via If-Modified-Since. MaxMind returns 304 if
@@ -132,7 +137,15 @@ def refresh_database(
         except OSError:
             pass
 
-    params = {"edition_id": EDITION_ID, "suffix": "tar.gz"}
+    # AUTH method: license_key passed as a query parameter. This matches
+    # the publicly documented direct-download URL shape:
+    #   https://download.maxmind.com/app/geoip_download?edition_id=...&license_key=...&suffix=tar.gz
+    # The earlier HTTP Basic auth approach (account_id:license_key) also
+    # works against this endpoint, but the query-string form is what
+    # MaxMind's own docs + `geoipupdate` CLI ship with, and it's what
+    # the operator can copy-paste into a curl for ad-hoc debugging.
+    params = {"edition_id": EDITION_ID, "suffix": "tar.gz",
+              "license_key": license_key}
 
     log.info("geoip.refresh_started", destination=str(destination))
 
@@ -145,7 +158,7 @@ def refresh_database(
             with httpx.Client(timeout=timeout, follow_redirects=True) as client:
                 # 1a. Download the tarball.
                 resp = client.get(MAXMIND_DOWNLOAD_URL, params=params,
-                                  auth=auth, headers=headers)
+                                  headers=headers)
                 if resp.status_code == 304:
                     elapsed = time.monotonic() - start
                     size = destination.stat().st_size if destination.exists() else 0
@@ -158,25 +171,37 @@ def refresh_database(
                         message="No update available (304 Not Modified).",
                     )
                 if resp.status_code == 401:
+                    # MaxMind's 401 response body is a short human-readable
+                    # text (e.g. "Invalid license key"). Surfacing it gives
+                    # the admin a real signal rather than a generic "key
+                    # rejected" — they can tell e.g. "permission missing"
+                    # vs "key revoked" without guessing.
+                    body = (resp.text or "").strip()[:200]
+                    last4 = license_key[-4:] if len(license_key) >= 4 else "?"
                     raise CredentialsError(
-                        "MaxMind rejected the license key. Verify the "
-                        f"value of {SettingsKeys.MAXMIND_LICENSE_KEY} in "
-                        f"/admin/settings (or rotate it at maxmind.com)."
+                        f"MaxMind rejected the license key (ending …{last4}). "
+                        f"Response: {body!r}. "
+                        "Common causes: (a) key was generated without "
+                        "'GeoIP Update' permission — regenerate at "
+                        "maxmind.com → My License Keys → check the box, "
+                        "(b) key was revoked, (c) account suspended."
                     )
                 if resp.status_code != 200:
                     raise NetworkError(
                         f"MaxMind returned HTTP {resp.status_code} when "
-                        f"downloading {EDITION_ID}."
+                        f"downloading {EDITION_ID}. Body: "
+                        f"{(resp.text or '').strip()[:200]!r}"
                     )
                 tarball_path.write_bytes(resp.content)
                 bytes_downloaded = len(resp.content)
 
                 # 1b. Download the published checksum.
                 sha_params = {"edition_id": EDITION_ID,
-                              "suffix": "tar.gz.sha256"}
+                              "suffix": "tar.gz.sha256",
+                              "license_key": license_key}
                 sha_resp = client.get(MAXMIND_DOWNLOAD_URL,
                                       params=sha_params,
-                                      auth=auth, headers={"User-Agent": USER_AGENT})
+                                      headers={"User-Agent": USER_AGENT})
                 if sha_resp.status_code != 200:
                     raise NetworkError(
                         f"MaxMind returned HTTP {sha_resp.status_code} "

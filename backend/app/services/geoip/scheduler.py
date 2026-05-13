@@ -179,6 +179,7 @@ def human_description(expr: str) -> str:
         "17 4 * * 3,6":   "Wednesdays + Saturdays at 04:17 UTC",
         "17 4 * * 3":     "Every Wednesday at 04:17 UTC",
         "17 4 * * 6":     "Every Saturday at 04:17 UTC",
+        "17 4 5 * *":     "5th of every month at 04:17 UTC",
         "0 * * * *":      "Every hour, on the hour",
         "0 4 * * *":      "Every day at 04:00 UTC",
         "0 4 * * 0":      "Every Sunday at 04:00 UTC",

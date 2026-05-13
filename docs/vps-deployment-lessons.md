@@ -314,3 +314,57 @@ and the lead row stores NULL country/city — but the insert succeeds.
 Same for any internal error (corrupt file, transient I/O). The whole
 package is fail-open by design. See
 `app/services/geoip/lookup.py:lookup()` for the catch-all.
+
+## 38. MaxMind auth: license_key as query param, NOT HTTP basic
+
+**Date:** 2026-05-13.
+**Status:** New invariant. Re-introducing basic auth re-opens the
+PR-A hotfix bug.
+
+The public direct-download URL is
+`https://download.maxmind.com/app/geoip_download?edition_id=…&license_key=…&suffix=tar.gz`.
+MaxMind's own docs and the `geoipupdate` CLI ship with this shape.
+Both `refresh.py` and the `/admin/geoip/test-key` endpoint MUST send
+the license key as the `license_key` query param, never as
+`Authorization: Basic base64(account_id:license_key)`.
+
+MaxMind's `/app/geoip_download` endpoint technically accepts HTTP
+basic auth too, but:
+
+- The query-param form is what an operator can paste into a curl for
+  ad-hoc debugging.
+- The basic-auth form requires sending `account_id` as the username,
+  which is metadata not strictly required for the request — adds a
+  source of misconfiguration ("you sent the wrong account_id with the
+  right key" failures).
+- Logs of failing requests show the URL plainly; basic-auth credentials
+  are buried in headers and harder to grep.
+
+`account_id` is still STORED in the settings table for documentation
++ potential future adoption of `geoipupdate`. But neither refresh nor
+test-key consult it. `credentials_configured` in the StatusReport is
+True iff just the license_key is set.
+
+There's a pytest regression guard at
+`tests/unit/geoip/test_refresh.py::test_refresh_sends_license_key_as_query_param_not_basic_auth`
+that fails CI if anyone reintroduces basic auth.
+
+## 39. GeoIP cron auto-installs via deploy.sh — no SSH needed
+
+**Date:** 2026-05-13.
+
+Previously, after a fresh deploy of the GeoIP feature, the operator
+had to SSH in and run `./scripts/vps/install_geoip_cron.sh` to wire
+up the every-minute refresh tick. Easy to forget; if forgotten, the
+admin UI would let you configure schedule + credentials, but the
+refresh would never fire on its own.
+
+`deploy.sh` now calls `install_geoip_cron.sh` on every deploy. The
+cron-installer script is idempotent (strips any existing
+`geoip_refresh.sh` crontab line and re-adds the canonical one), so
+re-running on every deploy is the same as "make sure the entry is
+correct after any path change".
+
+Operationally this means: merge the PR → CI deploys → cron is live →
+admin opens /admin/geoip → sets license key → clicks Install database
+now → done. No terminal access at any step.
