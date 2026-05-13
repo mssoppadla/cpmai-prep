@@ -10,10 +10,28 @@ semantic granularity matches the source's natural unit:
   - .pdf        → one chunk per page (page numbers in metadata)
   - .docx       → split on paragraphs, re-bundle like .txt
 
+Hard-cap safety net
+-------------------
+OpenAI's embedding API (text-embedding-3-large) caps each input at
+8192 tokens. A naive paragraph-aware chunker can still produce
+oversized chunks when the SOURCE has a single paragraph or PDF page
+that's already larger than the budget — common for legal/standards
+documents, FAQs without blank-line breaks, or scanned PDFs whose OCR
+output has no paragraph delimiters. When that happens the embed API
+returns 400 ("Invalid 'input[N]': maximum input length is 8192
+tokens"), the whole batch fails, and rag_chunks stays empty.
+
+The fix: every chunk goes through ``_split_oversized`` before being
+yielded. Anything larger than ``_TARGET_CHARS`` is split — first on
+sentence boundaries, then on hard character cuts as a fallback. Each
+sub-chunk gets the same metadata so retrieval citations still point
+at the right page/row/source.
+
 No tokenizer dep — we approximate tokens as `len(text) // 4` (a
 well-known rule-of-thumb for English text, ±10%). Good enough for
 chunk sizing; the embedding API counts real tokens server-side.
 """
+import re
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Iterator
@@ -36,6 +54,66 @@ _OVERLAP_TOKENS = 50
 
 _TARGET_CHARS  = _TARGET_TOKENS  * _CHARS_PER_TOKEN
 _OVERLAP_CHARS = _OVERLAP_TOKENS * _CHARS_PER_TOKEN
+
+# Hard ceiling for any individual chunk before embedding. OpenAI's
+# text-embedding-3-large accepts 8192 tokens per input ≈ ~32k chars.
+# We keep ample headroom (24k chars ≈ 6000 tokens) so non-English
+# text and tokenizer variance don't push us over.
+_MAX_CHARS = 24_000
+
+
+def _split_oversized(text: str, *,
+                      max_chars: int = _TARGET_CHARS,
+                      hard_max_chars: int = _MAX_CHARS,
+                      overlap: int = _OVERLAP_CHARS) -> Iterator[str]:
+    """Defensive splitter: yields each input as one or more sub-chunks
+    no larger than ``max_chars``.
+
+    Strategy:
+      1. If the whole input fits, yield as one chunk (common case).
+      2. Otherwise split on sentence boundaries (period/!/? followed by
+         whitespace) and bundle sentences greedily up to ``max_chars``.
+      3. If a SINGLE sentence is itself larger than ``hard_max_chars``
+         (very rare — code blocks, URLs, base64 blobs in docs), hard-cut
+         it on character boundary with overlap.
+
+    Returned chunks all satisfy ``len(chunk) <= hard_max_chars`` —
+    guaranteed safe for the embedding API.
+    """
+    if len(text) <= max_chars:
+        yield text
+        return
+
+    # Sentence boundary: period/exclamation/question followed by whitespace.
+    # Conservative — leaves abbreviations like "e.g." with the next sentence,
+    # which is fine (we're chunking, not parsing prose).
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+
+    current = ""
+    for sent in sentences:
+        # A single sentence > hard_max_chars (rare): hard-cut it.
+        if len(sent) > hard_max_chars:
+            if current:
+                yield current
+                current = ""
+            step = hard_max_chars - overlap
+            for i in range(0, len(sent), max(1, step)):
+                yield sent[i:i + hard_max_chars]
+            continue
+
+        if not current:
+            current = sent
+        elif len(current) + 1 + len(sent) <= max_chars:
+            current = current + " " + sent
+        else:
+            # Flush, start next with overlap from the tail of the
+            # previous chunk (so a query landing at the boundary still
+            # sees both sides).
+            yield current
+            tail = current[-overlap:] if overlap < len(current) else current
+            current = tail + " " + sent
+    if current:
+        yield current
 
 
 # ----------------------------------------------------------- public API
@@ -90,11 +168,16 @@ def _parse_xlsx(data: bytes, filename: str) -> Iterator[ParsedChunk]:
                 pairs.append(f"{key}: {val}")
             if not pairs:
                 continue
-            yield ParsedChunk(
-                content="; ".join(pairs),
-                metadata={"sheet": sheet_name, "filename": filename},
-            )
-            yielded += 1
+            row_text = "; ".join(pairs)
+            # Defensive split — a row with a giant text cell (free-form
+            # description columns, embedded JSON, etc.) can blow past
+            # the embed API's 8192-token cap if shipped whole.
+            for sub in _split_oversized(row_text):
+                yield ParsedChunk(
+                    content=sub,
+                    metadata={"sheet": sheet_name, "filename": filename},
+                )
+                yielded += 1
     if yielded == 0:
         raise ValueError(f"{filename} contained no data rows.")
 
@@ -143,6 +226,23 @@ def _windowed_paragraphs(text: str, filename: str, *,
     current = ""
     chunk_idx = 0
     for p in paragraphs:
+        # Defensive split: a single paragraph larger than _TARGET_CHARS
+        # (PDF pages without blank-line breaks, FAQ entries with one
+        # giant body, OCR output that lost paragraph delimiters) gets
+        # broken into sub-pieces FIRST so we never accumulate it whole
+        # into `current` and overflow on the next flush.
+        if len(p) > _TARGET_CHARS:
+            if current:
+                yield ParsedChunk(content=current,
+                                   metadata={**md, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                current = ""
+            for sub in _split_oversized(p):
+                yield ParsedChunk(content=sub,
+                                   metadata={**md, "chunk_index": chunk_idx})
+                chunk_idx += 1
+            continue
+
         if not current:
             current = p
             continue
