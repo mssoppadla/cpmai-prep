@@ -57,8 +57,17 @@ class AssistantGuardrails:
             limit = settings_store.get_int("chat.daily_limit.anonymous", 5)
             scope, ident = "anon", anon_id
         else:
-            raise GuardrailViolation("no_identity",
-                                     "Anonymous request without anon_id.")
+            # Anonymous flow needs ANY identity to track daily-cap usage —
+            # missing both means the frontend forgot to mint an anon_id.
+            # Message is admin-configurable so it can read as a friendly
+            # "please sign in" rather than a technical bug-trap; the user
+            # ALSO sees this string when they hit /assistant before being
+            # signed in, so the wording is user-facing copy.
+            raise GuardrailViolation("no_identity", settings_store.get_str(
+                "assistant.anonymous_no_identity_message",
+                "Please sign in to continue chatting. Anonymous chat needs "
+                "a browser identifier — refresh the page or sign in.",
+            ))
 
         day_key = datetime.now(timezone.utc).strftime("%Y%m%d")
         key = f"chat:daily:{scope}:{ident}:{day_key}"

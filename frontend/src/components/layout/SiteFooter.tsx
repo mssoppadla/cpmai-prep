@@ -25,6 +25,9 @@ const SITE_FALLBACK: SiteChrome = {
   copyright_text: "© 2026 CPMAI Prep. All rights reserved.",
   show_pricing_link: true,
   assistant_widget_subtitle: "Grounded in our FAQ, pricing & question explanations",
+  // Empty default — backend sends the seeded list. Footer never reads
+  // this anyway, but TypeScript requires the field to be present.
+  assistant_try_asking_suggestions: [],
 };
 
 export function SiteFooter() {

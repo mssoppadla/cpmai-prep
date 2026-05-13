@@ -39,6 +39,12 @@ const SITE_FALLBACK: SiteChrome = {
   copyright_text: "© 2026 CPMAI Prep. All rights reserved.",
   show_pricing_link: true,
   assistant_widget_subtitle: "Grounded in our FAQ, pricing & question explanations",
+  // Empty default — when /content/site returns the seeded list, the
+  // assistant widget renders the suggestions as clickable chips. The
+  // header itself doesn't consume this; it's just here to satisfy the
+  // SiteChrome type so the AssistantWidget can pull it from the same
+  // already-fetched payload.
+  assistant_try_asking_suggestions: [],
 };
 
 function destinationFor(role: UserOut["role"]): string {

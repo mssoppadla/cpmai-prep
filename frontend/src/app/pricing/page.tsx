@@ -333,7 +333,7 @@ export default function PricingPage() {
               unselectable — admin needs to add an FX rate before
               they become chargeable. */}
           <label className="text-sm flex items-center gap-2">
-            <span className="text-slate-700">Show prices in:</span>
+            <span className="text-slate-700">Payment currency:</span>
             <select
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}

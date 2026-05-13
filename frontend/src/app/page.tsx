@@ -22,6 +22,13 @@ const FALLBACK_LANDING = {
   lead_section_heading: "Start with our free CPMAI study guide",
   lead_cta_text: "Get the free guide",
   lead_post_submit_route: "/exams",
+  // Hero copy fallbacks — used when /content/landing is unreachable
+  // at build/render time. Kept in sync with the seeded defaults so
+  // the page never shows a blank H1.
+  hero_headline: "Pass the CPMAI certification on your first attempt",
+  hero_subtitle:
+    "Realistic mock exams · AI-powered coaching · Detailed answer " +
+    "reasoning for every question across all 6 CPMAI phases.",
 };
 
 async function fetchJson<T>(path: string, fallback: T): Promise<T> {
@@ -53,12 +60,11 @@ export default async function Landing() {
                            pb-10 sm:pb-14 text-center">
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900
                          leading-[1.15] tracking-tight">
-            Pass the CPMAI certification on your first attempt
+            {landing.hero_headline}
           </h1>
           <p className="mt-4 sm:mt-5 text-base sm:text-lg text-slate-600
                         max-w-2xl mx-auto leading-relaxed">
-            Realistic mock exams · AI-powered coaching · Detailed answer reasoning
-            for every question across all 6 CPMAI phases.
+            {landing.hero_subtitle}
           </p>
         </header>
 
