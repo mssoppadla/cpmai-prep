@@ -95,8 +95,11 @@ export default function GeoIPPage() {
       <header>
         <h1 className="text-2xl font-bold text-slate-900">GeoIP enrichment</h1>
         <p className="text-slate-600 mt-1 text-sm">
-          IP-to-country/city lookup for incoming leads. Database is the
-          free MaxMind GeoLite2-City, refreshed monthly by cron.{" "}
+          IP-to-country/city enrichment for incoming leads and user
+          signups. The data source is a MaxMind <strong>GeoLite2-City</strong>
+          binary file (the <code className="text-xs">.mmdb</code> shown
+          below) that lives on the server's filesystem — separate from
+          our Postgres database. Lookups are local + sub-millisecond.{" "}
           <a href="/admin/settings" className="text-indigo-600 hover:underline">
             See all settings →
           </a>
@@ -346,10 +349,21 @@ function DatabaseCard({
     <section className="bg-white rounded-xl border border-slate-200 p-6
                         space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">Database</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            GeoLite2-City data file
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            The MaxMind <code className="text-[11px]">.mmdb</code> file
+            stored on the server's filesystem. Not related to our
+            Postgres database — this is just the IP-lookup data MaxMind
+            publishes.
+          </p>
+        </div>
         {dbPresent && (
           <span className="text-xs text-emerald-700 bg-emerald-50
-                           border border-emerald-200 rounded px-2 py-0.5">
+                           border border-emerald-200 rounded px-2 py-0.5
+                           shrink-0 ml-3">
             ✓ Installed
           </span>
         )}
@@ -384,7 +398,7 @@ function DatabaseCard({
                         p-4 rounded text-sm space-y-3">
           <div>
             <div className="font-medium">
-              Database not installed yet — click the button below.
+              MaxMind data file not installed yet — click the button below.
             </div>
             <div className="text-xs text-indigo-900/70 mt-1">
               Downloads MaxMind GeoLite2-City (~30 MB) to the server,

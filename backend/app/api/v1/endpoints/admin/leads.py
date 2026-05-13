@@ -106,6 +106,17 @@ def list_contacts(db: Session = Depends(get_db),
                 has_password=bool(U.password_hash),
                 has_active_subscription=U.id in sub_ids,
                 last_login_at=U.last_login_at,
+                # GeoIP enrichment surfaced in the unified Contacts feed.
+                # users.country/city are signup-time snapshots — "where
+                # this person was when they created the account". For
+                # rendering in /admin/leads, we PREFER the snapshot
+                # (stable, more useful for cohort analysis) but fall
+                # back to last_login_country if the snapshot is missing
+                # — that handles users who pre-date the GeoIP feature
+                # but have since logged in and got the last_login_*
+                # fields populated.
+                country=U.country or U.last_login_country,
+                city=U.city,
             ))
 
     rows.sort(key=lambda r: r.created_at, reverse=True)

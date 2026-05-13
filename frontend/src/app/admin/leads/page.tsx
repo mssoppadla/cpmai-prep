@@ -312,9 +312,12 @@ function Row({
           )}
         </td>
         <td className="px-4 py-3 text-sm text-slate-700">
-          {row.kind === "lead"
-            ? countryAndCity(row.country, row.city)
-            : <span className="text-xs text-slate-300">—</span>}
+          {/* Location is set for BOTH kinds when available. Lead rows
+              come from the GeoIP enrichment at form-submit time; user
+              rows come from signup-time enrichment (or last-login if
+              that's the only data we have). The countryAndCity helper
+              renders "—" when nothing is set. */}
+          {countryAndCity(row.country, row.city)}
         </td>
         <td className="px-4 py-3 text-sm">
           {row.kind === "lead" ? (
