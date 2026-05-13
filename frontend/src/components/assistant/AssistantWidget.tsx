@@ -38,6 +38,12 @@ const DEFAULT_TRY_ASKING: string[] = [
   "How much is the exam bundle?",
   "Where do I register for the actual exam?",
 ];
+// Anon-state copy shown when an unauthenticated visitor opens the
+// chat. Kept in sync with the backend seed default so SSR/CSR don't
+// flicker different text on first paint.
+const DEFAULT_ANON_MESSAGE =
+  "Please sign in to continue chatting. Anonymous chat needs a " +
+  "browser identifier — refresh the page or sign in.";
 
 
 export function AssistantWidget({ user }: { user: UserOut | null }) {
@@ -47,6 +53,11 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
   // Admin-editable starter prompts. Pulled from the SAME /content/site
   // fetch as the subtitle so we don't add another round-trip.
   const [tryAsking, setTryAsking] = useState<string[]>(DEFAULT_TRY_ASKING);
+  // Anon-state copy. Shown when `user === null` instead of the chat
+  // input — admin-editable so the wording can be tuned (and stays in
+  // sync with the backend guardrail error that triggers if anyone
+  // bypasses the frontend and POSTs without auth).
+  const [anonMessage, setAnonMessage] = useState(DEFAULT_ANON_MESSAGE);
   // Callback-request state. Separate "view" inside the panel so the user
   // can step out of the chat to request a human follow-up without losing
   // the conversation, then return to the chat.
@@ -131,6 +142,8 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
               .filter(Boolean)
           );
         }
+        const am = s.assistant_anonymous_no_identity_message?.trim();
+        if (am) setAnonMessage(am);
       })
       .catch(() => { /* keep defaults */ });
     return () => { cancelled = true; };
@@ -147,10 +160,15 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
-  // Don't render the widget for anon visitors — they can't chat anyway
-  // (server requires auth) and a bubble that always 401s is worse than
-  // no bubble.
-  if (!user) return null;
+  // Anon users see the bubble + the panel — opening it shows the
+  // configured "please sign in" CTA instead of the chat input. The
+  // bubble is one of the strongest acquisition affordances on the
+  // page, so we WANT anon visitors to interact with it; the panel
+  // is just gated behind login. The backend's no-identity guardrail
+  // raises the same configured message from `assistant.anonymous_
+  // no_identity_message`, so the inline message and any defensive
+  // backend error stay in sync.
+  const isAnon = !user;
 
   const quotaExhausted = quota && quota.remaining <= 0;
 
@@ -311,7 +329,13 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
             </div>
           )}
 
-          {view === "chat" && (
+          {view === "chat" && isAnon && (
+            <AnonChatState message={anonMessage}
+                            currentPath={typeof window !== "undefined"
+                              ? window.location.pathname : "/"} />
+          )}
+
+          {view === "chat" && !isAnon && (
             <>
               {/* Message list */}
               <div ref={scrollRef}
@@ -496,6 +520,66 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
         </div>
       )}
     </>
+  );
+}
+
+
+/** Panel content shown to unauthenticated visitors who open the chat.
+ *
+ *  Renders the admin-configured ``assistant.anonymous_no_identity_message``
+ *  (same key the backend guardrail raises, so SSR and any defensive
+ *  backend response stay in lockstep). Replaces the message list +
+ *  input + "Talk to a human" link — the input would just trigger the
+ *  same backend error, so showing it up-front is faster than the
+ *  type-and-discover flow.
+ *
+ *  ``currentPath`` is encoded into the Sign In link's `?next=` so the
+ *  visitor lands back on the page they were on after authenticating —
+ *  natural continuation of whatever they were reading when the chat
+ *  invited them in.
+ */
+function AnonChatState({
+  message, currentPath,
+}: {
+  message: string;
+  currentPath: string;
+}) {
+  const next = encodeURIComponent(currentPath || "/");
+  return (
+    <div className="flex-1 overflow-y-auto px-5 py-6 bg-white
+                    sm:rounded-b-xl flex flex-col items-center text-center gap-4">
+      <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700
+                      flex items-center justify-center">
+        {/* Lock-with-key icon — same stroke style as the bubble icon
+            so the panel feels visually consistent. */}
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+             strokeLinejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      </div>
+      <p className="text-sm text-slate-700 max-w-[280px] leading-relaxed">
+        {message}
+      </p>
+      <div className="flex flex-col gap-2 w-full max-w-[220px]">
+        <a href={`/login?next=${next}`}
+           className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold
+                      rounded-lg hover:bg-indigo-700 transition-colors">
+          Sign in
+        </a>
+        <a href={`/signup?next=${next}`}
+           className="px-4 py-2 bg-white text-indigo-700 text-sm font-medium
+                      border border-indigo-200 rounded-lg hover:bg-indigo-50
+                      transition-colors">
+          Create free account
+        </a>
+      </div>
+      <p className="text-xs text-slate-400 max-w-[260px]">
+        Free accounts get a daily message allowance. Premium unlocks the
+        full conversation history and extended quota.
+      </p>
+    </div>
   );
 }
 

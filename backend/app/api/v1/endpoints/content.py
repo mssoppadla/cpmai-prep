@@ -68,6 +68,19 @@ def site_chrome():
         # actually ask. List of strings — frontend renders each as a
         # clickable chip that pre-fills the input.
         "assistant_try_asking_suggestions": _try_asking_suggestions(),
+        # Anonymous-state copy shown to NOT-signed-in visitors when they
+        # open the chat widget. Same setting the backend guardrail
+        # raises (so the value stays in one place), but exposed here too
+        # so the frontend can render it before the user even tries to
+        # send — avoiding an extra round-trip + a frustrating "type, then
+        # learn you need to sign in" flow. Admins edit this once and
+        # both the inline copy AND the backend-side error message
+        # update in lockstep.
+        "assistant_anonymous_no_identity_message": settings_store.get_str(
+            "assistant.anonymous_no_identity_message",
+            "Please sign in to continue chatting. Anonymous chat needs "
+            "a browser identifier — refresh the page or sign in.",
+        ),
     }
 
 
