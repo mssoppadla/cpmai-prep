@@ -693,6 +693,21 @@ export const admin = {
         { method: "POST", authed: true });
       return data;
     },
+    /** Diagnose webhook signature mismatches without prod-log access.
+     *  Paste a real delivery's body + signature header from the
+     *  gateway dashboard's "Recent deliveries" view; we round-trip it
+     *  through our verifier with the currently-stored secret and
+     *  report whether it would accept. Read-only. */
+    async testWebhookSignature(id: number,
+                                payload: { payload: string; signature: string }) {
+      const { data } = await request<{
+        ok: boolean;
+        reason: string;
+        secret_configured: boolean;
+      }>(`/admin/payment-providers/${id}/test-webhook-signature`,
+         { method: "POST", json: payload, authed: true });
+      return data;
+    },
     async delete(id: number) {
       await request(`/admin/payment-providers/${id}`,
         { method: "DELETE", authed: true });

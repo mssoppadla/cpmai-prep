@@ -33,12 +33,25 @@ const blank: FormState = {
   paypal_webhook_id: "", is_enabled: true,
 };
 
+/** Modal state for the per-row webhook-signature diagnostic. Holds the
+ *  pasted body + signature, the row id under test, and the current
+ *  result (null = haven't tested yet this session). */
+interface WebhookTestState {
+  providerId: number;
+  body: string;
+  signature: string;
+  busy: boolean;
+  result: { ok: boolean; reason: string; secret_configured: boolean } | null;
+}
+
+
 export default function PaymentProvidersPage() {
   const [rows, setRows] = useState<PaymentProviderOut[] | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<number, string>>({});
+  const [whTest, setWhTest] = useState<WebhookTestState | null>(null);
 
   async function reload() {
     try { setRows(await admin.paymentProviders.list()); }
@@ -49,6 +62,23 @@ export default function PaymentProvidersPage() {
   async function activate(id: number) {
     try { await admin.paymentProviders.activate(id); await reload(); }
     catch (e) { setErr((e as ApiError).body.message); }
+  }
+
+  async function runWebhookTest() {
+    if (!whTest) return;
+    setWhTest({ ...whTest, busy: true, result: null });
+    try {
+      const r = await admin.paymentProviders.testWebhookSignature(
+        whTest.providerId,
+        { payload: whTest.body, signature: whTest.signature });
+      setWhTest({ ...whTest, busy: false, result: r });
+    } catch (e) {
+      setWhTest({
+        ...whTest, busy: false,
+        result: { ok: false, secret_configured: false,
+                  reason: (e as ApiError).body?.message ?? String(e) },
+      });
+    }
   }
   /** Make this provider the non-INR-rail provider (typically PayPal).
    *  Razorpay stays on the INR rail independently. */
@@ -229,17 +259,31 @@ export default function PaymentProvidersPage() {
                 </p>
               </Field>
             ) : (
-              <Field label="PayPal Webhook ID" full>
+              <Field label="PayPal Webhook ID (optional)" full>
                 <input value={form.paypal_webhook_id}
                        onChange={(e) => setForm({
                          ...form, paypal_webhook_id: e.target.value })}
                        placeholder="WH-XXXXXXXXXX..."
                        className={input} />
                 <p className="text-xs text-slate-500 mt-1">
-                  From developer.paypal.com → Apps & Credentials →
-                  Webhooks. PayPal verifies signatures with their cert
-                  API; no shared secret. Required before this provider
-                  can be activated as the non-INR rail.
+                  Not a secret — this is the <strong>identifier</strong> of
+                  a webhook you register at{" "}
+                  <a href="https://developer.paypal.com" target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-600 hover:underline">
+                    developer.paypal.com
+                  </a>{" "}
+                  → Apps &amp; Credentials → Webhooks. PayPal signs
+                  events with a certificate (no shared secret); we send
+                  the ID + headers back to PayPal&apos;s
+                  verify-webhook-signature API to authenticate inbound
+                  deliveries.
+                  <br /><br />
+                  <strong>OK to leave blank for testing</strong> — the
+                  buyer-side flow still works (frontend captures the
+                  order directly after PayPal approval). The only thing
+                  you lose is auto-activation on dropped browser tabs.
+                  Add the ID later once a webhook is registered.
                 </p>
               </Field>
             )}
@@ -299,7 +343,7 @@ export default function PaymentProvidersPage() {
                     ) : (
                       <div>Webhook ID: {p.config?.webhook_id
                         ? <code className="bg-slate-100 px-1.5 py-0.5 rounded">{String(p.config.webhook_id)}</code>
-                        : <span className="text-rose-700">✗ missing (required for non-INR activation)</span>}</div>
+                        : <span className="text-amber-700">— not set (OK; webhooks unverified, in-browser capture flow still works)</span>}</div>
                     )}
                   </div>
                 </div>
@@ -309,6 +353,19 @@ export default function PaymentProvidersPage() {
                   )}
                   <button onClick={() => test(p.id)}
                           className="text-xs text-slate-600 hover:text-indigo-700">Test</button>
+                  {/* Razorpay-only webhook-signature diagnostic. PayPal
+                      uses cert-based verification and doesn't have a
+                      shared-secret to mismatch. */}
+                  {p.provider_type === "razorpay" && (
+                    <button onClick={() => setWhTest({
+                      providerId: p.id, body: "", signature: "",
+                      busy: false, result: null,
+                    })}
+                            title="Diagnose 'invalid webhook signature' errors"
+                            className="text-xs text-slate-600 hover:text-indigo-700">
+                      Test webhook
+                    </button>
+                  )}
                   {/* INR activation: only meaningful for Razorpay providers. */}
                   {p.provider_type === "razorpay" && !p.is_active && p.is_enabled && (
                     <button onClick={() => activate(p.id)}
@@ -333,6 +390,91 @@ export default function PaymentProvidersPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Webhook-signature diagnostic modal. Lives at the page root so
+          the dimmed backdrop covers the row list. Paste a real
+          delivery from Razorpay dashboard → "Recent deliveries" tab. */}
+      {whTest && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center
+                        justify-center p-4"
+             onClick={() => setWhTest(null)}>
+          <div className="bg-white rounded-xl max-w-2xl w-full p-6 space-y-4
+                          max-h-[90vh] overflow-y-auto"
+               onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h2 className="font-semibold text-slate-900">
+                Test webhook signature
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Razorpay auto-disables a webhook that keeps 400-ing. To
+                find out WHY it&apos;s rejecting, copy one of the recent
+                failed deliveries from Razorpay Dashboard → Webhooks →
+                your webhook → <strong>Recent Deliveries</strong> → click
+                a row → copy the <code>Payload</code> (full JSON body) and
+                the <code>x-razorpay-signature</code> header value. Paste
+                both below. We&apos;ll run them through our verifier with
+                the secret currently stored in this provider row and tell
+                you whether they match.
+              </p>
+            </div>
+
+            <Field label="Event body (paste the full JSON)" full>
+              <textarea
+                value={whTest.body}
+                onChange={(e) => setWhTest({ ...whTest, body: e.target.value })}
+                rows={8}
+                placeholder={"{\"entity\":\"event\",\"event\":\"payment.captured\",...}"}
+                className={`${input} font-mono text-xs`}
+              />
+            </Field>
+            <Field label="x-razorpay-signature header" full>
+              <input
+                value={whTest.signature}
+                onChange={(e) => setWhTest({ ...whTest, signature: e.target.value })}
+                placeholder="64-char hex string"
+                className={`${input} font-mono text-xs`}
+              />
+            </Field>
+
+            {whTest.result && (
+              <div className={`p-3 rounded-lg text-sm border ${
+                whTest.result.ok
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+                <div className="font-medium">
+                  {whTest.result.ok
+                    ? "✓ Signature would be accepted"
+                    : "✗ Signature does NOT match"}
+                </div>
+                <div className="text-xs mt-1 leading-relaxed">
+                  {whTest.result.reason}
+                </div>
+                {!whTest.result.secret_configured && (
+                  <div className="text-xs mt-2 italic">
+                    No webhook secret saved on this provider row.
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-2 border-t border-slate-100">
+              <button
+                onClick={runWebhookTest}
+                disabled={whTest.busy || !whTest.body.trim() || !whTest.signature.trim()}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
+                           rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                {whTest.busy ? "Testing…" : "Run verify"}
+              </button>
+              <button
+                onClick={() => setWhTest(null)}
+                className="px-4 py-2 bg-white text-slate-700 text-sm font-medium
+                           border border-slate-300 rounded-lg hover:bg-slate-50">
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
