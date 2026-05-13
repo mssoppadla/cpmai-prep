@@ -26,12 +26,37 @@ Stacking semantics (governed by `pricing.stack_offer_with_discount`):
         `base_price`. The offer code is then applied on top.
 
 GST (`pricing.gst_percent`, default 18) is applied on the post-offer
-subtotal. Set the percent to 0 to disable GST entirely (no line item
-shown). Indian rounding convention: integer paise truncation
-(`subtotal * pct // 100`) — sufficient at typical price points;
-revisit if precise-rupee invoicing is ever required.
+subtotal — but ONLY for INR-currency checkouts. International
+customers paying in USD/EUR/etc. do not pay Indian GST (it's a
+domestic India tax). Set the percent to 0 to disable GST entirely
+(no line item shown). Indian rounding convention: integer paise
+truncation (`subtotal * pct // 100`) — sufficient at typical price
+points; revisit if precise-rupee invoicing is ever required.
 
 Subtotal is clamped to >= 0; GST on a zero subtotal is zero.
+
+International currency support
+------------------------------
+Plans are denominated in INR (``Plan.base_price_paise``). When the
+caller passes ``currency != "INR"``, the quote also includes a
+``display_*`` block with:
+
+  * the same plan converted to the target currency's minor units
+    (cents for USD/EUR, fils for AED, etc. — all 1:100 for the
+    currencies we support)
+  * GST omitted (international customers don't pay Indian GST)
+  * the FX rate used (INR per 1 unit of target currency)
+
+The conversion is ``display_amount_minor = round(subtotal_paise / fx_rate)``.
+Same minor-unit math as paise — relies on the 1:100 subunit shape
+which holds for all currencies in our default supported set.
+
+The display block is what gets passed to Razorpay's order.create when
+the user pays in a non-INR currency. The INR breakdown is shown
+alongside as a reference but isn't part of the charge in that case.
+
+FX rates live in ``pricing.fx_rates_inr_per_unit`` (admin-editable).
+Supported currencies live in ``pricing.supported_currencies``.
 """
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -69,16 +94,52 @@ class PriceQuote:
     subtotal_paise: int
 
     # GST breakdown — gst_percent==0 means "no GST line shown".
+    # NOTE: gst_paise is 0 when display_currency != "INR" (international
+    # customers don't pay Indian GST). gst_percent is still reported as
+    # the configured setting so the UI can decide whether to render the
+    # row.
     gst_percent: int
     gst_paise: int
 
-    # Final price the user pays (= subtotal + gst). This is the amount
-    # passed to Razorpay's order create call.
+    # Final INR price the user pays IF they're paying in INR
+    # (= subtotal + gst). This is the amount passed to Razorpay's
+    # order.create call when currency == "INR".
     final_price_paise: int
 
     # The combine-toggle that was in effect at quote time. Stored on
     # Payment so audits can prove which mode produced the charge.
     stack_offer_with_discount: bool
+
+    # ----- Display-currency block (added 2026-05-14) ---------------
+    # The currency the CALLER asked us to compute for. May equal the
+    # plan's native currency (INR), in which case the display_* fields
+    # mirror the INR block above.
+    display_currency: str = "INR"
+
+    # Final amount in the display currency, in MINOR units (cents for
+    # USD/EUR, fils for AED, paise for INR). This is what Razorpay's
+    # ``amount`` field gets when ``display_currency`` is passed as
+    # ``currency`` to order.create.
+    #
+    # Computed as:
+    #   * INR: equals final_price_paise (includes GST)
+    #   * other: round(subtotal_paise / fx_rate)
+    #           ↑ GST is INTENTIONALLY skipped for non-INR (Indian
+    #             GST does not apply to international customers).
+    display_amount_minor: int = 0
+
+    # FX rate that was used to compute display_amount_minor.
+    # Expressed as "INR per 1 unit of display_currency"
+    # (e.g. 83 means 1 USD = 83 INR). 1.0 for INR. None if the
+    # caller asked for an unsupported currency (we fall back to INR
+    # and report ``display_currency_supported=False``).
+    display_fx_rate: Optional[float] = 1.0
+
+    # False if the caller asked for a currency NOT in
+    # pricing.supported_currencies (or with no FX rate configured).
+    # In that case the display block is identical to the INR block and
+    # the front-end should refuse to checkout in that currency.
+    display_currency_supported: bool = True
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -93,14 +154,32 @@ class PricingService:
 
     # --------------------------------------------------------- public API
     def quote(self, plan_slug: str,
-              offer_code: Optional[str] = None) -> PriceQuote:
+              offer_code: Optional[str] = None,
+              currency: str = "INR") -> PriceQuote:
         """Compute the price the user would pay right now for plan_slug.
 
-        Raises NotFoundError if the plan doesn't exist or is inactive.
-        Returns a quote even when the offer is invalid/expired — the
-        breakdown explains why and `final_price_paise` matches the
-        no-offer case. Frontend can render that as a soft warning rather
-        than an error.
+        Args:
+            plan_slug: which Plan to price
+            offer_code: optional offer code to apply
+            currency: what currency to compute the display block in.
+                Defaults to "INR" (the plan's native currency). If
+                provided and supported, the result includes ``display_*``
+                fields with the converted amount. If the currency is
+                unsupported (not in ``pricing.supported_currencies`` or
+                no FX rate configured), we silently fall back to INR
+                AND set ``display_currency_supported=False`` so the
+                caller can decide how to handle it (typically: block
+                checkout in that currency).
+
+        Raises:
+            NotFoundError: if the plan doesn't exist or is inactive.
+
+        Soft failures (returned as a quote with explanatory fields):
+            * invalid/expired offer code
+            * currency not in supported set
+
+        These are deliberately NOT exceptions — the UI wants to render
+        the underlying INR price even when one of these warnings applies.
         """
         plan = self._load_plan(plan_slug)
         stack = self._stack_toggle()
@@ -120,6 +199,7 @@ class PricingService:
                 offer_discount=0,
                 subtotal=effective_before_offer,
                 stack=stack,
+                target_currency=currency,
             )
 
         # Look up code (case-insensitive, trimmed). A missing code is a
@@ -134,6 +214,7 @@ class PricingService:
                 offer_discount=0,
                 subtotal=effective_before_offer,
                 stack=stack,
+                target_currency=currency,
             )
 
         ineligibility = self._eligibility_reason(code, plan)
@@ -146,6 +227,7 @@ class PricingService:
                 offer_discount=0,
                 subtotal=effective_before_offer,
                 stack=stack,
+                target_currency=currency,
             )
 
         # Stack-toggle off + plan has a discount → ignore offer.
@@ -159,6 +241,7 @@ class PricingService:
                 offer_discount=0,
                 subtotal=effective_before_offer,
                 stack=stack,
+                target_currency=currency,
             )
 
         # Apply the offer.
@@ -175,6 +258,7 @@ class PricingService:
             offer_discount=discount,
             subtotal=subtotal,
             stack=stack,
+            target_currency=currency,
         )
 
     def reserve_offer_redemption(self, code_id: int) -> bool:
@@ -260,16 +344,92 @@ class PricingService:
             v = 0
         return max(0, min(100, v))
 
+    @staticmethod
+    def _supported_currencies() -> list[str]:
+        """The currencies the /pricing picker can offer.
+
+        Returns the configured set normalised to uppercase, with INR
+        guaranteed-included even if an admin mis-edits the setting
+        (we never want to lock ourselves out of the canonical
+        currency)."""
+        raw = settings_store.get("pricing.supported_currencies",
+                                  ["INR", "USD"])
+        if not isinstance(raw, list):
+            return ["INR"]
+        codes = []
+        for c in raw:
+            if isinstance(c, str) and len(c.strip()) == 3:
+                u = c.strip().upper()
+                if u not in codes:
+                    codes.append(u)
+        if "INR" not in codes:
+            codes.insert(0, "INR")
+        return codes
+
+    @staticmethod
+    def _fx_rates() -> dict[str, float]:
+        """INR-per-1-unit-of-currency map. Defensive defaults so a
+        missing setting doesn't crash quote generation — currencies
+        without a rate are marked unsupported in the quote response."""
+        raw = settings_store.get("pricing.fx_rates_inr_per_unit", {})
+        rates: dict[str, float] = {"INR": 1.0}
+        if not isinstance(raw, dict):
+            return rates
+        for code, rate in raw.items():
+            if not isinstance(code, str) or len(code.strip()) != 3:
+                continue
+            try:
+                f = float(rate)
+                if f > 0:
+                    rates[code.strip().upper()] = f
+            except (TypeError, ValueError):
+                continue
+        return rates
+
+    @classmethod
+    def _build_display_block(cls, target_currency: str,
+                              subtotal_paise: int,
+                              final_inr_paise: int
+                              ) -> tuple[str, int, Optional[float], bool]:
+        """Compute the (currency, amount_in_minor_units, fx_rate, supported)
+        tuple for the display block of a quote.
+
+        For INR: display equals the INR final (includes GST), fx_rate=1.
+        For non-INR: GST is dropped (international customers don't pay
+        Indian GST). amount = round(subtotal_paise / fx_rate).
+        For unsupported currency: silently falls back to INR final with
+        supported=False so the UI can refuse checkout in that currency.
+        """
+        target = (target_currency or "INR").strip().upper()
+        supported = cls._supported_currencies()
+        rates = cls._fx_rates()
+        if target == "INR":
+            return ("INR", final_inr_paise, 1.0, True)
+        if target not in supported or target not in rates:
+            # Fall back to INR but flag for the caller.
+            return ("INR", final_inr_paise, 1.0, False)
+        fx = rates[target]
+        # GST is INR-only; international customers don't pay it. So we
+        # convert from the pre-GST INR subtotal (NOT the post-GST final).
+        # Round to nearest minor unit. round() ties-to-even is fine here
+        # — at our price points a single-paisa drift is below the noise
+        # floor of FX volatility.
+        amount = int(round(subtotal_paise / fx))
+        return (target, amount, fx, True)
+
     @classmethod
     def _build_quote(cls, *, plan: Plan, effective_before_offer: int,
                      offer_code, offer_applied, offer_reason,
-                     offer_discount, subtotal, stack) -> PriceQuote:
+                     offer_discount, subtotal, stack,
+                     target_currency: str = "INR") -> PriceQuote:
         gst_percent = cls._gst_percent()
         # Integer truncation matches "drop fractional paise" — sufficient
         # for sub-rupee accuracy at our price points. If we ever issue
         # GSTIN-bearing invoices we'll need exact rounding rules.
         gst_paise = (subtotal * gst_percent) // 100
         final_price = subtotal + gst_paise
+        display_currency, display_amount_minor, fx_rate, supported = \
+            cls._build_display_block(target_currency, subtotal, final_price)
         return PriceQuote(
             plan_id=plan.id, plan_slug=plan.slug, plan_name=plan.name,
             currency=plan.currency,
@@ -285,4 +445,8 @@ class PricingService:
             gst_paise=gst_paise,
             final_price_paise=final_price,
             stack_offer_with_discount=stack,
+            display_currency=display_currency,
+            display_amount_minor=display_amount_minor,
+            display_fx_rate=fx_rate,
+            display_currency_supported=supported,
         )

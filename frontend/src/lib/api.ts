@@ -14,7 +14,7 @@ import type {
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
   PlanPublicOut, PlanAdminOut, PlanCreate, PlanUpdate,
   OfferCodeAdminOut, OfferCodeCreate, OfferCodeUpdate,
-  PriceQuoteOut, CreateOrderIn, CreateOrderOut,
+  PriceQuoteOut, CreateOrderIn, CreateOrderOut, CurrenciesOut,
   VerifyPaymentIn, VerifyPaymentOut,
   GeoIPStatusOut, GeoIPRefreshOut, GeoIPTestKeyOut, GeoIPLookupOut,
   GeoIPSchedulePreviewOut,
@@ -304,11 +304,26 @@ export const pricing = {
     const { data } = await request<PlanPublicOut[]>("/pricing/plans");
     return data;
   },
-  async quote(plan_slug: string, offer_code?: string): Promise<PriceQuoteOut> {
+  async quote(plan_slug: string,
+              offer_code?: string,
+              currency?: string): Promise<PriceQuoteOut> {
     const { data } = await request<PriceQuoteOut>("/pricing/quote", {
       method: "POST",
-      json: { plan_slug, offer_code: offer_code || null },
+      json: {
+        plan_slug,
+        offer_code: offer_code || null,
+        // Default to INR matches the backend default — keeps existing
+        // callers (e.g. mid-page re-quote without picker change) working
+        // when they don't pass a currency.
+        currency: (currency || "INR").toUpperCase(),
+      },
     });
+    return data;
+  },
+  /** Currencies the picker should offer. Public, no auth — same surface
+   *  as /pricing/plans. */
+  async listCurrencies(): Promise<CurrenciesOut> {
+    const { data } = await request<CurrenciesOut>("/pricing/currencies");
     return data;
   },
 };

@@ -89,3 +89,117 @@ def test_quote_returns_gst_breakdown_when_admin_enables_it(client, db, monkeypat
     assert body["gst_percent"] == 18
     assert body["gst_paise"] == 18_000
     assert body["final_price_paise"] == 118_000
+
+
+# ============================================================ currencies
+# /pricing/currencies + /pricing/quote with currency param.
+
+def test_list_currencies_returns_inr_and_usd_by_default(client, db, monkeypatch):
+    """The default seed includes INR + USD + EUR + GBP + SGD + AED.
+    The endpoint should return them all with their symbols and a
+    has_fx_rate flag."""
+    from app.core import settings_store as ss_module
+    fx = {"USD": 83.0, "EUR": 90.0, "GBP": 105.0, "SGD": 62.0, "AED": 22.6}
+    supported = ["INR", "USD", "EUR", "GBP", "SGD", "AED"]
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.fx_rates_inr_per_unit": fx,
+            "pricing.supported_currencies": supported,
+        }.get(k, default))
+
+    r = client.get("/api/v1/pricing/currencies")
+    assert r.status_code == 200
+    body = r.json()
+    codes = [o["code"] for o in body["options"]]
+    assert codes == ["INR", "USD", "EUR", "GBP", "SGD", "AED"]
+    inr = next(o for o in body["options"] if o["code"] == "INR")
+    assert inr["symbol"] == "₹"          # ₹
+    assert inr["has_fx_rate"] is True
+
+
+def test_list_currencies_flags_missing_fx_rate(client, db, monkeypatch):
+    """Admin listed JPY in supported_currencies but forgot the FX rate.
+    Endpoint surfaces has_fx_rate=false so the frontend can disable it."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.fx_rates_inr_per_unit": {"USD": 83.0},
+            "pricing.supported_currencies": ["INR", "USD", "JPY"],
+        }.get(k, default))
+
+    r = client.get("/api/v1/pricing/currencies")
+    body = r.json()
+    jpy = next(o for o in body["options"] if o["code"] == "JPY")
+    assert jpy["has_fx_rate"] is False
+
+
+def test_quote_with_usd_currency_returns_display_block(client, db, monkeypatch):
+    """End-to-end: POST /pricing/quote with currency=USD includes the
+    display_* block + skips GST."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.fx_rates_inr_per_unit": {"USD": 83.0},
+            "pricing.supported_currencies": ["INR", "USD"],
+            "pricing.gst_percent": 18,
+            "pricing.stack_offer_with_discount": False,
+        }.get(k, default))
+    _seed_plan(db, base=99900)
+
+    r = client.post("/api/v1/pricing/quote", json={
+        "plan_slug": "exam-bundle", "currency": "USD"})
+    assert r.status_code == 200
+    body = r.json()
+    # INR breakdown still uses GST.
+    assert body["gst_percent"] == 18
+    assert body["gst_paise"] == 17982
+    assert body["final_price_paise"] == 117882
+    # USD display block uses subtotal (no GST) / fx_rate.
+    assert body["display_currency"] == "USD"
+    assert body["display_amount_minor"] == round(99900 / 83.0)
+    assert body["display_fx_rate"] == 83.0
+    assert body["display_currency_supported"] is True
+
+
+def test_quote_with_default_currency_unchanged(client, db, monkeypatch):
+    """REGRESSION GUARD: existing callers (production payment flow) that
+    don't pass a currency must see the SAME response shape as before
+    the currency feature shipped. display_* defaults to INR mirror."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.fx_rates_inr_per_unit": {"USD": 83.0},
+            "pricing.supported_currencies": ["INR", "USD"],
+            "pricing.gst_percent": 18,
+            "pricing.stack_offer_with_discount": False,
+        }.get(k, default))
+    _seed_plan(db, base=99900)
+
+    r = client.post("/api/v1/pricing/quote", json={"plan_slug": "exam-bundle"})
+    body = r.json()
+    assert body["final_price_paise"] == 117882    # subtotal + 18% GST
+    assert body["display_currency"] == "INR"
+    assert body["display_amount_minor"] == 117882  # mirrors INR final
+    assert body["display_currency_supported"] is True
+
+
+def test_quote_with_unsupported_currency_falls_back_with_flag(client, db, monkeypatch):
+    """Unknown currency soft-fails — quote returns with the INR final
+    in the display block AND display_currency_supported=false so the
+    frontend can refuse checkout."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(ss_module.SettingsStore, "get",
+        lambda self, k, default=None: {
+            "pricing.fx_rates_inr_per_unit": {"USD": 83.0},
+            "pricing.supported_currencies": ["INR", "USD"],
+            "pricing.gst_percent": 0,
+            "pricing.stack_offer_with_discount": False,
+        }.get(k, default))
+    _seed_plan(db, base=99900)
+
+    r = client.post("/api/v1/pricing/quote", json={
+        "plan_slug": "exam-bundle", "currency": "JPY"})
+    body = r.json()
+    assert body["display_currency_supported"] is False
+    assert body["display_currency"] == "INR"
+    assert body["display_amount_minor"] == 99900  # mirror of final

@@ -134,6 +134,61 @@ def _cron_expression(v):
     return ok
 
 
+def _supported_currencies(v):
+    """Validate ``pricing.supported_currencies`` — JSON array of ISO-4217.
+
+    Constraints:
+      * Must be a non-empty list of distinct 3-letter uppercase codes
+      * Must include "INR" (the canonical pricing currency — Plan.base_price_paise
+        is denominated in INR and FX conversion is INR-relative)
+      * Each code is 3 alpha chars (basic ISO-4217 shape; we don't pull
+        the full ISO table — admin error budget is small here)
+      * Cap at 20 currencies to prevent a typo'd huge list from breaking
+        the picker UI
+    """
+    if not isinstance(v, list):
+        return False
+    if not 1 <= len(v) <= 20:
+        return False
+    seen = set()
+    for code in v:
+        if not isinstance(code, str):
+            return False
+        c = code.strip().upper()
+        if len(c) != 3 or not c.isalpha() or c in seen:
+            return False
+        seen.add(c)
+    return "INR" in seen
+
+
+def _fx_rates(v):
+    """Validate ``pricing.fx_rates_inr_per_unit`` — JSON object of FX rates.
+
+    Each key: 3-letter ISO-4217 code. Each value: positive float (INR
+    per 1 unit of that currency, e.g. {"USD": 83} means 1 USD = 83 INR).
+    Reasonable upper bound = 100_000 (catches a fat-fingered "83000"
+    that would price USD-paying users out of existence). Lower bound =
+    0.0001 (prevents zero / negative which would crash the divide).
+
+    The INR rate itself is implicit (always 1.0). Admins can include
+    or omit it; the consumer treats it as 1 in either case.
+    """
+    if not isinstance(v, dict):
+        return False
+    if len(v) > 50:   # sanity cap
+        return False
+    for code, rate in v.items():
+        if not isinstance(code, str) or len(code.strip()) != 3 or not code.strip().isalpha():
+            return False
+        if isinstance(rate, bool):    # bool is a subtype of int, reject
+            return False
+        if not isinstance(rate, (int, float)):
+            return False
+        if not (0.0001 <= float(rate) <= 100_000):
+            return False
+    return True
+
+
 EDITABLE: dict[str, Callable] = {
     # AI chat operational limits
     "chat.daily_limit.anonymous":        _int_in(0, 1000),
@@ -170,6 +225,11 @@ EDITABLE: dict[str, Callable] = {
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),
+    # International pricing — admin-tunable currencies + FX rates.
+    # See app/services/pricing_service.py for how these flow into a quote.
+    # GST only applies to INR; non-INR currencies skip the GST line.
+    "pricing.supported_currencies":      _supported_currencies,
+    "pricing.fx_rates_inr_per_unit":     _fx_rates,
     # Landing-page copy (admin-editable, no redeploy needed)
     "landing.lead_section_heading":      _short_str(200),
     "landing.lead_cta_text":             _short_str(80),

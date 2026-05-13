@@ -76,6 +76,8 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,
+    "pricing.supported_currencies":      ["INR", "USD", "EUR"],
+    "pricing.fx_rates_inr_per_unit":     {"USD": 83.0, "EUR": 90.0},
     # landing.*
     "landing.lead_section_heading":      "Start with our free CPMAI study guide",
     "landing.lead_cta_text":             "Get the free guide",

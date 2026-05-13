@@ -132,7 +132,17 @@
   {
     "key": "pricing.gst_percent",
     "value": 18,
-    "description": "GST percentage applied on top of the post-offer subtotal. Computed server-side and shown as a separate line in the order summary. Set to 0 to disable."
+    "description": "GST percentage applied on top of the post-offer subtotal. Computed server-side and shown as a separate line in the order summary. Set to 0 to disable. GST applies to INR-currency checkouts ONLY — international currencies skip GST automatically."
+  },
+  {
+    "key": "pricing.supported_currencies",
+    "value": ["INR", "USD", "EUR", "GBP", "SGD", "AED"],
+    "description": "ISO-4217 codes the /pricing currency selector offers. Must include INR (Plan.base_price_paise is denominated in INR, FX is INR-relative). Add codes here AND populate the matching FX rate in pricing.fx_rates_inr_per_unit before the option becomes usable."
+  },
+  {
+    "key": "pricing.fx_rates_inr_per_unit",
+    "value": {"USD": 83.0, "EUR": 90.0, "GBP": 105.0, "SGD": 62.0, "AED": 22.6},
+    "description": "FX rates: INR per 1 unit of foreign currency (e.g. USD=83 means 1 USD = 83 INR). Used to display + charge non-INR amounts. Admin updates manually when FX drifts >5%. INR is implicit (rate=1). Add a generous markup to cover Razorpay's international FX fees."
   },
   {
     "key": "landing.lead_section_heading",

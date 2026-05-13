@@ -1,17 +1,31 @@
 "use client";
 /**
- * Public /pricing page.
+ * Public /pricing page with currency selector.
  *
  * Lists active plans, accepts an offer code + free-text referrer, and
  * lets a signed-in user check out via Razorpay. Final price is fetched
  * from the server (`/pricing/quote`) so the breakdown shown matches
  * exactly what would be charged — no client-side discount math.
  *
- * Phase 1 keeps the user on this page for offer entry. Phase 2 will
- * gate the "Buy" button behind Google login when the user isn't auth'd.
- * Today we just send unauthenticated users to /login?next=/pricing.
+ * International pricing (added 2026-05-14)
+ * ----------------------------------------
+ * The currency dropdown lets the visitor switch the checkout currency.
+ * Each plan card shows TWO amounts side-by-side: the INR (canonical)
+ * price and the user's selected-currency equivalent (computed by the
+ * backend using admin-configurable FX rates). Default currency:
+ *
+ *   - signed-in IN user → INR
+ *   - signed-in other-country user → USD
+ *   - anon visitor → USD (most common non-Indian case; admin can change
+ *     by editing the order of `pricing.supported_currencies` in settings)
+ *
+ * When the user clicks Pay, /payments/orders is called with the chosen
+ * currency. Razorpay's popup opens in that currency — for non-INR,
+ * the Razorpay account must have international payments enabled on
+ * their dashboard. GST is INR-only (international customers don't
+ * pay Indian GST), so the GST row hides automatically for non-INR.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { SiteHeader } from "@/components/layout/SiteHeader";
@@ -19,6 +33,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { pricing, payments, auth, errMsg } from "@/lib/api";
 import type {
   PlanPublicOut, PriceQuoteOut, UserOut, CreateOrderOut,
+  CurrencyOption,
 } from "@/types/api";
 
 declare global {
@@ -36,7 +51,42 @@ interface RazorpayOptions {
 }
 
 
-function rupees(paise: number) { return (paise / 100).toFixed(2); }
+/**
+ * Format a minor-unit amount (paise/cents) in a currency-aware way.
+ * For all currencies in our default supported set the subunit is /100,
+ * so we just divide and apply the symbol. JPY-style no-subunit currencies
+ * would need a special case — flagged in a comment for the future.
+ */
+function formatMinor(minor: number, symbol: string): string {
+  // All supported currencies (INR/USD/EUR/GBP/SGD/AED) use 1:100 subunits.
+  return `${symbol}${(minor / 100).toFixed(2)}`;
+}
+
+
+/**
+ * Country → preferred currency mapping. Mirrors what the backend would
+ * default to if it had logic — but the backend doesn't pre-fill, so
+ * this map lives client-side. Admin can shadow these defaults by
+ * reordering `pricing.supported_currencies` in settings if needed.
+ */
+function preferredCurrencyForCountry(
+  country: string | null | undefined,
+  available: string[],
+): string {
+  const c = (country || "").toUpperCase();
+  const has = (code: string) => available.includes(code);
+  if (c === "IN" && has("INR")) return "INR";
+  if (["US", "CA", "MX"].includes(c) && has("USD")) return "USD";
+  if (c === "GB" && has("GBP")) return "GBP";
+  if (c === "SG" && has("SGD")) return "SGD";
+  if (c === "AE" && has("AED")) return "AED";
+  // EU member states default to EUR if we support it.
+  const EU = ["DE","FR","IT","ES","NL","BE","AT","IE","PT","FI",
+              "GR","SK","SI","LT","LV","EE","LU","MT","CY","HR"];
+  if (EU.includes(c) && has("EUR")) return "EUR";
+  if (has("USD")) return "USD";
+  return available[0] || "INR";
+}
 
 
 export default function PricingPage() {
@@ -46,6 +96,13 @@ export default function PricingPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Currency picker state. The list comes from /pricing/currencies
+  // (admin-configurable). The chosen code drives every quote + the
+  // checkout currency.
+  const [currencyOptions, setCurrencyOptions] = useState<CurrencyOption[]>([]);
+  const [currency, setCurrency] = useState<string>("INR");
+  const [currencyInitialised, setCurrencyInitialised] = useState(false);
+
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [offerCode, setOfferCode] = useState("");
   const [referrer, setReferrer] = useState("");
@@ -53,11 +110,34 @@ export default function PricingPage() {
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
 
-  // Load plans + auth state in parallel.
+  // Per-plan quotes (one quote per card, in the selected currency).
+  // Kept separate from `quote` (the active plan's quote shown in the
+  // summary) because we want EVERY card to show the selected-currency
+  // price, not just the selected one.
+  const [perPlanQuotes, setPerPlanQuotes] = useState<Record<string, PriceQuoteOut>>({});
+
+  // Load plans + currencies + auth state in parallel.
   useEffect(() => {
     (async () => {
       try { setPlans(await pricing.listPlans()); }
       catch (e) { setErr(errMsg(e)); }
+    })();
+    (async () => {
+      try {
+        const r = await pricing.listCurrencies();
+        // Defensive: if the backend (or a test mock) returns a body
+        // missing the ``options`` field, fall back to INR-only.
+        const opts = Array.isArray(r?.options) ? r.options : [];
+        setCurrencyOptions(opts.length > 0 ? opts : [
+          { code: "INR", symbol: "₹", has_fx_rate: true },
+        ]);
+      } catch (e) {
+        // Non-fatal — fall back to INR-only.
+        console.warn("[pricing] currencies fetch failed", e);
+        setCurrencyOptions([
+          { code: "INR", symbol: "₹", has_fx_rate: true },
+        ]);
+      }
     })();
     (async () => {
       try { setUser(await auth.me()); }
@@ -66,6 +146,21 @@ export default function PricingPage() {
     })();
   }, []);
 
+  // Initialise currency exactly once, after we know both the available
+  // options AND the user's country. Until that's settled, leave the
+  // picker on its INR default. Once initialised, the user's manual
+  // selection wins (we don't re-snap when their country changes — it
+  // doesn't, but defensively).
+  useEffect(() => {
+    if (currencyInitialised) return;
+    if (currencyOptions.length === 0) return;
+    if (!authChecked) return;
+    const available = currencyOptions.filter(o => o.has_fx_rate).map(o => o.code);
+    if (available.length === 0) return;
+    setCurrency(preferredCurrencyForCountry(user?.country, available));
+    setCurrencyInitialised(true);
+  }, [currencyInitialised, currencyOptions, authChecked, user]);
+
   // Default to the first plan once loaded.
   useEffect(() => {
     if (plans && plans.length > 0 && selectedSlug === null) {
@@ -73,14 +168,15 @@ export default function PricingPage() {
     }
   }, [plans, selectedSlug]);
 
-  // Re-quote any time selection or offer changes.
+  // Re-quote the SELECTED plan (drives the order-summary panel) whenever
+  // selection / offer / currency changes.
   useEffect(() => {
     if (!selectedSlug) { setQuote(null); return; }
     let cancelled = false;
     (async () => {
       setQuoteBusy(true); setErr(null);
       try {
-        const q = await pricing.quote(selectedSlug, offerCode || undefined);
+        const q = await pricing.quote(selectedSlug, offerCode || undefined, currency);
         if (!cancelled) setQuote(q);
       } catch (e) {
         if (!cancelled) { setErr(errMsg(e)); setQuote(null); }
@@ -89,16 +185,54 @@ export default function PricingPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [selectedSlug, offerCode]);
+  }, [selectedSlug, offerCode, currency]);
+
+  // Quote EVERY plan in the selected currency, so each card can show
+  // the dual-amount column. Triggered on currency change (and on plan
+  // list load). No offer code — the per-card preview is "list price";
+  // the summary panel handles the offer-applied math.
+  const fetchAllQuotes = useCallback(async (cur: string) => {
+    if (!plans || plans.length === 0) return;
+    const entries: Record<string, PriceQuoteOut> = {};
+    await Promise.all(plans.map(async (p) => {
+      try { entries[p.slug] = await pricing.quote(p.slug, undefined, cur); }
+      catch { /* skip — card just won't show converted amount */ }
+    }));
+    setPerPlanQuotes(entries);
+  }, [plans]);
+
+  useEffect(() => {
+    if (currencyInitialised && plans) fetchAllQuotes(currency);
+  }, [currencyInitialised, currency, plans, fetchAllQuotes]);
 
   const selectedPlan = useMemo(
     () => plans?.find(p => p.slug === selectedSlug) ?? null,
     [plans, selectedSlug]);
 
+  const currentCurrencyOption = useMemo(
+    () => currencyOptions.find(o => o.code === currency)
+       ?? { code: currency, symbol: currency, has_fx_rate: false },
+    [currencyOptions, currency]);
+
+  // Disable Pay when the selected currency isn't actually chargeable
+  // (admin listed it without configuring an FX rate). The dropdown
+  // option is rendered disabled for these too, but defense-in-depth.
+  // ``display_currency_supported`` defaults to true if the field is
+  // absent (older backend / partial test mock) — that way we still
+  // allow INR checkout against a mock that doesn't include the new
+  // fields.
+  const canCheckout = !!quote && (quote.display_currency_supported ?? true)
+                     && currentCurrencyOption.has_fx_rate;
+
   async function checkout() {
     if (!quote || !selectedPlan) return;
     if (!user) {
       router.push(`/login?next=${encodeURIComponent("/pricing")}`);
+      return;
+    }
+    if (!canCheckout) {
+      setErr(`Currency ${currency} isn't configured for checkout yet. ` +
+              "Pick another currency or contact the admin.");
       return;
     }
     if (!window.Razorpay) {
@@ -113,15 +247,13 @@ export default function PricingPage() {
         plan_slug: selectedPlan.slug,
         offer_code: offerCode || null,
         referrer: referrer || null,
+        currency,
       });
     } catch (e) {
       setErr(errMsg(e)); setCheckoutBusy(false); return;
     }
 
-    // Open Razorpay's hosted checkout. On success, post the signed
-    // payment back to /payments/verify — that's where Subscription is
-    // actually created. Cancel/dismiss leaves the order in 'created'
-    // state; webhook hardening (phase 3) will reconcile it.
+    // Open Razorpay's hosted checkout in the selected currency.
     const rzp = new window.Razorpay({
       key: order.razorpay_key_id,
       amount: order.amount,
@@ -138,8 +270,6 @@ export default function PricingPage() {
             payment_id: resp.razorpay_payment_id,
             signature: resp.razorpay_signature,
           });
-          // Subscription is now active. Send them straight to the
-          // exam list — paywall now lets them through.
           router.push(`/exams?paid=${encodeURIComponent(verified.plan_slug)}`);
         } catch (e) {
           setErr(`Payment captured but verification failed: ${errMsg(e)}. ` +
@@ -155,19 +285,40 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
-      {/* Razorpay's hosted checkout SDK. Loaded once per page render —
-          only when the user actually hits /pricing, not site-wide.
-          afterInteractive: load after the page is interactive but
-          before the user can realistically click "Pay". */}
       <Script src="https://checkout.razorpay.com/v1/checkout.js"
               strategy="afterInteractive" />
       <SiteHeader active="pricing" />
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-10">
-        <h1 className="text-3xl font-bold text-slate-900">Pricing</h1>
-        <p className="text-slate-600 mt-2">
-          One-time payment, 1-year access. All plans include CPMAI-aligned
-          mock exams and the AI tutor.
-        </p>
+        <div className="flex items-baseline justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">Pricing</h1>
+            <p className="text-slate-600 mt-2">
+              One-time payment, 1-year access. All plans include
+              CPMAI-aligned mock exams and the AI tutor.
+            </p>
+          </div>
+          {/* Currency picker. Disabled options are visible but
+              unselectable — admin needs to add an FX rate before
+              they become chargeable. */}
+          <label className="text-sm flex items-center gap-2">
+            <span className="text-slate-700">Show prices in:</span>
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              className="px-3 py-1.5 text-sm border border-slate-300 rounded
+                         focus:ring-1 focus:ring-indigo-500 outline-none bg-white"
+            >
+              {currencyOptions.map(opt => (
+                <option key={opt.code}
+                        value={opt.code}
+                        disabled={!opt.has_fx_rate}>
+                  {opt.symbol} {opt.code}
+                  {!opt.has_fx_rate ? " (not configured)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         {err && (
           <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-lg my-4 text-sm">
@@ -187,6 +338,10 @@ export default function PricingPage() {
             <div className="space-y-3">
               {plans.map(p => {
                 const selected = p.slug === selectedSlug;
+                const planQuote = perPlanQuotes[p.slug];
+                const showConverted = currency !== "INR"
+                  && planQuote
+                  && planQuote.display_currency_supported;
                 return (
                   <button key={p.id} onClick={() => setSelectedSlug(p.slug)}
                     className={`w-full text-left rounded-xl border p-5 transition ${
@@ -202,19 +357,29 @@ export default function PricingPage() {
                     {p.description && (
                       <p className="text-sm text-slate-600 mt-1">{p.description}</p>
                     )}
-                    <div className="mt-3 flex items-baseline gap-2">
+                    {/* Dual-amount row. Always shows INR canonical; if
+                        a non-INR currency is selected, the converted
+                        amount sits to the right of the INR price. */}
+                    <div className="mt-3 flex items-baseline gap-3 flex-wrap">
                       {p.discount_price_paise != null ? (
                         <>
                           <span className="text-2xl font-bold text-slate-900">
-                            ₹{rupees(p.discount_price_paise)}
+                            ₹{(p.discount_price_paise / 100).toFixed(2)}
                           </span>
                           <span className="text-sm text-slate-400 line-through">
-                            ₹{rupees(p.base_price_paise)}
+                            ₹{(p.base_price_paise / 100).toFixed(2)}
                           </span>
                         </>
                       ) : (
                         <span className="text-2xl font-bold text-slate-900">
-                          ₹{rupees(p.base_price_paise)}
+                          ₹{(p.base_price_paise / 100).toFixed(2)}
+                        </span>
+                      )}
+                      {showConverted && (
+                        <span className="text-lg font-semibold text-indigo-700"
+                              title={`@ ₹${planQuote.display_fx_rate?.toFixed(2)} per 1 ${currency}`}>
+                          ≈ {formatMinor(planQuote.display_amount_minor,
+                                          currentCurrencyOption.symbol)}
                         </span>
                       )}
                       <span className="text-sm text-slate-500">
@@ -259,7 +424,7 @@ export default function PricingPage() {
                     )}
                     {quote?.offer_applied && (
                       <div className="mt-1 text-xs text-emerald-700">
-                        Offer applied — saving ₹{rupees(quote.offer_discount_paise)}.
+                        Offer applied — saving ₹{(quote.offer_discount_paise / 100).toFixed(2)}.
                       </div>
                     )}
                   </label>
@@ -275,39 +440,73 @@ export default function PricingPage() {
                   </label>
 
                   <div className="border-t border-slate-200 pt-3 text-sm space-y-1">
-                    <Row label="Base" value={`₹${rupees(selectedPlan.base_price_paise)}`} />
+                    <Row label="Base" value={`₹${(selectedPlan.base_price_paise / 100).toFixed(2)}`} />
                     {selectedPlan.discount_price_paise != null && (
                       <Row label="Plan discount"
-                           value={`-₹${rupees(selectedPlan.base_price_paise - selectedPlan.discount_price_paise)}`}
+                           value={`-₹${((selectedPlan.base_price_paise - selectedPlan.discount_price_paise) / 100).toFixed(2)}`}
                            muted />
                     )}
                     {quote?.offer_applied && (
                       <Row label={`Offer (${quote.offer_code})`}
-                           value={`-₹${rupees(quote.offer_discount_paise)}`}
+                           value={`-₹${(quote.offer_discount_paise / 100).toFixed(2)}`}
                            muted />
                     )}
-                    {quote && quote.gst_percent > 0 && (
+                    {/* GST line ONLY when the selected currency is INR.
+                        International customers don't pay Indian GST,
+                        and the backend already drops it from the charge. */}
+                    {quote && quote.gst_percent > 0 && currency === "INR" && (
                       <>
                         <Row label="Subtotal"
-                             value={`₹${rupees(quote.subtotal_paise)}`} muted />
+                             value={`₹${(quote.subtotal_paise / 100).toFixed(2)}`} muted />
                         <Row label={`GST (${quote.gst_percent}%)`}
-                             value={`+₹${rupees(quote.gst_paise)}`} muted />
+                             value={`+₹${(quote.gst_paise / 100).toFixed(2)}`} muted />
                       </>
                     )}
-                    <Row strong label="Total to pay"
-                         value={quote
-                            ? `₹${rupees(quote.final_price_paise)}`
-                            : (quoteBusy ? "…" : "—")} />
+                    {/* For non-INR: show a "Tax: not applicable" note so
+                        the international buyer knows the displayed
+                        amount is the final total. */}
+                    {quote && currency !== "INR" && quote.display_currency_supported && (
+                      <Row label="Indian GST"
+                           value="not applicable (international)"
+                           muted />
+                    )}
+                    {/* The TOTAL row. For INR: final INR. For non-INR:
+                        converted display amount; INR shown as small
+                        reference under the total. */}
+                    {currency === "INR" ? (
+                      <Row strong label="Total to pay"
+                           value={quote
+                              ? `₹${(quote.final_price_paise / 100).toFixed(2)}`
+                              : (quoteBusy ? "…" : "—")} />
+                    ) : (
+                      <>
+                        <Row strong label={`Total to pay (${currency})`}
+                             value={quote && quote.display_currency_supported
+                                ? formatMinor(quote.display_amount_minor,
+                                               currentCurrencyOption.symbol)
+                                : (quoteBusy ? "…" : "—")} />
+                        {quote && quote.display_currency_supported && (
+                          <div className="text-xs text-slate-500 text-right -mt-0.5">
+                            ≈ ₹{(quote.subtotal_paise / 100).toFixed(2)} INR{" "}
+                            <span className="italic">
+                              @ ₹{quote.display_fx_rate?.toFixed(2)} per 1 {currency}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   <button onClick={checkout}
-                          disabled={!quote || quoteBusy || checkoutBusy}
+                          disabled={!canCheckout || quoteBusy || checkoutBusy}
                           className="w-full px-4 py-3 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
                     {!authChecked
                       ? "…"
                       : !user
                         ? "Sign in to continue"
-                        : (checkoutBusy ? "Creating order…" : "Pay with Razorpay")}
+                        : (checkoutBusy
+                           ? "Creating order…"
+                           : `Pay with Razorpay (${currency})`)}
                   </button>
                   {!user && authChecked && (
                     <p className="text-xs text-slate-500 text-center">
