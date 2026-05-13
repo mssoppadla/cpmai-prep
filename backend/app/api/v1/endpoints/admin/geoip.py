@@ -146,70 +146,127 @@ def geoip_schedule_preview(payload: GeoIPSchedulePreviewIn):
 def geoip_test_key(request: Request,
                    db: Session = Depends(get_db),
                    admin: User = Depends(get_admin_user)):
-    """Verify the stored MaxMind credentials by issuing a HEAD request.
+    """Verify the stored MaxMind license key by issuing a HEAD request.
+
+    Uses the same URL + auth shape as the actual refresh — so a green
+    test-key here guarantees the next refresh will succeed (modulo
+    transient network).
 
     Side-effects:
-      * audit_log entry "geoip.test_key" with ok=True/False (NEVER the key)
+      * audit_log entry "geoip.test_key" with ok=True/False (NEVER the
+        key value, only the last-4 suffix for operator confirmation).
 
-    Why HEAD and not GET: we only want to verify auth, not pull the
-    whole tarball. MaxMind serves a HEAD with the same auth shape and
-    returns 200 + the size/etag headers.
+    Diagnostics included in failure responses:
+      * key suffix (last 4 chars) — admin can confirm the right value
+        got saved without revealing the full key
+      * MaxMind's raw response body — distinguishes "invalid key" from
+        "permission missing" from "account suspended" without the admin
+        having to SSH to read logs
     """
-    account_id = default_provider.get(SettingsKeys.MAXMIND_ACCOUNT_ID)
     license_key = default_provider.get(SettingsKeys.MAXMIND_LICENSE_KEY)
-    if not account_id or not license_key:
+    if not license_key:
         audit_log(db, admin.id, "geoip.test_key",
-                  {"ok": False, "reason": "credentials_unset"})
+                  {"ok": False, "reason": "license_key_unset"})
         return GeoIPTestKeyOut(
             ok=False,
-            message="MaxMind credentials are not configured. Set "
-                    f"{SettingsKeys.MAXMIND_ACCOUNT_ID} and "
-                    f"{SettingsKeys.MAXMIND_LICENSE_KEY} below.",
+            message="License key is not configured. Paste your MaxMind "
+                    "license key in the Credentials card above, then "
+                    "click Test connection.",
         )
 
-    params = {"edition_id": EDITION_ID, "suffix": "tar.gz"}
+    # Compute a last-4 suffix BEFORE the network call so it's available
+    # in every failure branch below. Safe to expose — same info already
+    # visible in the masked SettingOut.value field.
+    last4 = license_key[-4:] if len(license_key) >= 4 else license_key
+
+    # Query-string auth — matches MaxMind's documented public URL shape
+    # AND the exact curl pattern operators use for ad-hoc debugging.
+    # If a future operator wants to reproduce a failing test outside
+    # the app, they can take the params we used here and paste them
+    # into a terminal verbatim.
+    params = {"edition_id": EDITION_ID, "suffix": "tar.gz",
+              "license_key": license_key}
     try:
         with httpx.Client(timeout=30.0) as client:
             resp = client.head(MAXMIND_DOWNLOAD_URL,
                                params=params,
-                               auth=(account_id, license_key),
                                headers={"User-Agent": USER_AGENT},
                                follow_redirects=True)
     except httpx.HTTPError as exc:
         audit_log(db, admin.id, "geoip.test_key",
                   {"ok": False, "reason": "network",
-                   "exception": type(exc).__name__})
+                   "exception": type(exc).__name__,
+                   "key_last4": last4})
         return GeoIPTestKeyOut(
             ok=False,
-            message=f"Network error reaching MaxMind: {type(exc).__name__}.",
+            message=f"Network error reaching MaxMind: {type(exc).__name__}. "
+                    f"Check VPS connectivity to download.maxmind.com.",
         )
 
     if resp.status_code == 401:
+        # MaxMind returns a short text body. HEAD strips the body, so
+        # do a follow-up GET (with Range: 0-0 to avoid the full download)
+        # just to capture the error text. Same auth, just GET.
+        body = ""
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                body_resp = client.get(MAXMIND_DOWNLOAD_URL,
+                                       params=params,
+                                       headers={"User-Agent": USER_AGENT,
+                                                "Range": "bytes=0-1023"},
+                                       follow_redirects=True)
+                body = (body_resp.text or "").strip()[:300]
+        except httpx.HTTPError:
+            pass
         audit_log(db, admin.id, "geoip.test_key",
-                  {"ok": False, "status_code": 401})
+                  {"ok": False, "status_code": 401, "key_last4": last4})
         return GeoIPTestKeyOut(
             ok=False, status_code=401,
-            message="MaxMind rejected the license key. Rotate it at "
-                    "maxmind.com → My License Keys, then update the "
-                    "value below.",
+            message=(
+                f"MaxMind rejected the license key (ending …{last4}). "
+                f"Server said: {body or 'Invalid license key'!r}. "
+                "Most common causes, in order of likelihood:\n"
+                "  1. The key was generated WITHOUT 'GeoIP Update' "
+                "permission. Go to maxmind.com → My License Keys → "
+                "create a NEW key and ensure the 'GeoIP Update' box is "
+                "ticked. Paste it here.\n"
+                "  2. The key was revoked since you pasted it.\n"
+                "  3. Your MaxMind account is suspended (check email "
+                "from MaxMind)."
+            ),
         )
 
     if resp.status_code != 200:
+        body = ""
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                body_resp = client.get(MAXMIND_DOWNLOAD_URL,
+                                       params=params,
+                                       headers={"User-Agent": USER_AGENT,
+                                                "Range": "bytes=0-1023"},
+                                       follow_redirects=True)
+                body = (body_resp.text or "").strip()[:300]
+        except httpx.HTTPError:
+            pass
         audit_log(db, admin.id, "geoip.test_key",
-                  {"ok": False, "status_code": resp.status_code})
+                  {"ok": False, "status_code": resp.status_code,
+                   "key_last4": last4})
         return GeoIPTestKeyOut(
             ok=False, status_code=resp.status_code,
-            message=f"Unexpected response from MaxMind: HTTP {resp.status_code}.",
+            message=f"Unexpected response from MaxMind: HTTP "
+                    f"{resp.status_code}. Body: {body!r}.",
         )
 
     # Parse the filename from Content-Disposition to surface the latest
     # DB date in the UI — e.g. "filename=GeoLite2-City_20260512.tar.gz".
     db_date = _parse_db_date(resp.headers.get("content-disposition", ""))
     audit_log(db, admin.id, "geoip.test_key",
-              {"ok": True, "db_date": db_date})
+              {"ok": True, "db_date": db_date, "key_last4": last4})
     return GeoIPTestKeyOut(
         ok=True, status_code=200,
-        message=f"Credentials accepted. Latest DB date: {db_date or 'unknown'}.",
+        message=f"Credentials accepted (key ending …{last4}). "
+                f"Latest DB date: {db_date or 'unknown'}. "
+                "Click 'Refresh now' under the Database card to install.",
         latest_db_date=db_date,
     )
 

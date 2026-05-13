@@ -131,9 +131,12 @@ class MaxMindLookup:
         """
         report = StatusReport(database_path=str(self._db_path))
         report.last_lookup_count = self._lookup_count
+        # Only the license_key is REQUIRED for the public direct-download
+        # URL. account_id is stored as metadata (used by geoipupdate if/
+        # when we adopt it) but not consulted by refresh.py. So
+        # "credentials configured" means just "license_key is set".
         report.credentials_configured = bool(
-            self._settings.get(SettingsKeys.MAXMIND_ACCOUNT_ID)
-            and self._settings.get(SettingsKeys.MAXMIND_LICENSE_KEY)
+            self._settings.get(SettingsKeys.MAXMIND_LICENSE_KEY)
         )
         if not self._db_path.exists():
             return report

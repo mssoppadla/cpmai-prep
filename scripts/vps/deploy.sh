@@ -268,6 +268,28 @@ sudo chmod 0755 /srv/cpmai/geoip 2>/dev/null || true
 sudo mkdir -p /var/log/cpmai
 sudo chown -R "$(id -un):$(id -gn)" /var/log/cpmai 2>/dev/null || true
 
+# Install / refresh the GeoIP refresh cron entry. Idempotent — the
+# installer script strips any existing geoip_refresh.sh line and
+# re-adds the canonical one, so re-running on every deploy is exactly
+# how schedule-path-or-format changes propagate.
+#
+# Why here, before the docker pull/build/up sequence: the cron entry
+# itself does NOT require the new code to be running — it only fires
+# every minute and Python's --only-if-scheduled flag gates the work
+# against the geoip.refresh_schedule setting. So installing the cron
+# early just means we don't lose ticks while the build is in flight.
+#
+# Why on every deploy: removes the "SSH in to install cron" step
+# entirely from the operator workflow. After PR-A's merge, the admin
+# can install the database AND get recurring refreshes purely through
+# /admin/geoip. No terminal access needed.
+if [ -x scripts/vps/install_geoip_cron.sh ]; then
+  ./scripts/vps/install_geoip_cron.sh 2>&1 | sed 's/^/  /' || \
+      warn "install_geoip_cron.sh exited non-zero — refresh cron may "\
+           "not be installed. Run it manually with: "\
+           "APP_DIR=$APP_DIR ./scripts/vps/install_geoip_cron.sh"
+fi
+
 START_TS=$(date +%s)
 START_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
