@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { admin, errMsg } from "@/lib/api";
 import type { UserAdminOut, UserRole } from "@/types/api";
+import { countryAndCity, countryFlag } from "@/lib/country-flag";
 
 /**
  * Admin user list — filterable view of every user (Google + password).
@@ -194,6 +195,9 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Subscription</th>
                 <th className="px-4 py-3">Chat limit</th>
+                {/* GeoIP enrichment (PR-A). Shows signup country flag + city.
+                    Hover the Last-login cell to see the IP/country at last login. */}
+                <th className="px-4 py-3">Location</th>
                 <th className="px-4 py-3">Last login</th>
                 <th className="px-4 py-3">Joined</th>
                 <th className="px-4 py-3"></th>
@@ -238,10 +242,29 @@ export default function AdminUsersPage() {
                       </Badge>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-sm text-slate-700">
+                    {/* Signup-time snapshot. Doesn't change on subsequent
+                        logins — see Last-login tooltip for current. */}
+                    {countryAndCity(u.country, u.city)}
+                  </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
-                    {u.last_login_at
-                      ? new Date(u.last_login_at).toLocaleString()
-                      : <span className="italic">never</span>}
+                    {u.last_login_at ? (
+                      <span
+                        title={
+                          u.last_login_ip
+                            ? `Last login from ${u.last_login_ip}` +
+                              (u.last_login_country
+                                ? ` (${u.last_login_country})` : "")
+                            : "IP not captured"
+                        }
+                      >
+                        {u.last_login_country &&
+                          <span className="mr-1">{countryFlag(u.last_login_country)}</span>}
+                        {new Date(u.last_login_at).toLocaleString()}
+                      </span>
+                    ) : (
+                      <span className="italic">never</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
                     {new Date(u.created_at).toLocaleDateString()}

@@ -49,6 +49,10 @@ class LeadAdminOut(BaseModel):
     # 0..100 rule-based score, populated at insert time and on any
     # notes-patch save. `null` for leads that pre-date the feature.
     score: int | None = None
+    # GeoIP enrichment (PR-A). `country` is ISO-3166-1 alpha-2 (e.g.
+    # "IN"); frontend renders it as a flag emoji + city.
+    country: str | None = None
+    city: str | None = None
     class Config: from_attributes = True
 
 
@@ -77,6 +81,11 @@ class ContactRow(BaseModel):
     # AND for legacy lead rows that pre-date the scoring feature. UI
     # renders HOT/WARM/COLD chips based on the bucket.
     score: int | None = None
+    # GeoIP enrichment (PR-A). Only set on lead rows. `country` is
+    # ISO-3166-1 alpha-2 (frontend → flag emoji); `city` is English
+    # transliteration. `None` for users and for legacy/private-IP leads.
+    country: str | None = None
+    city: str | None = None
 
     # User-specific (None for leads)
     role: str | None = None

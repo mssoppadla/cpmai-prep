@@ -51,6 +51,14 @@ class UserAdminOut(UserOut):
     failed_login_count: int
     locked_until: datetime | None
     last_login_at: datetime | None
+    # GeoIP enrichment (PR-A). ``country`` / ``city`` are signup-time
+    # snapshots; ``last_login_country`` / ``last_login_ip`` are the
+    # most-recent-login snapshot. All nullable for historical rows
+    # and lookup-miss / private-IP cases.
+    country: str | None = None
+    city: str | None = None
+    last_login_ip: str | None = None
+    last_login_country: str | None = None
     # Login-method & subscription summaries — populated by the endpoint.
     has_google: bool = False
     has_password: bool = False

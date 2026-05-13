@@ -29,6 +29,14 @@ services:
       # Persist log files on the host so backups and grep can reach them
       # without docker exec. Logs are JSONL — see backend/app/core/logging.py.
       - ./backend/logs:/app/logs
+      # GeoIP database directory — bind-mounted so the monthly refresh
+      # cron (running on the HOST, talking to MaxMind via the backend
+      # container's CLI) writes to the same path the request handler
+      # reads from. The directory is created by deploy.sh with uid 999
+      # ownership to match the container's app user.
+      # See: app/services/geoip/lookup.py:DEFAULT_DB_PATH and
+      # scripts/vps/install_geoip.sh / geoip_refresh.sh.
+      - /srv/cpmai/geoip:/srv/cpmai/geoip
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     # Bind to loopback only — Caddy proxies internally. Host port is
     # configurable via BACKEND_HOST_PORT (in .deploy.conf) for VPS

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { admin, ApiError } from "@/lib/api";
+import { SecretInput } from "@/components/admin/SecretInput";
 import type { SettingOut } from "@/types/api";
 
 export default function SettingsPage() {
@@ -28,6 +29,14 @@ export default function SettingsPage() {
     finally { setBusy(null); }
   }
 
+  // Secret-setting save bypasses the JSON-parse step — license keys
+  // can contain "=" / "/" / "+" which JSON.parse would reject. Always
+  // send the raw string. The backend validator decides what's allowed.
+  async function saveSecret(key: string, rawValue: string) {
+    await admin.settings.update(key, rawValue);
+    await reload();
+  }
+
   return (
     <div className="p-8 max-w-4xl">
       <header className="mb-6">
@@ -51,6 +60,26 @@ export default function SettingsPage() {
             <tbody className="divide-y divide-slate-100">
               {rows.map(r => {
                 const editing = r.key in edit;
+                // Secret rows render a write-only SecretInput. The
+                // server already sent the masked form in r.value.
+                if (r.is_secret) {
+                  return (
+                    <tr key={r.key}>
+                      <td className="px-4 py-3 align-top">
+                        <code className="text-sm font-mono text-slate-800">{r.key}</code>
+                        {r.description && (
+                          <div className="text-xs text-slate-500 mt-0.5">{r.description}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 align-top" colSpan={2}>
+                        <SecretInput
+                          masked={typeof r.value === "string" ? r.value : ""}
+                          onSave={(v) => saveSecret(r.key, v)}
+                        />
+                      </td>
+                    </tr>
+                  );
+                }
                 const display = JSON.stringify(r.value);
                 return (
                   <tr key={r.key}>

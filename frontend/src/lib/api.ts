@@ -16,6 +16,8 @@ import type {
   OfferCodeAdminOut, OfferCodeCreate, OfferCodeUpdate,
   PriceQuoteOut, CreateOrderIn, CreateOrderOut,
   VerifyPaymentIn, VerifyPaymentOut,
+  GeoIPStatusOut, GeoIPRefreshOut, GeoIPTestKeyOut, GeoIPLookupOut,
+  GeoIPSchedulePreviewOut,
 } from "@/types/api";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -540,6 +542,34 @@ export const admin = {
       const { data } = await request<SettingOut>(
         `/admin/settings/${encodeURIComponent(key)}`,
         { method: "PATCH", json: { value }, authed: true });
+      return data;
+    },
+  },
+  geoip: {
+    async status() {
+      const { data } = await request<GeoIPStatusOut>(
+        "/admin/geoip/status", { authed: true });
+      return data;
+    },
+    async testKey() {
+      const { data } = await request<GeoIPTestKeyOut>(
+        "/admin/geoip/test-key", { method: "POST", authed: true });
+      return data;
+    },
+    async refreshNow() {
+      const { data } = await request<GeoIPRefreshOut>(
+        "/admin/geoip/refresh-now", { method: "POST", authed: true });
+      return data;
+    },
+    async lookup(ip: string) {
+      const { data } = await request<GeoIPLookupOut>(
+        "/admin/geoip/lookup", { method: "POST", json: { ip }, authed: true });
+      return data;
+    },
+    async previewSchedule(expression: string, count: number = 5) {
+      const { data } = await request<GeoIPSchedulePreviewOut>(
+        "/admin/geoip/schedule-preview",
+        { method: "POST", json: { expression, count }, authed: true });
       return data;
     },
   },

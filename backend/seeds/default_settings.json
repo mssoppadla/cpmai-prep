@@ -198,5 +198,31 @@
     "key": "site.show_pricing_link",
     "value": true,
     "description": "Show Pricing link in the top nav (set false until plans are public)"
+  },
+  {
+    "key": "geoip.maxmind_account_id",
+    "value": "",
+    "description": "MaxMind account ID for GeoLite2-City download (digits only — visible in MaxMind UI under My Account)"
+  },
+  {
+    "key": "geoip.maxmind_license_key",
+    "value": "",
+    "description": "MaxMind license key for GeoLite2-City download. Generate at maxmind.com → My License Keys. Stored masked; rotated via this admin UI without redeploy.",
+    "is_secret": true
+  },
+  {
+    "key": "geoip.refresh_enabled",
+    "value": true,
+    "description": "If true, the refresh cron downloads a fresh GeoLite2-City DB when scheduled. Set false to pause refreshes (e.g. during a MaxMind outage)."
+  },
+  {
+    "key": "geoip.refresh_schedule",
+    "value": "17 4 * * 3,6",
+    "description": "Cron expression for when the refresh script should run. Default is Wednesdays and Saturdays at 04:17 UTC (aligned with MaxMind's Tue/Fri release cadence). Cron itself fires every minute on the VPS; this expression is the gate. Capped at 24 fires/day to prevent MaxMind rate-limit issues. Adjust if MaxMind changes their release schedule."
+  },
+  {
+    "key": "geoip.trusted_proxy_count",
+    "value": 1,
+    "description": "How many X-Forwarded-For hops are our own proxies, counting from the right. cpmai has 1 (Caddy). Change only when the network topology changes."
   }
 ]

@@ -52,6 +52,18 @@ export interface UserAdminOut extends UserOut {
   failed_login_count: number;
   locked_until: string | null;
   last_login_at: string | null;
+  /** GeoIP enrichment (PR-A). Signup-time snapshot — never overwritten
+   *  on subsequent logins. `null` for historical users / private-IP
+   *  signups / lookup misses. */
+  country: string | null;
+  city: string | null;
+  /** Most-recent login IP (any successful login). 45 chars max
+   *  (IPv6 with safety margin). Useful for security forensics. */
+  last_login_ip: string | null;
+  /** Country resolved from `last_login_ip` at the time of that login.
+   *  Updated on every login. Independent of `country` so admin can see
+   *  "user signed up in IN, now logging in from SG". */
+  last_login_country: string | null;
   has_google: boolean;
   has_password: boolean;
   has_active_subscription: boolean;
@@ -290,6 +302,13 @@ export interface ContactRow {
   /** Rule-based 0..100 score (lead rows only). `null` for user rows
    *  and for leads created before scoring shipped. */
   score?: number | null;
+  /** GeoIP enrichment (PR-A). ISO-3166-1 alpha-2 country code (e.g.
+   *  "IN"); UI converts to flag emoji via `lib/country-flag.ts`.
+   *  `null` for user rows, legacy leads, and private-IP submissions. */
+  country?: string | null;
+  /** GeoIP city (English transliteration). `null` when MaxMind has
+   *  a country-only record (anonymous proxies) or no record at all. */
+  city?: string | null;
   // user-only
   role?: string | null;
   has_google?: boolean | null;
@@ -321,6 +340,66 @@ export interface LeadAdminOut {
   /** Rule-based 0..100 score. `null` for leads created before the
    *  scoring feature shipped; backfilled when admin saves notes. */
   score: number | null;
+  /** GeoIP enrichment (PR-A). ISO-3166-1 alpha-2 country code. */
+  country: string | null;
+  /** GeoIP city, English transliteration. */
+  city: string | null;
+}
+
+// ---------- GeoIP admin -----------------------------------------------------
+export interface GeoIPStatusOut {
+  database_present: boolean;
+  database_path: string;
+  database_size_bytes: number | null;
+  database_size_human: string | null;
+  database_mtime: string | null;
+  database_age_days: number | null;
+  database_stale: boolean;
+  last_lookup_count: number;
+  credentials_configured: boolean;
+  /** Schedule preview, sourced from geoip.refresh_schedule setting. */
+  refresh_schedule: string | null;
+  refresh_schedule_human: string | null;
+  refresh_schedule_next_runs: string[];
+  refresh_enabled: boolean;
+}
+
+export interface GeoIPSchedulePreviewIn {
+  expression: string;
+  count?: number;
+}
+
+export interface GeoIPSchedulePreviewOut {
+  expression: string;
+  ok: boolean;
+  reason: string;
+  human: string;
+  next_runs: string[];
+}
+
+export interface GeoIPRefreshOut {
+  updated: boolean;
+  database_date: string | null;
+  database_size_bytes: number;
+  bytes_downloaded: number;
+  elapsed_seconds: number;
+  message: string;
+}
+
+export interface GeoIPTestKeyOut {
+  ok: boolean;
+  status_code: number | null;
+  message: string;
+  latest_db_date: string | null;
+}
+
+export interface GeoIPLookupOut {
+  ip: string;
+  found: boolean;
+  country?: string | null;
+  city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 /** UI tier label for a lead score. Matches `app/services/lead_scoring.py:
@@ -514,7 +593,14 @@ export interface ChatQuota {
 
 // ---------- Settings & LLM providers --------------------------------------
 export interface SettingOut {
-  key: string; value: unknown; description: string | null; updated_at: string | null;
+  key: string;
+  value: unknown;
+  description: string | null;
+  updated_at: string | null;
+  /** When true, the value is a secret. The `value` field will be a
+   *  masked representation (e.g. "••••6e4f"), and the UI should render
+   *  a `SecretInput` (write-only) instead of a regular text input. */
+  is_secret?: boolean;
 }
 export interface SettingUpdate { value: unknown }
 

@@ -32,6 +32,17 @@ class User(Base):
     failed_login_count = Column(Integer, default=0, nullable=False)
     locked_until       = Column(DateTime(timezone=True))
     last_login_at      = Column(DateTime(timezone=True))
+    # GeoIP enrichment (migration 0019). Both populated at signup time
+    # AND refreshed on each login. Snapshot semantics: ``country`` /
+    # ``city`` are "where the account was created"; ``last_login_*`` are
+    # the most-recent-login snapshot. The pair gives the admin analytics
+    # dashboard two independent slices: "signups by country" (cohorts)
+    # and "currently-active users by country" (engagement). Nullable for
+    # historical users + private-IP / lookup-miss / failed-geoip cases.
+    country               = Column(String(2))     # ISO-3166-1 alpha-2
+    city                  = Column(String(120))
+    last_login_ip         = Column(String(45))    # IPv6 max 39 + headroom
+    last_login_country    = Column(String(2))
     # GDPR soft-delete marker. Set by `DELETE /users/me`; once non-NULL,
     # the user cannot log in and PII has been redacted (email rewritten
     # to deleted-{id}@redacted.invalid, name/password_hash/google_id

@@ -91,6 +91,12 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "site.twitter_url":                  "https://x.com/example",
     "site.copyright_text":               "© 2026 CPMAI Prep.",
     "site.show_pricing_link":            False,
+    # geoip.* — see app/services/geoip/README.md
+    "geoip.maxmind_account_id":          "1345788",
+    "geoip.maxmind_license_key":         "test_license_key_only_for_round_trip",
+    "geoip.refresh_enabled":             True,
+    "geoip.refresh_schedule":            "17 4 * * 3,6",
+    "geoip.trusted_proxy_count":         1,
 }
 
 
@@ -120,7 +126,14 @@ def test_each_editable_key_round_trips(client, admin, key):
     """Round-trip every key end-to-end: PATCH, expect 200, GET, expect
     the new value present. Catches type mismatches between seed default
     and validator, and confirms the audit-log + settings-store path
-    works for every key."""
+    works for every key.
+
+    Secret keys (``is_secret=True``) are an exception: PATCH echoes the
+    masked form, never the plaintext (matches the GET behavior). For
+    those keys we check the masked shape + the ``is_secret`` flag, not
+    value equality.
+    """
+    from app.api.v1.endpoints.admin.settings import SECRET_KEYS, _mask_value
     headers = auth_header(client, admin.email)
     value = HAPPY_PATH_VALUES[key]
     r = client.patch(f"/api/v1/admin/settings/{key}",
@@ -128,7 +141,13 @@ def test_each_editable_key_round_trips(client, admin, key):
     assert r.status_code == 200, f"PATCH {key} failed: {r.text}"
     body = r.json()
     assert body["key"] == key
-    assert body["value"] == value
+    if key in SECRET_KEYS:
+        # Masked form: starts with "••••" and ends with last-4 of value.
+        # The flag must be flipped on so the frontend renders SecretInput.
+        assert body.get("is_secret") is True
+        assert body["value"] == _mask_value(value)
+    else:
+        assert body["value"] == value
 
 
 # =================================================== specific bug fix
