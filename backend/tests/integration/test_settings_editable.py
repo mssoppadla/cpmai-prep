@@ -85,6 +85,10 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "assistant.handler.account.system":  "Custom account system prompt.",
     "assistant.handler.insights.system": "Custom insights system prompt.",
     "assistant.drift_detection_enabled": True,
+    "assistant.classifier.default_intent":
+                                         "faq",
+    "assistant.allowed_exceptions_directive":
+                                         "Custom directive: never refuse these topics.",
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,

@@ -154,6 +154,16 @@
     "description": "When true, the assistant runs post-checks on every LLM response and writes drift events to audit_log (visible at /admin/assistant-drift). Detects refusals when context was available, missing citations, invented citation IDs, and empty responses. Off by default — turn on once you have ~100+ chats to look at trends."
   },
   {
+    "key": "assistant.classifier.default_intent",
+    "value": "content",
+    "description": "Which intent (and therefore which handler) the classifier picks when no keyword in a question matches a known intent pattern. 'content' is the recommended default — ContentHandler has the broadest SYSTEM prompt and pulls from question_explanation + upload corpora. Other valid values: 'faq', 'account', 'insights', 'pmi_reference'."
+  },
+  {
+    "key": "assistant.allowed_exceptions_directive",
+    "value": "",
+    "description": "Pre-text injected before the operator's allowed_exceptions list in the system prompt. Tune the language to make the LLM treat exceptions as truly in-scope (e.g. add 'do NOT decline' for models that anchor on narrower handler framing). Leave blank to use the strong default ('Do NOT decline... Do NOT apologize... if context covers it answer from context, otherwise answer concisely from general knowledge'). Only edit if you switch LLM provider or notice the bot still refusing exception topics."
+  },
+  {
     "key": "payment.active_provider_id",
     "value": null,
     "description": "Active payment_providers row ID — INR-rail provider (typically Razorpay). Non-INR routing uses payment.non_inr_provider_id below."
