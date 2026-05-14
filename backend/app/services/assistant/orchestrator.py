@@ -26,6 +26,11 @@ from app.utils.pii import redact
 from app.models.assistant_log import AssistantLog
 from app.models.user import User
 from app.schemas.assistant import AssistantRequest, AssistantResponse
+from app.services.assistant.agentic.orchestrator import AgenticOrchestrator
+# Import the tools package for its side-effect: each module's
+# import-time register(...) call populates the agentic registry.
+# Without this import, AgenticOrchestrator sees zero tools.
+from app.services.assistant.agentic import tools as _agentic_tools_pkg  # noqa: F401
 from app.services.assistant.drift import DriftContext, detect_and_log
 from app.services.assistant.flow import Flow, FlowDecision, resolve_flow
 from app.services.assistant.guardrails import AssistantGuardrails
@@ -78,16 +83,8 @@ class AssistantOrchestrator:
         if decision.primary is Flow.LEGACY:
             return self._handle_legacy(request, user, safe_msg, decision)
 
-        # Agentic path — implementation lands in the follow-up PR. The
-        # raise here is intentional: we want the foundation (settings +
-        # resolver + dispatch) to be reviewable and tested before the
-        # router/tools/synthesis code arrives. With the seed default
-        # of "legacy", no real request ever reaches this branch on prod
-        # until an admin opts in.
-        raise NotImplementedError(
-            "Agentic flow is not yet wired in. Set assistant.flow=legacy "
-            "to disable (this is also the seed default). The agentic "
-            "implementation lands in a follow-up PR.")
+        # Agentic path.
+        return self._handle_agentic(request, user, safe_msg, decision)
 
     # ------------------------------------------------------------ legacy
     def _handle_legacy(
@@ -172,3 +169,109 @@ class AssistantOrchestrator:
             provider=provider.name,
             model_version=getattr(provider, "model", None),
         )
+
+    # ----------------------------------------------------------- agentic
+    def _handle_agentic(
+        self,
+        request: AssistantRequest,
+        user: User | None,
+        safe_msg: str,
+        decision: FlowDecision,
+    ) -> AssistantResponse:
+        """LangGraph-style flow: router → tools → synthesis.
+
+        Wraps :class:`AgenticOrchestrator` with the same audit /
+        drift / guardrail machinery the legacy path uses, so the
+        response shape (AssistantResponse), drift events, and
+        AssistantLog rows are flow-agnostic. The frontend doesn't
+        know — or care — which flow ran.
+        """
+        provider = LLMRegistry.get_active()
+        agentic = AgenticOrchestrator(self.db, provider)
+
+        try:
+            result = agentic.handle(request, user, request.anon_id)
+        except Exception as e:
+            log.exception("assistant.agentic_failed", error=str(e))
+            # Belt-and-braces: AgenticOrchestrator is contractually
+            # no-raise (catches its own errors). If it ever does
+            # raise, the chat path still answers something.
+            result = _agentic_error_result(str(e))
+
+        safe_out = self.guardrails.check_output(result.message)
+
+        # Drift detection — same rules as legacy, but the discriminator
+        # column reads "agentic". The dashboard splits panes on this.
+        # ``handler`` becomes a comma-joined list of tools the router
+        # picked, so operators can see WHICH tools were involved in a
+        # drifted answer.
+        try:
+            tools_summary = ",".join(
+                t.get("name", "?") for t in (result.tools_called or [])
+            ) or "(no tools)"
+            detect_and_log(self.db, DriftContext(
+                user_id=user.id if user else None,
+                flow=decision.primary.value,           # "agentic"
+                handler=tools_summary,
+                # No keyword classifier ran. We pass None so the
+                # dashboard's "intent" column reads as empty for
+                # agentic rows — they're aggregated by tool list
+                # instead.
+                intent=None,
+                question=safe_msg,
+                response=safe_out,
+                retrieval_count=len(result.citations or []),
+            ))
+        except Exception:
+            log.exception("assistant.drift_detection_crashed")
+
+        # Per-turn log row. We store the tool-call summary in the
+        # response_preview's metadata field via a JSON-encoded
+        # extension... wait, there's no metadata column on
+        # AssistantLog today. Use intent="agentic" + the existing
+        # response_preview to surface what happened; the audit_log
+        # drift rows have the full tools_called list.
+        log_row = AssistantLog(
+            user_id=user.id if user else None,
+            anon_id=request.anon_id,
+            # We don't have a keyword intent for agentic — use the
+            # literal "agentic" so the existing AssistantLog index
+            # by intent works as a "which flow ran" filter for
+            # quick admin queries.
+            intent="agentic",
+            intent_confidence=1.0,
+            provider=provider.name,
+            model=getattr(provider, "model", None),
+            redacted_input=redact(safe_msg)[:2000],
+            response_preview=safe_out[:500],
+        )
+        self.db.add(log_row)
+        self.db.commit()
+        self.db.refresh(log_row)
+
+        return AssistantResponse(
+            turn_id=log_row.id,
+            # ``intent`` on the response is a frontend hint —
+            # nothing in the widget UI today branches on it for
+            # agentic, but pinning "agentic" keeps the wire shape
+            # honest for any future "render differently per flow"
+            # treatment.
+            intent="agentic",
+            intent_confidence=1.0,
+            message=safe_out,
+            citations=result.citations or [],
+            suggested_actions=result.suggested_actions or [],
+            provider=provider.name,
+            model_version=getattr(provider, "model", None),
+        )
+
+
+def _agentic_error_result(err: str):
+    """Last-ditch result used when AgenticOrchestrator.handle itself
+    raises (it shouldn't — but defence in depth)."""
+    from app.services.assistant.agentic.orchestrator import AgenticResult
+    return AgenticResult(
+        message=("Sorry, I hit an error answering that. Please try "
+                  "again or ask for human follow-up."),
+        error=err,
+    )

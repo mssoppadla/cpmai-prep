@@ -1,24 +1,26 @@
 """Orchestrator flow-dispatch contract.
 
-The :class:`AssistantOrchestrator.handle` method now branches on the
+The :class:`AssistantOrchestrator.handle` method branches on the
 ``assistant.flow`` setting:
 
   * "legacy"   → original keyword-classifier + handler pipeline
                  (must remain byte-for-byte equivalent to pre-refactor)
-  * "agentic"  → NotImplementedError until the follow-up PR lands
+  * "agentic"  → router + tool-calling + synthesis (this PR)
+  * "percent:N" → deterministic cohort split
+  * "shadow"   → run both, return legacy (background-agentic side
+                 is sampled per ``shadow_sampling_rate``)
 
-Tests below are the contract:
+Tests below pin:
 
   1. With the seed default (``flow=legacy``) the /assistant/chat endpoint
-     still works exactly as before — this is the regression guard.
+     works exactly as before — regression guard.
 
-  2. When an operator flips to ``flow=agentic`` BEFORE the implementation
-     lands, the request fails cleanly (HTTP 500) rather than corrupting
-     state. The seed default prevents this from happening on prod, but
-     we test the guard explicitly so a future "set flow=agentic in
-     staging accidentally" scenario can't ship without our knowing.
+  2. ``flow=agentic`` returns a 200 with an agentic-shaped response.
+     The body is whatever the StubProvider supplies (since there's no
+     real LLM in tests), but the wire shape (intent="agentic",
+     citations, suggested_actions) is what we pin here.
 
-  3. Setting an invalid value falls back to legacy (defence-in-depth).
+  3. Invalid setting values are rejected at PATCH time (422).
 """
 import pytest
 
@@ -60,18 +62,21 @@ def test_explicit_legacy_setting_works_the_same(client, admin):
     assert r.status_code == 200
 
 
-def test_agentic_flow_is_not_yet_implemented(client, admin):
-    """Flipping flow=agentic BEFORE the agentic impl lands must fail
-    cleanly. Seed default is 'legacy' so this scenario only happens if
-    an operator opts in — but if they do, we don't want a corrupt state.
-
-    The HTTP layer surfaces NotImplementedError as 500. When the agentic
-    PR lands, this test changes to assert 200 with an agentic response
-    (and a new test guards "flow=legacy still works")."""
+def test_agentic_flow_returns_agentic_shaped_response(client, admin):
+    """``flow=agentic`` returns a 200 whose response shape matches
+    the agentic contract: intent="agentic", message non-empty,
+    citations and suggested_actions present (may be empty when the
+    StubProvider returns no tool calls)."""
     assert _set_flow(client, admin, "agentic").status_code == 200
-    client.cookies.set("aid", "anon-agentic-not-impl")
+    client.cookies.set("aid", "anon-agentic")
     r = _chat(client)
-    assert r.status_code == 500
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["intent"] == "agentic"
+    assert isinstance(body["message"], str)
+    assert body["message"]
+    assert isinstance(body["citations"], list)
+    assert isinstance(body["suggested_actions"], list)
 
 
 def test_percent_zero_routes_everyone_to_legacy(client, admin):
@@ -83,13 +88,15 @@ def test_percent_zero_routes_everyone_to_legacy(client, admin):
     assert r.status_code == 200
 
 
-def test_percent_hundred_would_route_everyone_to_agentic(client, admin):
-    """Cohort 100% — every user lands on agentic, which today raises.
-    Once the agentic PR ships, this asserts 200 instead."""
+def test_percent_hundred_routes_everyone_to_agentic(client, admin):
+    """Cohort 100% — every user lands on agentic. Sanity check that
+    the cohort hashing doesn't accidentally route a user to legacy
+    when N=100."""
     assert _set_flow(client, admin, "percent:100").status_code == 200
     client.cookies.set("aid", "anon-percent-hundred")
     r = _chat(client)
-    assert r.status_code == 500
+    assert r.status_code == 200, r.text
+    assert r.json()["intent"] == "agentic"
 
 
 def test_invalid_flow_value_is_rejected_by_admin_validator(client, admin):

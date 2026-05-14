@@ -691,8 +691,15 @@ export interface ChatMessage {
 export interface AssistantRequest { message: string; history?: ChatMessage[] }
 export interface AssistantCitation { source: string; title: string; url: string | null }
 export interface SuggestedAction { label: string; url: string }
+// Legacy flow emits one of the five handler-intent values. The
+// agentic flow doesn't have a per-handler intent (the router picks
+// tools, not an intent), so it surfaces the literal "agentic" in
+// this slot. The widget doesn't currently branch on this — but it
+// keeps the wire shape honest and makes a future "render differently
+// per flow" treatment trivial.
 export type AssistantIntent =
-  | "account" | "faq" | "content" | "insights" | "pmi_reference";
+  | "account" | "faq" | "content" | "insights" | "pmi_reference"
+  | "agentic";
 export interface AssistantResponse {
   /** AssistantLog row id for this turn. Null on older clients / pre-HITL
    *  responses. Required to flag a turn via /assistant/turns/{id}/flag. */

@@ -37,13 +37,17 @@ class AssistantResponse(BaseModel):
     # specific turn when the user flags it ("Wasn't helpful?"). Optional
     # so older clients that don't expect it still parse responses cleanly.
     turn_id: int | None = None
-    # Add `pmi_reference` to the literal — Day 1 introduced the new
-    # intent in the orchestrator but missed updating the response model.
-    # Pydantic would have rejected a "pmi_reference" intent at the
-    # serialization boundary; this aligns the wire shape with what the
-    # orchestrator emits.
+    # Legacy keyword classifier emits one of the five handler-intent
+    # values. The agentic flow emits the literal "agentic" instead —
+    # the response carries no per-handler intent (the router chose
+    # tools, not an intent), so we surface the flow name in this slot
+    # to keep the wire shape consistent across both flows. The
+    # frontend's AssistantWidget doesn't currently branch on this
+    # field, but a future "render differently per flow" treatment
+    # would key off "agentic" here.
     intent: Literal[
         "account", "faq", "content", "insights", "pmi_reference",
+        "agentic",
     ]
     intent_confidence: float
     message: str
