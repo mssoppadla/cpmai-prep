@@ -396,6 +396,280 @@ class TestAgenticOrchestratorMaxCallsCap:
         assert result.metadata["tools_executed"] == 2
 
 
+class TestAgenticOrchestratorReplan:
+    """Re-plan behaviour — when iteration 1 returns only EMPTY
+    results (no OK, no actionable ERROR/auth-refusal), the router
+    gets one more shot with the prior tool outputs in context.
+
+    All other failure modes (ERROR-only, auth-only, mixed-with-OK)
+    do NOT trigger re-plan — those are either non-recoverable or
+    already have evidence."""
+
+    def _two_response_provider(
+        self, first: ToolCallingResponse, second: ToolCallingResponse,
+        synth_text: str = "synth answer",
+    ) -> FakeProvider:
+        """Build a FakeProvider that returns ``first`` on the first
+        complete_with_tools call and ``second`` on subsequent calls.
+
+        The callable router_response form lets us simulate a router
+        that re-plans differently after seeing tool results."""
+        state = {"call_count": 0}
+
+        def script(system, messages):
+            state["call_count"] += 1
+            return first if state["call_count"] == 1 else second
+
+        return FakeProvider(router_response=script,
+                             synthesis_text=synth_text)
+
+    def test_replan_fires_when_iter1_all_empty(self, db):
+        """Iter 1: faq_search returns EMPTY. Re-plan fires.
+        Iter 2: content_search picks different tool, returns chunks.
+        Synthesis runs on iter-2 evidence."""
+        fake = self._two_response_provider(
+            first=ToolCallingResponse(
+                text="", finish_reason="tool_calls",
+                tool_calls=[_tc("faq_search", {"query": "x"}, id="1")],
+            ),
+            second=ToolCallingResponse(
+                text="", finish_reason="tool_calls",
+                tool_calls=[_tc("content_search", {"query": "x"}, id="2")],
+            ),
+            synth_text="grounded answer from re-plan",
+        )
+        orch = AgenticOrchestrator(db, fake)
+        with patch(
+            "app.services.assistant.agentic.tools.faq_search.retrieve_context",
+            return_value=[],   # iter 1 → EMPTY
+        ), patch(
+            "app.services.assistant.agentic.tools.content_search.retrieve_context",
+            return_value=[_chunk("found this on re-plan")],  # iter 2 → OK
+        ):
+            result = orch.handle(_req(), user=None, anon_id="anon-x")
+
+        # Two router calls + one synthesis = three total LLM calls.
+        kinds = [c.kind for c in fake.calls]
+        assert kinds == [
+            "complete_with_tools", "complete_with_tools", "complete",
+        ]
+        assert result.metadata["replans_fired"] == 1
+        # Both tools were executed (iter 1 empty + iter 2 ok).
+        names = [t["name"] for t in result.tools_called]
+        assert names == ["faq_search", "content_search"]
+        # Citations come from iter-2 OK result.
+        assert len(result.citations) == 1
+        assert result.metadata["tools_empty"] == 1
+        assert result.metadata["tools_ok"] == 1
+
+    def test_replan_skipped_when_iter1_has_ok_result(self, db):
+        """If iter 1 returns ANY ok result, don't waste a router
+        call on re-plan — synthesis has evidence to work with."""
+        called_second_router = {"flag": False}
+
+        def script(system, messages):
+            if called_second_router["flag"]:
+                # If this fires, test should fail loudly.
+                raise AssertionError(
+                    "second router call should NOT happen — iter 1 had OK")
+            called_second_router["flag"] = True
+            return ToolCallingResponse(
+                text="", finish_reason="tool_calls",
+                tool_calls=[_tc("faq_search", {"query": "x"})],
+            )
+
+        fake = FakeProvider(router_response=script,
+                             synthesis_text="answer")
+        orch = AgenticOrchestrator(db, fake)
+        with patch(
+            "app.services.assistant.agentic.tools.faq_search.retrieve_context",
+            return_value=[_chunk("good content")],  # OK
+        ):
+            result = orch.handle(_req(), user=None, anon_id="anon-x")
+
+        assert result.metadata["replans_fired"] == 0
+        # Single router + single synth = 2 calls only.
+        assert len(fake.calls) == 2
+
+    def test_replan_skipped_when_all_error(self, db):
+        """ERROR-only results are not fixable by re-planning with the
+        same prompt — synthesis frames the error to the user instead."""
+        fake = self._two_response_provider(
+            # Iter 1: malformed args → ERROR
+            first=ToolCallingResponse(
+                text="", finish_reason="tool_calls",
+                tool_calls=[_tc("faq_search", {}, id="1")],  # missing query
+            ),
+            # Iter 2 won't fire — but if it did, we'd catch it here.
+            second=ToolCallingResponse(
+                text="", finish_reason="stop", tool_calls=[],
+            ),
+        )
+        orch = AgenticOrchestrator(db, fake)
+        result = orch.handle(_req(), user=None, anon_id="anon-x")
+
+        assert result.metadata["replans_fired"] == 0
+        # Only one router call.
+        assert sum(1 for c in fake.calls if c.kind == "complete_with_tools") == 1
+
+    def test_replan_skipped_when_only_auth_refused(self, db):
+        """REFUSED_NEED_AUTH means the user is anonymous. Re-planning
+        won't change that — synthesis asks them to sign in."""
+        fake = self._two_response_provider(
+            first=ToolCallingResponse(
+                text="", finish_reason="tool_calls",
+                tool_calls=[_tc("account_state", {}, id="1")],
+            ),
+            second=ToolCallingResponse(
+                text="should not fire", finish_reason="stop", tool_calls=[],
+            ),
+        )
+        orch = AgenticOrchestrator(db, fake)
+        result = orch.handle(_req(), user=None, anon_id="anon-x")
+
+        assert result.metadata["replans_fired"] == 0
+        assert sum(1 for c in fake.calls if c.kind == "complete_with_tools") == 1
+
+    def test_replan_blocked_when_budget_exhausted(self, db):
+        """Iter 1 uses all 4 tool slots; even though they all return
+        EMPTY, re-plan can't fire — cost guard."""
+        from app.core.settings_store import settings_store
+
+        with patch.object(settings_store, "get_int",
+                           side_effect=lambda k, d=0:
+                               4 if k == "assistant.agentic.tools_max_calls"
+                               else d):
+            fake = self._two_response_provider(
+                first=ToolCallingResponse(
+                    text="", finish_reason="tool_calls",
+                    tool_calls=[
+                        _tc("faq_search", {"query": "a"}, id="1"),
+                        _tc("content_search", {"query": "b"}, id="2"),
+                        _tc("pricing_lookup", {"query": "c"}, id="3"),
+                        _tc("faq_search", {"query": "d"}, id="4"),
+                    ],
+                ),
+                second=ToolCallingResponse(
+                    text="should not fire", finish_reason="stop",
+                    tool_calls=[],
+                ),
+            )
+            orch = AgenticOrchestrator(db, fake)
+            with patch(
+                "app.services.assistant.agentic.tools.faq_search.retrieve_context",
+                return_value=[],
+            ), patch(
+                "app.services.assistant.agentic.tools.content_search.retrieve_context",
+                return_value=[],
+            ), patch(
+                "app.services.assistant.agentic.tools.pricing_lookup.retrieve_context",
+                return_value=[],
+            ):
+                result = orch.handle(_req(), user=None, anon_id="anon-x")
+
+        # Budget = 4, iter 1 used all 4 → no re-plan possible.
+        assert result.metadata["replans_fired"] == 0
+        assert sum(1 for c in fake.calls if c.kind == "complete_with_tools") == 1
+
+    def test_replan_router_emits_no_tools_on_second_pass(self, db):
+        """Re-plan fires but the router decides not to call any tools
+        on its second pass (it gives up). Synthesis still runs on
+        iter-1 evidence."""
+        fake = self._two_response_provider(
+            first=ToolCallingResponse(
+                text="", finish_reason="tool_calls",
+                tool_calls=[_tc("faq_search", {"query": "x"}, id="1")],
+            ),
+            # Re-plan returns no tools — router decided to give up.
+            second=ToolCallingResponse(
+                text="(router gave up)", finish_reason="stop",
+                tool_calls=[],
+            ),
+        )
+        orch = AgenticOrchestrator(db, fake)
+        with patch(
+            "app.services.assistant.agentic.tools.faq_search.retrieve_context",
+            return_value=[],
+        ):
+            result = orch.handle(_req(), user=None, anon_id="anon-x")
+
+        # Two router calls (iter 1 + re-plan), then synthesis.
+        kinds = [c.kind for c in fake.calls]
+        assert kinds == [
+            "complete_with_tools", "complete_with_tools", "complete",
+        ]
+        assert result.metadata["replans_fired"] == 1
+        # Only iter-1's tool was executed.
+        assert len(result.tools_called) == 1
+        assert result.tools_called[0]["name"] == "faq_search"
+
+    def test_replan_failure_does_not_crash_turn(self, db):
+        """If the second router call raises (rate-limit, network),
+        the turn still completes — synthesis runs on iter-1 results
+        and result.error reports replan_failed."""
+        attempt = {"n": 0}
+
+        def script(system, messages):
+            attempt["n"] += 1
+            if attempt["n"] == 1:
+                return ToolCallingResponse(
+                    text="", finish_reason="tool_calls",
+                    tool_calls=[_tc("faq_search", {"query": "x"}, id="1")],
+                )
+            raise RuntimeError("rate limit on re-plan")
+
+        fake = FakeProvider(router_response=script,
+                             synthesis_text="synth on iter-1")
+        orch = AgenticOrchestrator(db, fake)
+        with patch(
+            "app.services.assistant.agentic.tools.faq_search.retrieve_context",
+            return_value=[],
+        ):
+            result = orch.handle(_req(), user=None, anon_id="anon-x")
+
+        assert result.metadata["replans_fired"] == 1
+        assert "replan_failed" in (result.error or "")
+        # Synthesis still ran.
+        assert "synth on iter-1" in result.message
+
+    def test_replan_messages_include_prior_tool_round(self, db):
+        """The re-plan router call must receive the iter-1
+        assistant-tool-call message + tool result message so it has
+        evidence to decide differently. Pin the message protocol."""
+        observed_messages: list[list[dict]] = []
+
+        def script(system, messages):
+            observed_messages.append(list(messages))
+            if len(observed_messages) == 1:
+                return ToolCallingResponse(
+                    text="", finish_reason="tool_calls",
+                    tool_calls=[_tc("faq_search", {"query": "x"}, id="abc")],
+                )
+            return ToolCallingResponse(
+                text="", finish_reason="stop", tool_calls=[])
+
+        fake = FakeProvider(router_response=script, synthesis_text="x")
+        orch = AgenticOrchestrator(db, fake)
+        with patch(
+            "app.services.assistant.agentic.tools.faq_search.retrieve_context",
+            return_value=[],   # EMPTY → re-plan
+        ):
+            orch.handle(_req(), user=None, anon_id="anon-x")
+
+        # Second call should have prior tool round appended.
+        assert len(observed_messages) == 2
+        iter2 = observed_messages[1]
+        # Find the assistant message with tool_calls.
+        asst = [m for m in iter2
+                 if m.get("role") == "assistant" and m.get("tool_calls")]
+        assert len(asst) == 1
+        assert asst[0]["tool_calls"][0]["function"]["name"] == "faq_search"
+        # Tool result message with matching tool_call_id.
+        tool_msgs = [m for m in iter2 if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["tool_call_id"] == "abc"
+
+
 class TestAgenticOrchestratorPromptComposition:
     """The synthesis system prompt should include the evidence block
     and pass through the admin-configured preamble."""

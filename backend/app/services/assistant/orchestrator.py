@@ -20,8 +20,10 @@ risk of any user actually triggering the unfinished code path. Once
 agentic implementation lands, operators flip the setting and traffic
 moves over with no further deploy.
 """
+import time
 import structlog
 from sqlalchemy.orm import Session
+from app.core.audit import audit_log
 from app.utils.pii import redact
 from app.models.assistant_log import AssistantLog
 from app.models.user import User
@@ -81,10 +83,21 @@ class AssistantOrchestrator:
         )
 
         if decision.primary is Flow.LEGACY:
-            return self._handle_legacy(request, user, safe_msg, decision)
+            response = self._handle_legacy(request, user, safe_msg, decision)
+        else:
+            response = self._handle_agentic(request, user, safe_msg, decision)
 
-        # Agentic path.
-        return self._handle_agentic(request, user, safe_msg, decision)
+        # Shadow execution — synchronous + no-raise. The shadow side
+        # runs only when ``decision.shadow`` is set (which happens
+        # only in ``flow=shadow`` mode AND only when the per-request
+        # sampling roll fired). It logs to audit_log + the drift
+        # detector under a distinct flow discriminator so dashboards
+        # can compare side-by-side; it does NOT influence the response
+        # we return.
+        if decision.shadow is not None:
+            self._run_shadow(request, user, safe_msg, decision)
+
+        return response
 
     # ------------------------------------------------------------ legacy
     def _handle_legacy(
@@ -275,3 +288,117 @@ def _agentic_error_result(err: str):
                   "again or ask for human follow-up."),
         error=err,
     )
+
+
+# --------------------------------------------------------------- shadow
+# We attach this as a method on AssistantOrchestrator below by binding
+# at module load — easier than re-opening the class.
+
+def _run_shadow(
+    self: "AssistantOrchestrator",
+    request: AssistantRequest,
+    user: User | None,
+    safe_msg: str,
+    decision: FlowDecision,
+) -> None:
+    """Run the shadow flow synchronously, log its result for offline
+    comparison. NEVER raises — shadow failures must not affect the
+    user-facing response.
+
+    Today the resolver only ever sets ``decision.shadow=AGENTIC``
+    (with ``primary=LEGACY``) in shadow-mode. We branch on the value
+    anyway so a future "shadow=LEGACY while primary=AGENTIC" mode
+    drops in cleanly.
+
+    Logging contract:
+
+      * One audit_log row with action='assistant.shadow.{flow}'
+        capturing the shadow result for offline comparison.
+      * One drift-detector pass against the shadow response, with
+        flow="shadow_agentic" so dashboards segregate shadow rows
+        from primary rows.
+      * NO AssistantLog row — the user got the primary's turn_id;
+        adding a shadow row would confuse the "flag this turn"
+        feedback loop.
+      * NO Redis quota tick — the user sent one message, they pay
+        for one quota slot. (Endpoint already counted before
+        handle().)
+
+    Cost: every shadow-sampled request runs an additional agentic
+    pipeline → ~2× LLM calls + ~2× latency for that turn. Gated by
+    ``assistant.agentic.shadow_sampling_rate`` (seed default 0.0 —
+    shadow disabled until an admin opts in).
+    """
+    started = time.monotonic()
+    if decision.shadow is None:
+        return     # defensive — handle() guards this too
+
+    user_id = user.id if user else None
+
+    if decision.shadow is Flow.AGENTIC:
+        try:
+            provider = LLMRegistry.get_active()
+            agentic = AgenticOrchestrator(self.db, provider)
+            shadow_result = agentic.handle(
+                request, user, request.anon_id)
+        except Exception as e:
+            log.exception("assistant.shadow_failed", error=str(e))
+            try:
+                audit_log(self.db, user_id, "assistant.shadow.error", {
+                    "primary_flow": decision.primary.value,
+                    "shadow_flow":  decision.shadow.value,
+                    "error": str(e),
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                })
+            except Exception:
+                pass
+            return
+
+        shadow_message = self.guardrails.check_output(shadow_result.message)
+
+        try:
+            tools_summary = ",".join(
+                t.get("name", "?") for t in (shadow_result.tools_called or [])
+            ) or "(no tools)"
+            audit_log(self.db, user_id, "assistant.shadow.agentic", {
+                "primary_flow": decision.primary.value,
+                "shadow_flow":  decision.shadow.value,
+                "tools_called": shadow_result.tools_called,
+                "shadow_response_preview": shadow_message[:500],
+                "shadow_citations_count": len(shadow_result.citations or []),
+                "shadow_error": shadow_result.error,
+                "shadow_metadata": shadow_result.metadata,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+            })
+        except Exception:
+            log.exception("assistant.shadow_audit_failed")
+
+        # Drift detection on the shadow response. Distinct flow value
+        # ("shadow_agentic") so dashboards can show "shadow agentic
+        # drift" alongside "primary legacy drift" without conflating
+        # them with primary-agentic traffic.
+        try:
+            detect_and_log(self.db, DriftContext(
+                user_id=user_id,
+                flow=f"shadow_{decision.shadow.value}",
+                handler=tools_summary,
+                intent=None,
+                question=safe_msg,
+                response=shadow_message,
+                retrieval_count=len(shadow_result.citations or []),
+            ))
+        except Exception:
+            log.exception("assistant.shadow_drift_failed")
+        return
+
+    # Shadow flow value the resolver doesn't currently emit — log
+    # and bail out. Keeps the function future-proof against a
+    # resolver change.
+    log.warning("assistant.shadow_unsupported_flow",
+                  shadow_flow=decision.shadow.value)
+
+
+# Bind the module-level function as a method on AssistantOrchestrator
+# without re-opening the class block. Same effect, slightly easier to
+# read than nested-function-in-class.
+AssistantOrchestrator._run_shadow = _run_shadow  # type: ignore[attr-defined]
