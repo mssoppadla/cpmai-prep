@@ -112,32 +112,53 @@ def drift_summary(
         reason = meta.get("drift_reason") or "unknown"
         by_fr[(flow, reason)] += 1
 
-    legacy_drift  = sum(c for (f, _r), c in by_fr.items() if f == "legacy")
-    agentic_drift = sum(c for (f, _r), c in by_fr.items() if f == "agentic")
+    drift_by_flow: dict[str, int] = defaultdict(int)
+    for (flow, _r), c in by_fr.items():
+        drift_by_flow[flow] += c
 
-    # Total assistant turns over the same window. No flow split today
-    # because AssistantLog doesn't track flow yet (no agentic path
-    # exists). When agentic ships, add a `flow` column to AssistantLog
-    # and split this query into per-flow counts.
-    total_turns = db.query(func.count(AssistantLog.id)).filter(
-        AssistantLog.created_at >= since).scalar() or 0
+    # Per-flow turn counts. AssistantOrchestrator writes
+    # ``intent="agentic"`` on the AssistantLog row for agentic turns;
+    # legacy turns use one of the five handler-intent values. We split
+    # by that column. Shadow-mode does NOT write AssistantLog rows
+    # (only audit_log shadow rows), so shadow_agentic.turns is null —
+    # frontend renders the shadow bucket as "drift events only, no
+    # turn-count base for a rate".
+    legacy_turns = db.query(func.count(AssistantLog.id)).filter(
+        AssistantLog.created_at >= since,
+        AssistantLog.intent != "agentic",
+    ).scalar() or 0
+    agentic_turns = db.query(func.count(AssistantLog.id)).filter(
+        AssistantLog.created_at >= since,
+        AssistantLog.intent == "agentic",
+    ).scalar() or 0
+
+    totals: dict[str, dict] = {
+        "legacy": {
+            "turns":        int(legacy_turns),
+            "drift_events": drift_by_flow.get("legacy", 0),
+        },
+        "agentic": {
+            "turns":        int(agentic_turns),
+            "drift_events": drift_by_flow.get("agentic", 0),
+        },
+    }
+    # Surface shadow_agentic only when we actually saw shadow events
+    # in the window. Empty shadow column would just be visual noise.
+    shadow_drift = drift_by_flow.get("shadow_agentic", 0)
+    if shadow_drift > 0:
+        totals["shadow_agentic"] = {
+            # Shadow turns don't write AssistantLog rows by design
+            # (the user only has one turn_id; shadow is a side-channel).
+            # No rate calculation possible — frontend renders as count
+            # only with a "shadow has no turn baseline" footnote.
+            "turns":        None,
+            "drift_events": shadow_drift,
+        }
 
     return {
         "window": window,
         "since":  since.isoformat().replace("+00:00", "Z"),
-        "totals": {
-            "legacy": {
-                "turns":        int(total_turns),
-                "drift_events": legacy_drift,
-            },
-            "agentic": {
-                # Agentic toggle not implemented yet → 0 turns + 0
-                # drift events. Frontend reads this as "not active"
-                # and renders the comparison column accordingly.
-                "turns":        0,
-                "drift_events": agentic_drift,
-            },
-        },
+        "totals": totals,
         "by_flow_reason": [
             {"flow": flow, "reason": reason, "count": count}
             for (flow, reason), count in sorted(

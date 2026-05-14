@@ -5,10 +5,16 @@
  *
  * Headline framing: "is the LLM going off the rails, and is one flow
  * better than the other?" Side-by-side cards compare the legacy
- * (regex classifier + single handler) flow with the agentic (LLM tool
- * routing + synthesis) flow. Today only legacy populates — agentic
- * shows "not active" until the toggle ships. Same UI, no rewrite
- * needed when the toggle lands.
+ * (keyword classifier + single handler) flow with the agentic (LLM
+ * tool routing + synthesis) flow. The card layout doesn't change
+ * with rollout state — when an operator first turns on `flow=agentic`
+ * or starts a `percent:N` rollout, agentic events start landing in
+ * the existing column.
+ *
+ * When shadow mode is sampling (assistant.flow=shadow,
+ * shadow_sampling_rate > 0), a third "Shadow agentic" card surfaces
+ * to compare drift between the legacy primary and the shadow
+ * agentic side without affecting users.
  *
  * Below the headline cards, a recent-events table lets the operator
  * drill into individual events: see the original question, the LLM
@@ -53,7 +59,9 @@ export default function AssistantDriftPage() {
   const [window, setWindow] = useState<Window>("7d");
   const [summary, setSummary] = useState<Awaited<ReturnType<typeof admin.assistantDrift.summary>> | null>(null);
   const [events, setEvents] = useState<Awaited<ReturnType<typeof admin.assistantDrift.events>> | null>(null);
-  const [filterFlow, setFilterFlow] = useState<"" | "legacy" | "agentic">("");
+  const [filterFlow, setFilterFlow] = useState<
+    "" | "legacy" | "agentic" | "shadow_agentic"
+  >("");
   const [filterReason, setFilterReason] = useState<string>("");
   const [filterHandler, setFilterHandler] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
@@ -91,8 +99,16 @@ export default function AssistantDriftPage() {
   }, [summary]);
 
   const reasons = Object.keys(REASON_LABEL);
+  // "Active" = at least one turn OR drift event in the window. This
+  // controls whether the column shows real numbers vs the muted
+  // "no data yet" state.
   const agenticActive = (summary?.totals.agentic.turns ?? 0) > 0
                      || (summary?.totals.agentic.drift_events ?? 0) > 0;
+  // Shadow card appears only when the backend actually returned a
+  // shadow_agentic bucket — which only happens when at least one
+  // shadow event landed in the window. Empty shadow column is
+  // visual noise.
+  const shadow = summary?.totals.shadow_agentic;
 
   return (
     <div className="p-8 max-w-6xl space-y-6">
@@ -119,14 +135,21 @@ export default function AssistantDriftPage() {
       {err && <div className="bg-rose-50 border border-rose-200 text-rose-700
                               p-3 rounded-lg text-sm">{err}</div>}
 
-      {/* Side-by-side comparison cards. Two columns always render so
-          the operator can immediately see "is agentic better than
-          legacy". When agentic isn't deployed yet, that column shows
-          "— not active" instead of misleading 0% rates. */}
+      {/* Side-by-side comparison cards. Legacy + agentic columns
+          always render so the operator can immediately see "is agentic
+          better than legacy?" — when agentic hasn't been turned on
+          yet, that column shows the muted "no data yet" state instead
+          of misleading 0% rates.
+
+          The third "Shadow agentic" column surfaces only when shadow
+          mode has actually been sampling — i.e., the backend returned
+          a shadow_agentic bucket. Empty-column noise is avoided. */}
       {summary && (
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <section className={`grid grid-cols-1 gap-4 ${
+          shadow ? "lg:grid-cols-3" : "md:grid-cols-2"
+        }`}>
           <FlowCard title="Legacy"
-                    subtitle="regex classifier + single handler"
+                    subtitle="keyword classifier + single handler"
                     turns={summary.totals.legacy.turns}
                     driftEvents={summary.totals.legacy.drift_events}
                     reasons={reasons.map(r => ({
@@ -143,6 +166,17 @@ export default function AssistantDriftPage() {
                       count: byFlowReason.get(`agentic:${r}`) ?? 0,
                     }))}
                     active={agenticActive} />
+          {shadow && (
+            <FlowCard title="Shadow agentic"
+                      subtitle="background-only; logged for offline comparison"
+                      turns={shadow.turns}
+                      driftEvents={shadow.drift_events}
+                      reasons={reasons.map(r => ({
+                        reason: r,
+                        count: byFlowReason.get(`shadow_agentic:${r}`) ?? 0,
+                      }))}
+                      active />
+          )}
         </section>
       )}
 
@@ -158,6 +192,7 @@ export default function AssistantDriftPage() {
               <option value="">All flows</option>
               <option value="legacy">Legacy</option>
               <option value="agentic">Agentic</option>
+              <option value="shadow_agentic">Shadow agentic</option>
             </select>
             <select value={filterReason}
                     onChange={(e) => setFilterReason(e.target.value)}
@@ -199,14 +234,30 @@ function FlowCard({
 }: {
   title: string;
   subtitle: string;
-  turns: number;
+  /** ``null`` for shadow agentic — shadow doesn't write AssistantLog
+   *  rows, so there's no turn baseline for a drift rate. The card
+   *  renders absolute counts only in that case. */
+  turns: number | null;
   driftEvents: number;
   reasons: { reason: string; count: number }[];
   active: boolean;
 }) {
-  const rate = (active && turns > 0)
-    ? ((driftEvents / turns) * 100).toFixed(2) + "%"
-    : "—";
+  // Three rendering modes:
+  //   * Active + turns known → "12 drift events of 1,043 turns · 1.15%"
+  //   * Active + turns=null  → "6 drift events (no turn baseline — shadow doesn't write turns)"
+  //   * Inactive             → muted "no data yet"
+  let rate = "—";
+  let subtext = "no data yet";
+  if (active) {
+    if (turns === null) {
+      subtext = "shadow events; no turn baseline for a rate";
+    } else if (turns > 0) {
+      rate = ((driftEvents / turns) * 100).toFixed(2) + "%";
+      subtext = `of ${turns} turns · ${rate}`;
+    } else {
+      subtext = "0 turns yet — drift detection on but no traffic";
+    }
+  }
 
   return (
     <div className={`bg-white rounded-xl border p-5 ${
@@ -228,9 +279,7 @@ function FlowCard({
         <div className="text-3xl font-bold text-slate-900">
           {active ? driftEvents : "—"}
         </div>
-        <div className="text-sm text-slate-500">
-          {active ? `of ${turns} turns · ${rate}` : "no data yet"}
-        </div>
+        <div className="text-sm text-slate-500">{subtext}</div>
       </div>
       <ul className="mt-4 space-y-1.5 text-sm">
         {reasons.map(({ reason, count }) => {

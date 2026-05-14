@@ -649,14 +649,59 @@ export const admin = {
       return data;
     },
   },
+  /** Live state + cohort preview for the assistant.flow toggle.
+   *  Backed by /api/v1/admin/assistant-flow/{state,preview}. */
+  assistantFlow: {
+    async state() {
+      const { data } = await request<{
+        flow: string;
+        tools_max_calls: number;
+        router_system: string;
+        synthesis_system: string;
+        shadow_sampling_rate: number;
+        is_agentic_reachable: boolean;
+        is_shadow_enabled: boolean;
+        percent_rollout: number | null;
+      }>("/admin/assistant-flow/state", { authed: true });
+      return data;
+    },
+    async preview(params: {
+      as_user_id?: number;
+      as_anon_id?: string;
+    } = {}) {
+      const qs = new URLSearchParams();
+      if (params.as_user_id !== undefined)
+        qs.set("as_user_id", String(params.as_user_id));
+      if (params.as_anon_id) qs.set("as_anon_id", params.as_anon_id);
+      const path = "/admin/assistant-flow/preview" +
+                    (qs.toString() ? "?" + qs.toString() : "");
+      const { data } = await request<{
+        as_user_id: number | null;
+        as_anon_id: string | null;
+        decision: {
+          primary: "legacy" | "agentic";
+          shadow:  "legacy" | "agentic" | null;
+          reason:  string;
+        };
+        cohort_bucket: number;
+      }>(path, { authed: true });
+      return data;
+    },
+  },
+
   assistantDrift: {
     async summary(window: "24h" | "7d" | "30d" = "7d") {
       const { data } = await request<{
         window: string;
         since: string;
         totals: {
-          legacy:  { turns: number; drift_events: number };
-          agentic: { turns: number; drift_events: number };
+          // legacy + agentic always present. shadow_agentic surfaces
+          // only when there were shadow drift events in the window —
+          // see backend assistant_drift.py for the "no shadow events
+          // → no shadow column" rationale.
+          legacy:          { turns: number;       drift_events: number };
+          agentic:         { turns: number;       drift_events: number };
+          shadow_agentic?: { turns: number | null; drift_events: number };
         };
         by_flow_reason: { flow: string; reason: string; count: number }[];
       }>(`/admin/assistant-drift/summary?window=${window}`,
@@ -665,7 +710,11 @@ export const admin = {
     },
     async events(params: {
       window?: "24h" | "7d" | "30d";
-      flow?: "legacy" | "agentic";
+      // Backend filters on the metadata.flow value. shadow_agentic
+      // is the value the AssistantOrchestrator writes for the
+      // shadow side's drift detector — surfaces in the dashboard as
+      // a distinct filter option.
+      flow?: "legacy" | "agentic" | "shadow_agentic";
       reason?: string;
       handler?: string;
       limit?: number;
