@@ -258,6 +258,32 @@ export interface AssistantNotification {
   replied_by_name: string | null;
 }
 
+
+/** One row of the /admin/chat-history/flagged response.
+ *  Shipped in feat/flagged-turn-resolve — exposes resolved_at +
+ *  resolved_by + the derived ``status`` string the backend computes
+ *  from the row's timestamps. */
+export interface FlaggedTurnAdminRow {
+  id: number;
+  assistant_log_id: number;
+  user: { id: number | null; email: string | null; name: string | null };
+  original_message: string;
+  original_reply: string;
+  provider: string | null;
+  model: string | null;
+  flag_note: string | null;
+  flagged_at: string;
+  admin_reply: string | null;
+  replied_at: string | null;
+  replied_by: { id: number | null; name: string | null;
+                email: string | null } | null;
+  resolved_at: string | null;
+  resolved_by: { id: number | null; name: string | null;
+                 email: string | null; is_self: boolean } | null;
+  /** "pending" | "replied" | "resolved" — derived server-side. */
+  status: "pending" | "replied" | "resolved";
+}
+
 export const assistant = {
   async chat(payload: AssistantRequest): Promise<{
     response: AssistantResponse; quota: ChatQuota;
@@ -294,15 +320,21 @@ export const assistant = {
    *  backend returns the existing flag row on second submit instead
    *  of erroring, so the widget can be safely re-clicked. */
   async flagTurn(turnId: number, note?: string): Promise<{
-    id: number; status: "pending" | "replied" | "closed";
+    id: number; status: "pending" | "replied" | "resolved" | "closed";
   }> {
     const { data } = await request<{
-      id: number; status: "pending" | "replied" | "closed";
+      id: number; status: "pending" | "replied" | "resolved" | "closed";
     }>(`/assistant/turns/${turnId}/flag`, {
       method: "POST", authed: true,
       json: { note: note?.trim() || null },
     });
     return data;
+  },
+  /** User marks their own flag as resolved (withdraws, or
+   *  acknowledges a satisfying admin reply). Idempotent. */
+  async resolveFlaggedTurn(turnId: number): Promise<void> {
+    await request(`/assistant/turns/${turnId}/flag/resolve`,
+      { method: "POST", authed: true });
   },
   /** Unread admin replies — drives the chat widget's red-dot indicator. */
   async notifications(): Promise<AssistantNotification[]> {
@@ -975,39 +1007,12 @@ export const admin = {
     /** HITL: list flagged turns awaiting (or, with includeReplied,
      *  including already-replied) admin attention. */
     async listFlagged(p?: { include_replied?: boolean;
+                            include_resolved?: boolean;
                             limit?: number; offset?: number }): Promise<{
-      items: Array<{
-        id: number;
-        assistant_log_id: number;
-        user: { id: number | null; email: string | null; name: string | null };
-        original_message: string;
-        original_reply: string;
-        provider: string | null;
-        model: string | null;
-        flag_note: string | null;
-        flagged_at: string;
-        admin_reply: string | null;
-        replied_at: string | null;
-        replied_by: { id: number | null; name: string | null;
-                      email: string | null } | null;
-      }>;
+      items: Array<FlaggedTurnAdminRow>;
     }> {
       const { data } = await request<{
-        items: Array<{
-          id: number;
-          assistant_log_id: number;
-          user: { id: number | null; email: string | null; name: string | null };
-          original_message: string;
-          original_reply: string;
-          provider: string | null;
-          model: string | null;
-          flag_note: string | null;
-          flagged_at: string;
-          admin_reply: string | null;
-          replied_at: string | null;
-          replied_by: { id: number | null; name: string | null;
-                        email: string | null } | null;
-        }>;
+        items: Array<FlaggedTurnAdminRow>;
       }>(`/admin/chat-history/flagged${qs(p)}`, { authed: true });
       return data;
     },
@@ -1018,6 +1023,17 @@ export const admin = {
       const { data } = await request<{ id: number; replied_at: string }>(
         `/admin/chat-history/turns/${flagId}/reply`,
         { method: "POST", authed: true, json: { reply } });
+      return data;
+    },
+    /** HITL: admin closes a flagged turn (with or without replying).
+     *  Hides the row from the default queue. Idempotent. */
+    async resolveFlagged(flagId: number): Promise<{
+      id: number; resolved_at: string; resolved_by_admin: boolean;
+    }> {
+      const { data } = await request<{
+        id: number; resolved_at: string; resolved_by_admin: boolean;
+      }>(`/admin/chat-history/turns/${flagId}/resolve`,
+         { method: "POST", authed: true });
       return data;
     },
     async userTranscript(userId: number, p?: { limit?: number; offset?: number }): Promise<{

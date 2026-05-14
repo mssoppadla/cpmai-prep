@@ -158,29 +158,100 @@ def flag_turn(log_id: int, request: Request,
     """User flags a chat turn as unhelpful.
 
     Rate-limited to 10/day per IP to discourage spam-flagging. Idempotent
-    on the (log_id) — second flag returns the existing row instead of
+    on the (log_id) — a second flag returns the existing row instead of
     erroring, so the widget can be safely re-clicked.
+
+    **Note-merge semantics.** A user can hit "Wasn't helpful?" once
+    without typing, then re-open and add a real note. In that case the
+    second submit MERGES the new note onto the existing row:
+
+      * empty/null new note → keep whatever's already there
+      * non-empty new note  → overwrite
+
+    Without this, the second submit was silently discarded — operators
+    only saw the first (often empty) flag_note. Fixed in
+    feat/flagged-turn-resolve.
+
+    The merge is one-way (newer non-empty wins). If a user wants to
+    clear their note entirely, they withdraw via the resolve endpoint
+    and start over — not via re-flag with an empty body.
     """
     log = db.get(AssistantLog, log_id)
     if not log or log.user_id != user.id:
         # Treat "not yours" the same as "doesn't exist" — no enumeration.
         raise NotFoundError("Chat turn not found.")
 
+    new_note = (payload.note.strip() if payload and payload.note else None)
+
     existing = (db.query(AssistantFlaggedTurn)
                 .filter_by(assistant_log_id=log_id).first())
     if existing:
+        # Merge — if the second submit carried a non-empty note and the
+        # existing row didn't already have one (or the user is updating
+        # it deliberately), update. Belt: only the original flagger can
+        # mutate their own row. Braces: the route already 404s for
+        # non-owners via the log.user_id check above.
+        if new_note:
+            existing.flag_note = new_note
+            db.commit()
+            db.refresh(existing)
         status = ("closed" if existing.seen_by_user_at
-                  else ("replied" if existing.replied_at else "pending"))
+                  else ("resolved" if existing.resolved_at
+                  else ("replied" if existing.replied_at else "pending")))
         return FlagTurnOut(id=existing.id, assistant_log_id=log_id,
                            flagged_at=existing.flagged_at, status=status)
 
     row = AssistantFlaggedTurn(
         assistant_log_id=log_id, user_id=user.id,
-        flag_note=(payload.note.strip() if payload and payload.note else None),
+        flag_note=new_note,
     )
     db.add(row); db.commit(); db.refresh(row)
     return FlagTurnOut(id=row.id, assistant_log_id=log_id,
                        flagged_at=row.flagged_at, status="pending")
+
+
+@router.post("/turns/{log_id}/flag/resolve", status_code=200)
+@limiter.limit("20/day")
+def resolve_flagged_turn(log_id: int, request: Request,
+                          user: User = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    """User marks their own flagged turn as resolved.
+
+    Use cases:
+      * User flagged in error and wants to withdraw before an admin sees it.
+      * User read the admin's reply, was satisfied, wants to close the loop.
+
+    Stamps ``resolved_at`` + ``resolved_by`` on the row. Idempotent —
+    a second resolve call returns the existing resolved_at timestamp
+    rather than overwriting. The admin queue hides resolved rows by
+    default; an admin can audit them with ``include_resolved=true``.
+    """
+    log = db.get(AssistantLog, log_id)
+    if not log or log.user_id != user.id:
+        raise NotFoundError("Chat turn not found.")
+
+    row = (db.query(AssistantFlaggedTurn)
+            .filter_by(assistant_log_id=log_id).first())
+    if not row:
+        # No flag on this turn → there's nothing to resolve. Idempotent
+        # 200 rather than 404 — if a flaky network meant the user clicked
+        # resolve twice and the first call already DELETED some hypothetical
+        # state, the second should still succeed. Current schema doesn't
+        # delete, so this path is mostly defensive.
+        return {"status": "not_flagged"}
+
+    if row.resolved_at is None:
+        row.resolved_at = datetime.now(timezone.utc)
+        row.resolved_by = user.id
+        db.commit()
+        db.refresh(row)
+
+    return {
+        "id": row.id,
+        "status": "resolved",
+        "resolved_at": row.resolved_at,
+        "resolved_by_self": row.resolved_by == user.id,
+    }
 
 
 class NotificationOut(BaseModel):

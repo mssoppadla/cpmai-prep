@@ -109,25 +109,37 @@ def list_chat_users(db: Session = Depends(get_db),
 def list_flagged_turns(db: Session = Depends(get_db),
                        admin: User = Depends(get_admin_user),
                        include_replied: bool = Query(False),
+                       include_resolved: bool = Query(False),
                        limit: int = Query(50, le=200), offset: int = 0):
     """Admin queue: flagged turns awaiting reply.
 
     Oldest-first so users who flagged earliest get answered first.
-    Set `include_replied=true` to see already-handled flags too (for
-    audit / retrospective review).
+
+    Filters (compose AND):
+      * ``include_replied=true`` — show rows that have an admin reply.
+      * ``include_resolved=true`` — show rows that are resolved (closed
+        from either user or admin side). Off by default — resolved
+        rows are out of the work queue.
+
+    Resolved-but-not-replied rows hide from the default view too, so
+    a user who withdraws their flag before any admin sees it never
+    creates queue noise.
     """
     q = db.query(AssistantFlaggedTurn)
     if not include_replied:
         q = q.filter(AssistantFlaggedTurn.replied_at.is_(None))
+    if not include_resolved:
+        q = q.filter(AssistantFlaggedTurn.resolved_at.is_(None))
     rows = (q.order_by(AssistantFlaggedTurn.flagged_at.asc())
             .offset(offset).limit(limit).all())
 
     user_ids   = {r.user_id for r in rows if r.user_id is not None}
     replier_ids = {r.replied_by for r in rows if r.replied_by is not None}
+    resolver_ids = {r.resolved_by for r in rows if r.resolved_by is not None}
     log_ids    = [r.assistant_log_id for r in rows]
     users = ({u.id: u for u in db.query(User).filter(
-                  User.id.in_(user_ids | replier_ids)).all()}
-             if (user_ids or replier_ids) else {})
+                  User.id.in_(user_ids | replier_ids | resolver_ids)).all()}
+             if (user_ids or replier_ids or resolver_ids) else {})
     logs = ({l.id: l for l in db.query(AssistantLog).filter(
                 AssistantLog.id.in_(log_ids)).all()}
             if log_ids else {})
@@ -136,7 +148,19 @@ def list_flagged_turns(db: Session = Depends(get_db),
     for r in rows:
         u = users.get(r.user_id) if r.user_id else None
         rep = users.get(r.replied_by) if r.replied_by else None
+        resolver = users.get(r.resolved_by) if r.resolved_by else None
         log = logs.get(r.assistant_log_id)
+
+        # Derived display label so the frontend doesn't reimplement the
+        # state machine. See AssistantFlaggedTurn module docstring for
+        # the canonical states.
+        if r.resolved_at:
+            status = "resolved"
+        elif r.replied_at:
+            status = "replied"
+        else:
+            status = "pending"
+
         items.append({
             "id": r.id,
             "assistant_log_id": r.assistant_log_id,
@@ -155,6 +179,13 @@ def list_flagged_turns(db: Session = Depends(get_db),
                            "name": rep.name if rep else None,
                            "email": rep.email if rep else None}
                           if r.replied_by else None,
+            "resolved_at": r.resolved_at,
+            "resolved_by": {"id": r.resolved_by,
+                            "name": resolver.name if resolver else None,
+                            "email": resolver.email if resolver else None,
+                            "is_self": r.resolved_by == r.user_id}
+                           if r.resolved_by else None,
+            "status": status,
         })
     return {"items": items}
 
@@ -186,6 +217,39 @@ def admin_reply(flag_id: int,
     row.replied_by = admin.id
     db.commit()
     return {"id": row.id, "replied_at": row.replied_at}
+
+
+@router.post("/turns/{flag_id}/resolve")
+def admin_resolve_flagged_turn(flag_id: int,
+                                 db: Session = Depends(get_db),
+                                 admin: User = Depends(get_admin_user)):
+    """Admin marks a flagged turn as resolved.
+
+    Use cases:
+      * Admin reviewed the flag, wrote a reply, and wants to close
+        the row out of the queue (without waiting for the user to
+        explicitly tap "Resolved" in the widget).
+      * Admin decided the flag is invalid or non-actionable and
+        wants to close it without writing a user-facing reply.
+
+    Stamps ``resolved_at`` + ``resolved_by`` to the admin's user_id.
+    Idempotent — a second call returns the existing resolved_at.
+    Row drops from the default admin queue (``include_resolved=true``
+    surfaces it for audit).
+    """
+    row = db.get(AssistantFlaggedTurn, flag_id)
+    if not row:
+        raise NotFoundError("Flagged turn not found.")
+    if row.resolved_at is None:
+        row.resolved_at = datetime.now(timezone.utc)
+        row.resolved_by = admin.id
+        db.commit()
+        db.refresh(row)
+    return {
+        "id": row.id,
+        "resolved_at": row.resolved_at,
+        "resolved_by_admin": row.resolved_by == admin.id,
+    }
 
 
 @router.get("/users/{user_id}")
