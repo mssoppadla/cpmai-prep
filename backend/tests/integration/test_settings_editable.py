@@ -80,6 +80,11 @@ HAPPY_PATH_VALUES: dict[str, object] = {
                                             "What's a CPMAI phase?",
                                             "How do I register for the exam?",
                                          ],
+    "assistant.handler.faq.system":      "Custom FAQ system prompt for testing.",
+    "assistant.handler.content.system":  "Custom content system prompt.",
+    "assistant.handler.account.system":  "Custom account system prompt.",
+    "assistant.handler.insights.system": "Custom insights system prompt.",
+    "assistant.drift_detection_enabled": True,
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,

@@ -607,6 +607,52 @@ export const admin = {
       return data;
     },
   },
+  /** Drift dashboard reads. /admin/assistant-drift surfaces post-check
+   *  events (refused-with-context, missing-citation, etc.) so admins
+   *  can see when the LLM goes off the rails — and compare legacy vs
+   *  agentic flows side-by-side once the agentic toggle ships. */
+  assistantDrift: {
+    async summary(window: "24h" | "7d" | "30d" = "7d") {
+      const { data } = await request<{
+        window: string;
+        since: string;
+        totals: {
+          legacy:  { turns: number; drift_events: number };
+          agentic: { turns: number; drift_events: number };
+        };
+        by_flow_reason: { flow: string; reason: string; count: number }[];
+      }>(`/admin/assistant-drift/summary?window=${window}`,
+         { authed: true });
+      return data;
+    },
+    async events(params: {
+      window?: "24h" | "7d" | "30d";
+      flow?: "legacy" | "agentic";
+      reason?: string;
+      handler?: string;
+      limit?: number;
+    } = {}) {
+      const qs = new URLSearchParams();
+      if (params.window)  qs.set("window", params.window);
+      if (params.flow)    qs.set("flow", params.flow);
+      if (params.reason)  qs.set("reason", params.reason);
+      if (params.handler) qs.set("handler", params.handler);
+      if (params.limit)   qs.set("limit", String(params.limit));
+      const { data } = await request<{
+        events: {
+          id: number;
+          user_id: number | null;
+          action: string;
+          reason: string;
+          metadata: Record<string, unknown>;
+          created_at: string;
+        }[];
+        count: number;
+        limit: number;
+      }>(`/admin/assistant-drift/events?${qs}`, { authed: true });
+      return data;
+    },
+  },
   pricing: {
     /** /admin/pricing/fx-status — current rates + last-fetched-at +
      *  per-currency provenance. Drives the /admin/pricing dashboard. */

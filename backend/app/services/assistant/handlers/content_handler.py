@@ -17,10 +17,13 @@ from app.services.assistant.rag.handler_support import (
     SHARED_KNOWLEDGE_SOURCES,
     build_context_block, retrieve_context, to_citations,
 )
-from app.services.assistant.system_prompt import with_preamble
+from app.services.assistant.system_prompt import (
+    configurable_handler_system, with_preamble,
+)
 
 
-SYSTEM = (
+# Hardcoded fallback — used when assistant.handler.content.system is empty.
+DEFAULT_SYSTEM = (
     "You explain CPMAI concepts (the 6-phase methodology) AND any topic "
     "covered by the admin-uploaded reference materials in the provided "
     "sources. Use plain language; analogies are welcome. Prefer the "
@@ -32,6 +35,8 @@ SYSTEM = (
 
 
 class ContentHandler:
+    name = "content"
+
     def __init__(self, db, provider: LLMProvider):
         self.db = db; self.provider = provider
 
@@ -41,7 +46,8 @@ class ContentHandler:
             source_types=["question_explanation",
                            *SHARED_KNOWLEDGE_SOURCES])
         context = build_context_block(chunks)
-        base = (SYSTEM + "\n\n" + context) if context else SYSTEM
+        base_system = configurable_handler_system(self.name, DEFAULT_SYSTEM)
+        base = (base_system + "\n\n" + context) if context else base_system
         system = with_preamble(base)
         history = [{"role": m.role, "content": m.content} for m in request.history]
         history.append({"role": "user", "content": request.message})

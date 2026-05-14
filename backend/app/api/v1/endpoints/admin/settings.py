@@ -305,6 +305,22 @@ EDITABLE: dict[str, Callable] = {
     # the suggestions entirely (just the greeting shows).
     "assistant.try_asking_suggestions":  _short_str_list(
                                             max_items=10, max_item_len=200),
+    # Per-handler SYSTEM prompts. Empty string falls back to the
+    # handler's hardcoded DEFAULT_SYSTEM in code, so an admin can
+    # safely "clear to default" by saving "". Cap is generous (4000)
+    # because a SYSTEM prompt may include several paragraphs of
+    # instructions, examples, formatting rules.
+    "assistant.handler.faq.system":      _optional_str(4000),
+    "assistant.handler.content.system":  _optional_str(4000),
+    "assistant.handler.account.system":  _optional_str(4000),
+    "assistant.handler.insights.system": _optional_str(4000),
+    # Drift detection. When true, the orchestrator runs post-checks on
+    # every LLM response and writes structured audit_log rows for
+    # signatures like "refused with context available", "missing
+    # citation when chunks were retrieved", etc. The rows feed
+    # /admin/assistant-drift. Off by default during initial rollout
+    # so operators don't see noise before tuning.
+    "assistant.drift_detection_enabled": _bool,
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),

@@ -129,6 +129,31 @@
     "description": "Starter prompts shown in the chat widget's empty state. Each entry becomes a clickable chip that pre-fills the chat input. Max 10 entries, 200 chars each. Empty list disables the suggestions."
   },
   {
+    "key": "assistant.handler.faq.system",
+    "value": "",
+    "description": "SYSTEM prompt for the FAQ handler (factual questions about CPMAI cert process + admin-uploaded reference materials). Leave blank to use the hardcoded default (recommended starting point). Edit to tighten/widen scope, change tone, or override what the handler will/won't answer."
+  },
+  {
+    "key": "assistant.handler.content.system",
+    "value": "",
+    "description": "SYSTEM prompt for the Content handler (CPMAI concept explanations + uploaded reference materials). Leave blank to use the hardcoded default. Edit for style/tone/grounding-strictness changes."
+  },
+  {
+    "key": "assistant.handler.account.system",
+    "value": "",
+    "description": "SYSTEM prompt for the Account handler (subscription / pricing questions). Leave blank to use the hardcoded default. Edit if you want a different sales-tone or stricter privacy framing."
+  },
+  {
+    "key": "assistant.handler.insights.system",
+    "value": "",
+    "description": "SYSTEM prompt for the Insights handler (personalised analysis of a learner's exam attempts). Leave blank to use the hardcoded default. Edit to shift the tone (more directive vs more encouraging)."
+  },
+  {
+    "key": "assistant.drift_detection_enabled",
+    "value": false,
+    "description": "When true, the assistant runs post-checks on every LLM response and writes drift events to audit_log (visible at /admin/assistant-drift). Detects refusals when context was available, missing citations, invented citation IDs, and empty responses. Off by default — turn on once you have ~100+ chats to look at trends."
+  },
+  {
     "key": "payment.active_provider_id",
     "value": null,
     "description": "Active payment_providers row ID — INR-rail provider (typically Razorpay). Non-INR routing uses payment.non_inr_provider_id below."
