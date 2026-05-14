@@ -5,7 +5,9 @@ Returns three rollups for the operator dashboard:
 
   1. Headline: unique anonymous visitors in the selected window
      (de-duplicated by ``metadata.anon_id``).
-  2. By country: ranked list — where unconverted traffic is coming from.
+  2. By region: ranked list — where unconverted traffic is coming from,
+     keyed on (country, city) so the same flavour of "Location" the
+     leads table renders below shows up here too.
   3. By day: daily counts — date-wise split for the window.
 
 Why aggregate server-side rather than ship raw rows: even at ~10 anon
@@ -61,10 +63,11 @@ def anonymous_traffic_summary(
             "unique_anons": 42,        // distinct anon_id values seen
             "events":       137,        // total anon.* events (anons * avg actions)
           },
-          "by_country": [
-            {"country": "IN", "events": 58, "unique_anons": 19},
-            {"country": "US", "events": 32, "unique_anons": 11},
-            {"country": null,"events": 47, "unique_anons": 12}  // IP unresolved
+          "by_region": [
+            {"country": "IN", "city": "Bengaluru", "events": 30, "unique_anons": 11},
+            {"country": "IN", "city": "Mumbai",    "events": 28, "unique_anons":  8},
+            {"country": "US", "city": "Seattle",   "events": 32, "unique_anons": 11},
+            {"country": null,"city": null,         "events": 47, "unique_anons": 12}  // IP unresolved
           ],
           "by_day": [
             {"day": "2026-05-07", "events":  8, "unique_anons":  4},
@@ -78,6 +81,14 @@ def anonymous_traffic_summary(
     operator can see "high-intent" anons (multiple opens) vs "drive-by"
     anons (one open) if they want.
 
+    Grouping by (country, city) — not just country — matches the
+    "Location" column the leads table renders below this widget. A
+    country with multiple cities will produce multiple rows (Bengaluru
+    vs Mumbai are separate buckets). Within-country sub-locations can
+    surface as separate rows in the ranked list, which is what we want
+    operationally — operators can see WHICH city the unconverted
+    interest is concentrated in.
+
     Country = null is preserved deliberately — anonymous visitors with
     private/datacenter/proxy IPs won't resolve, and those are worth
     surfacing distinctly rather than silently hiding under "Unknown".
@@ -89,12 +100,12 @@ def anonymous_traffic_summary(
             .filter(AuditLog.created_at >= since)
             .all())
 
-    # Per-country: track BOTH total events AND distinct anon_ids per country.
-    # The unique_anons number is what operators usually want
-    # ("how many DIFFERENT people from India?"), but events is also
-    # useful for spotting bot traffic spikes.
-    country_events: dict[str | None, int] = defaultdict(int)
-    country_anons:  dict[str | None, set[str]] = defaultdict(set)
+    # Per-region: keyed on the (country, city) tuple so each city
+    # surfaces as its own row in the ranked list. unique_anons is the
+    # number operators usually want ("how many DIFFERENT people from
+    # Bengaluru?"); events is useful for spotting bot spikes.
+    region_events: dict[tuple[str | None, str | None], int] = defaultdict(int)
+    region_anons:  dict[tuple[str | None, str | None], set[str]] = defaultdict(set)
 
     # Per-day: same split. Use the row's created_at date (UTC) so the
     # dashboard isn't fighting timezones — operators can mentally shift
@@ -108,14 +119,16 @@ def anonymous_traffic_summary(
     for r in rows:
         meta = r.metadata_json or {}
         country = meta.get("country")  # ISO-3166-1 alpha-2 or None
+        city    = meta.get("city")     # GeoIP city name or None
         anon_id = meta.get("anon_id") or f"_no_anon_{r.id}"
         # The fallback _no_anon_<row_id> ensures uniqueness for rows
         # with a missing anon_id (very rare — middleware injects one,
         # but defensive). It won't conflate "no anon_id" rows together
         # into one fake user.
 
-        country_events[country] += 1
-        country_anons[country].add(anon_id)
+        region_key = (country, city)
+        region_events[region_key] += 1
+        region_anons[region_key].add(anon_id)
 
         day_key = r.created_at.astimezone(timezone.utc).date().isoformat()
         day_events[day_key] += 1
@@ -124,14 +137,15 @@ def anonymous_traffic_summary(
         seen_anons.add(anon_id)
         total_events += 1
 
-    by_country = sorted(
+    by_region = sorted(
         [
             {
                 "country": c,
-                "events": e,
-                "unique_anons": len(country_anons[c]),
+                "city":    city,
+                "events":  e,
+                "unique_anons": len(region_anons[(c, city)]),
             }
-            for c, e in country_events.items()
+            for (c, city), e in region_events.items()
         ],
         key=lambda d: d["events"],
         reverse=True,
@@ -160,6 +174,6 @@ def anonymous_traffic_summary(
             "unique_anons": len(seen_anons),
             "events": total_events,
         },
-        "by_country": by_country,
+        "by_region": by_region,
         "by_day": by_day,
     }

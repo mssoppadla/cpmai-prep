@@ -637,8 +637,9 @@ export const admin = {
         window: string;
         since: string;
         totals: { unique_anons: number; events: number };
-        by_country: {
+        by_region: {
           country: string | null;
+          city:    string | null;
           events: number;
           unique_anons: number;
         }[];
