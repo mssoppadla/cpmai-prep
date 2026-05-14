@@ -7,6 +7,7 @@ from app.api.v1.endpoints.admin import (
     plans, offers, rag, chat_history, geoip,
     pricing as pricing_admin,
     assistant_drift,
+    anonymous_traffic,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -25,3 +26,4 @@ admin_router.include_router(chat_history.router, prefix="/chat-history",  tags=[
 admin_router.include_router(geoip.router,        prefix="/geoip",         tags=["admin"])
 admin_router.include_router(pricing_admin.router, prefix="/pricing",      tags=["admin"])
 admin_router.include_router(assistant_drift.router, prefix="/assistant-drift", tags=["admin"])
+admin_router.include_router(anonymous_traffic.router, prefix="/anonymous-traffic", tags=["admin"])

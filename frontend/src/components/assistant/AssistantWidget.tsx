@@ -160,6 +160,36 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
+  // Anonymous-visitor intent tracking.
+  //
+  // When an anon user opens the chat panel, fire ONE anon-event to the
+  // backend so the operator can see "where unconverted traffic is
+  // coming from" in /admin/leads's Anonymous Traffic section. The
+  // backend short-circuits the call for authenticated users, so a user
+  // who signs in mid-session doesn't get retroactively tracked.
+  //
+  // Why useRef rather than useState for the de-dupe flag: setting state
+  // would trigger a re-render. The flag is purely a side-effect guard.
+  //
+  // Why per-page-load rather than per-day-per-anon: the audit_logs row
+  // count is a function of (sessions × anon visitors × pages-with-
+  // bubble). De-duping per session keeps that volume in check while
+  // still surfacing genuinely new anon arrivals. The summary endpoint
+  // aggregates by anon_id, so a chatty single anon doesn't skew counts.
+  const anonEventFired = useRef(false);
+  useEffect(() => {
+    // Inline `!user` rather than `isAnon` — `isAnon` is declared
+    // below for readability in the JSX, but this effect runs above
+    // that declaration in source order. TypeScript caught the use-
+    // before-declaration; the semantics are identical either way.
+    if (open && !user && !anonEventFired.current) {
+      anonEventFired.current = true;
+      // Fire-and-forget. Lib client swallows errors; this is operational
+      // telemetry, not user-blocking.
+      assistant.anonEvent("bubble_open");
+    }
+  }, [open, user]);
+
   // Anon users see the bubble + the panel — opening it shows the
   // configured "please sign in" CTA instead of the chat input. The
   // bubble is one of the strongest acquisition affordances on the
@@ -782,10 +812,28 @@ function ActionChip({ action }: { action: SuggestedAction }) {
 
 
 function Citations({ citations }: { citations: AssistantCitation[] }) {
+  // Native HTML <details>/<summary>: collapsed by default, click to expand.
+  // Chose native over a custom toggle because:
+  //   * keyboard-accessible out of the box (Tab + Enter / Space)
+  //   * screen-reader friendly without aria-* boilerplate
+  //   * zero JS for the toggle behavior
+  //   * one less piece of state to manage
+  //
+  // Style is intentionally low-contrast — sources are reference material,
+  // not the primary content. The "📚 N sources" summary line gives users
+  // a quick at-a-glance source count without overwhelming the message.
+  const count = citations.length;
   return (
-    <div className="mt-2 pt-2 border-t border-slate-200">
-      <div className="text-xs text-slate-500 mb-1">Sources:</div>
-      <ul className="space-y-0.5">
+    <details className="mt-2 pt-2 border-t border-slate-200 group">
+      <summary className="text-xs text-slate-500 cursor-pointer
+                          hover:text-slate-700 select-none
+                          flex items-center gap-1
+                          marker:hidden [&::-webkit-details-marker]:hidden">
+        <span className="inline-block transition-transform duration-150
+                          group-open:rotate-90">▸</span>
+        <span>📚 {count} source{count === 1 ? "" : "s"}</span>
+      </summary>
+      <ul className="space-y-0.5 mt-1.5 ml-3 border-l-2 border-slate-100 pl-2.5">
         {citations.map((c, i) => (
           <li key={i} className="text-xs">
             {c.url ? (
@@ -807,7 +855,7 @@ function Citations({ citations }: { citations: AssistantCitation[] }) {
           </li>
         ))}
       </ul>
-    </div>
+    </details>
   );
 }
 
