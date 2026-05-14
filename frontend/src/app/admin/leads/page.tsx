@@ -550,7 +550,14 @@ function AnonymousTrafficSection() {
               {data.totals.unique_anons}
             </div>
             <div className="text-xs text-slate-500 mt-1">
-              {data.totals.events} total chat-bubble open{data.totals.events === 1 ? "" : "s"}
+              {/* "events" is the union of page_view + bubble_open anon
+                  events. Older copy said "chat-bubble opens" — no
+                  longer accurate since the widget-mount commit
+                  started recording page views as separate events. */}
+              {data.totals.events} total event{data.totals.events === 1 ? "" : "s"}
+              <span className="text-slate-400 ml-1">
+                (page views + bubble opens)
+              </span>
             </div>
           </div>
 

@@ -569,7 +569,32 @@ router needs a re-plan (which we cap with `tools_max_calls`).
 
 ---
 
-## 11. Carry-over items (not in this PR)
+## 11. What's live today (rollout state)
 
-- **Anonymous-traffic headline copy bug** — widget says "total chat-bubble opens" but `events` now includes page_views too. One-line label fix when we next touch `frontend/src/app/admin/leads/page.tsx`.
+Updated as PRs land. Doc was originally written as a planning artifact
+when nothing was implemented yet — current state of the feature:
+
+| Layer | Status | Shipped in |
+|---|---|---|
+| Architecture doc | ✅ live | foundation PR |
+| Settings + flow resolver + dispatch branch | ✅ live | PR #58 |
+| Tool registry + 7 tool implementations | ✅ live | PR #58 |
+| Basic agentic orchestrator (router + tool exec + synthesis) | ✅ live | PR #58 |
+| Router re-plan loop (one iteration on all-EMPTY iter 1) | ✅ live | PR #59 |
+| Shadow-mode execution (sync, behind `shadow_sampling_rate`) | ✅ live | PR #59 |
+| `/admin/assistant-flow` page + live cohort preview | ✅ live | PR #60 |
+| Drift dashboard side-by-side flow split + shadow column | ✅ live | PR #60 |
+| Admin-tunable classifier keywords | ✅ live | this PR |
+
+What's still deferred (waiting for prod signal):
+
+- **Multi-round tool chains** — synthesis can call more tools, not just answer
+- **Parallel tool fan-out** — concurrent tool execution within an iteration
+- **Async shadow** via FastAPI `BackgroundTasks` (today shadow is sync, adds ~2× latency on sampled requests)
+- **Anthropic tool-calling implementation** — only OpenAI implements `complete_with_tools()` today; base raises NotImplementedError for other providers
+- **Per-tool feature flags** to disable specific tools without code change
+- **Cost dashboard** — per-flow / per-tool LLM spend trends
+
+## 12. Carry-over items (older, still open)
+
 - **Embedding-model migration runbook** — if we ever swap from `text-embedding-3-small`, document the re-embed steps (vectors from different models live in different spaces).

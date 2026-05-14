@@ -159,6 +159,31 @@
     "description": "Which intent (and therefore which handler) the classifier picks when no keyword in a question matches a known intent pattern. 'content' is the recommended default — ContentHandler has the broadest SYSTEM prompt and pulls from question_explanation + upload corpora. Other valid values: 'faq', 'account', 'insights', 'pmi_reference'."
   },
   {
+    "key": "assistant.classifier.keywords.pmi_reference",
+    "value": ["pmi.org", "pmi website", "register for the exam", "register for exam", "exam content outline", "eco link", "eco", "course bundle link", "where do i register", "where to register", "exam fee", "exam cost", "official exam", "syllabus", "what's on the exam", "what is on the exam"],
+    "description": "Substrings that route a chat question to the PMI_REFERENCE handler (returns the configured PMI official URL). FIRST priority in the classifier — any of these matching short-circuits the rest of the keyword scan. Admin can edit at runtime; case is preserved in the form but compared case-insensitively. Empty list = PMI handler never matches via keyword (questions can still reach it via the agentic router or by being the admin-configured default intent)."
+  },
+  {
+    "key": "assistant.classifier.keywords.insights",
+    "value": ["my score", "my exam", "weak area", "my progress", "how did i", "improve", "my attempt"],
+    "description": "Substrings that route to the INSIGHTS handler (queries the user's recent exam_sessions for personalised feedback). SECOND priority — runs after PMI. Watch out for generic words like 'improve' that can mis-route content questions to INSIGHTS when the user isn't asking about their own attempts."
+  },
+  {
+    "key": "assistant.classifier.keywords.account",
+    "value": ["subscription", "billing", "payment", "signup", "plan", "invoice", "refund", "cancel", "price", "pricing", "discount", "offer", "coupon"],
+    "description": "Substrings that route to the ACCOUNT handler (RAG over the plan corpus). THIRD priority. ACCOUNT cannot read the user's actual subscription expiry / payment history — for that, flip to agentic which has an account_state tool. ACCOUNT is the right destination for plan/pricing questions only."
+  },
+  {
+    "key": "assistant.classifier.keywords.content",
+    "value": ["explain", "what is", "define", "phase", "cpmai phase", "topic", "concept", "domain", "business understanding", "data understanding", "modeling", "deployment"],
+    "description": "Substrings that route to the CONTENT handler (RAG over question_explanation + upload corpora). FOURTH priority. This is also the default catch-all when no keyword matches — see assistant.classifier.default_intent."
+  },
+  {
+    "key": "assistant.classifier.keywords.faq",
+    "value": ["exam pattern", "passing", "duration", "fee", "eligibility", "certification", "how do i take", "schedule", "format", "exam date", "exam time"],
+    "description": "Substrings that route to the FAQ handler (RAG over faq + upload corpora). FIFTH priority. Add a substring here if you've added a new FAQ row and want pricing-style or process-style questions to land on this handler. For example, adding 'cost' here makes 'How Much Does CPMAI Cost?' route to the FAQ corpus where the answer lives."
+  },
+  {
     "key": "assistant.allowed_exceptions_directive",
     "value": "",
     "description": "Pre-text injected before the operator's allowed_exceptions list in the system prompt. Tune the language to make the LLM treat exceptions as truly in-scope (e.g. add 'do NOT decline' for models that anchor on narrower handler framing). Leave blank to use the strong default ('Do NOT decline... Do NOT apologize... if context covers it answer from context, otherwise answer concisely from general knowledge'). Only edit if you switch LLM provider or notice the bot still refusing exception topics."

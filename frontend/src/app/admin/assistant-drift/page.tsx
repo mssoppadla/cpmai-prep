@@ -59,6 +59,9 @@ export default function AssistantDriftPage() {
   const [window, setWindow] = useState<Window>("7d");
   const [summary, setSummary] = useState<Awaited<ReturnType<typeof admin.assistantDrift.summary>> | null>(null);
   const [events, setEvents] = useState<Awaited<ReturnType<typeof admin.assistantDrift.events>> | null>(null);
+  const [toolUsage, setToolUsage] = useState<Awaited<
+    ReturnType<typeof admin.assistantDrift.toolUsage>
+  > | null>(null);
   const [filterFlow, setFilterFlow] = useState<
     "" | "legacy" | "agentic" | "shadow_agentic"
   >("");
@@ -69,7 +72,7 @@ export default function AssistantDriftPage() {
   async function reload() {
     setErr(null);
     try {
-      const [s, e] = await Promise.all([
+      const [s, e, t] = await Promise.all([
         admin.assistantDrift.summary(window),
         admin.assistantDrift.events({
           window,
@@ -78,8 +81,9 @@ export default function AssistantDriftPage() {
           handler: filterHandler || undefined,
           limit: 50,
         }),
+        admin.assistantDrift.toolUsage(window),
       ]);
-      setSummary(s); setEvents(e);
+      setSummary(s); setEvents(e); setToolUsage(t);
     } catch (e) {
       setErr((e as ApiError).body?.message ?? String(e));
     }
@@ -178,6 +182,13 @@ export default function AssistantDriftPage() {
                       active />
           )}
         </section>
+      )}
+
+      {/* Tool-usage panel — only renders when agentic has actually
+          ran in the window AND produced per-turn audit rows.
+          Aggregates from the assistant.agentic.turn audit log. */}
+      {toolUsage && toolUsage.total_turns > 0 && (
+        <ToolUsagePanel data={toolUsage} />
       )}
 
       {/* Recent events table. Filters compose AND-style. */}
@@ -370,6 +381,147 @@ function Badge({ children, muted = false }: {
             : "bg-indigo-50 text-indigo-700 border-indigo-200"
     }`}>
       {children}
+    </span>
+  );
+}
+
+
+// ============================================================ ToolUsagePanel
+
+/** Tool-usage breakdown for the agentic flow.
+ *
+ *  Reads from /admin/assistant-drift/tool-usage which aggregates the
+ *  assistant.agentic.turn audit rows the orchestrator writes per agentic
+ *  chat turn. Useful for answering:
+ *    * Which tools fire how often?
+ *    * What's the per-tool latency distribution (avg + p95)?
+ *    * What fraction of turns are router-only (no tools)?
+ *
+ *  Renders nothing when total_turns=0; the parent component already
+ *  guards the conditional render.
+ */
+function ToolUsagePanel({ data }: {
+  data: {
+    total_turns: number;
+    router_only_turns: number;
+    tools: {
+      name: string;
+      calls: number;
+      turns_with: number;
+      by_status: Record<string, number>;
+      avg_latency_ms: number | null;
+      p95_latency_ms: number | null;
+    }[];
+  };
+}) {
+  const routerOnlyPct = data.total_turns > 0
+    ? Math.round((data.router_only_turns / data.total_turns) * 100)
+    : 0;
+
+  return (
+    <section className="bg-white rounded-xl border border-slate-200 p-5">
+      <header className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h2 className="font-semibold text-slate-900 text-sm">
+            Agentic tool usage
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            How often each tool fires, and how slow it is. From
+            <code className="bg-slate-100 px-1 rounded">assistant.agentic.turn</code>{" "}
+            audit rows.
+          </p>
+        </div>
+        <div className="text-xs text-slate-500">
+          {data.total_turns} agentic turn{data.total_turns === 1 ? "" : "s"}
+          {data.router_only_turns > 0 && (
+            <span className="ml-2">
+              · <strong className="text-slate-700">{routerOnlyPct}%</strong>{" "}
+              router-only
+              <span className="text-slate-400 ml-1">(no tools called)</span>
+            </span>
+          )}
+        </div>
+      </header>
+
+      {data.tools.length === 0 ? (
+        <div className="text-xs text-slate-500 py-3">
+          No tool invocations yet in this window — every turn was
+          router-only.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-slate-500">
+              <tr className="text-left border-b border-slate-200">
+                <th className="py-1.5 font-medium">Tool</th>
+                <th className="py-1.5 font-medium text-right">Calls</th>
+                <th className="py-1.5 font-medium text-right">Turns</th>
+                <th className="py-1.5 font-medium">Status mix</th>
+                <th className="py-1.5 font-medium text-right">Avg ms</th>
+                <th className="py-1.5 font-medium text-right">p95 ms</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data.tools.map(t => (
+                <tr key={t.name}>
+                  <td className="py-1.5 font-mono text-slate-900">{t.name}</td>
+                  <td className="py-1.5 text-right">{t.calls}</td>
+                  <td className="py-1.5 text-right">
+                    {t.turns_with}
+                    <span className="text-slate-400 ml-1">
+                      ({Math.round((t.turns_with / data.total_turns) * 100)}%)
+                    </span>
+                  </td>
+                  <td className="py-1.5">
+                    <ToolStatusMix mix={t.by_status} />
+                  </td>
+                  <td className="py-1.5 text-right">
+                    {t.avg_latency_ms ?? "—"}
+                  </td>
+                  <td className="py-1.5 text-right">
+                    {t.p95_latency_ms ?? "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+
+/** Inline status mix — small coloured pills summing to 100%. */
+function ToolStatusMix({ mix }: { mix: Record<string, number> }) {
+  // Order matters — OK first (good signal), then EMPTY (recoverable),
+  // then ERROR / auth refusals (operator-actionable signals).
+  const order = ["ok", "empty", "error", "refused_need_auth"];
+  const total = Object.values(mix).reduce((a, b) => a + b, 0);
+  if (total === 0) return <span className="text-slate-400">—</span>;
+  const palette: Record<string, string> = {
+    ok:                "bg-emerald-100 text-emerald-700",
+    empty:             "bg-slate-100  text-slate-700",
+    error:             "bg-rose-100   text-rose-700",
+    refused_need_auth: "bg-amber-100  text-amber-700",
+  };
+  return (
+    <span className="flex items-center gap-1 flex-wrap">
+      {order.filter(s => mix[s]).map(status => (
+        <span key={status}
+              className={`text-[10px] px-1.5 py-0.5 rounded font-mono
+                          ${palette[status] ?? "bg-slate-100 text-slate-700"}`}>
+          {status}: {mix[status]}
+        </span>
+      ))}
+      {/* Any unexpected status — render at the end with neutral colour. */}
+      {Object.keys(mix).filter(s => !order.includes(s)).map(status => (
+        <span key={status}
+              className="text-[10px] px-1.5 py-0.5 rounded font-mono
+                         bg-slate-100 text-slate-700">
+          {status}: {mix[status]}
+        </span>
+      ))}
     </span>
   );
 }

@@ -167,6 +167,121 @@ def drift_summary(
     }
 
 
+@router.get("/tool-usage")
+def tool_usage(
+    window: WindowLiteral = Query("7d"),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+):
+    """Tool-usage breakdown for the agentic flow.
+
+    Aggregates ``assistant.agentic.turn`` audit_log rows (one row per
+    agentic chat turn — written by AssistantOrchestrator._handle_agentic)
+    to answer: "of all agentic turns in the window, how often did each
+    tool fire, and how long did it take on average?"
+
+    Useful for:
+      * Identifying tools that almost never fire — candidates for
+        removal or for tuning the router system prompt to use them.
+      * Spotting slow tools — high p95 latency on, say, ``faq_search``
+        suggests OpenAI's embedding endpoint is slow OR the corpus
+        retrieval is taking longer than expected.
+      * Validating that the router's tool distribution matches the
+        topic distribution the operator expects.
+
+    Response shape::
+
+      {
+        "window": "7d",
+        "since":  "2026-05-07T...",
+        "total_turns": 412,
+        "tools": [
+          {
+            "name":           "faq_search",
+            "calls":          287,                  // total invocations
+            "turns_with":     245,                  // turns that called this tool ≥ 1×
+            "by_status":      {"ok": 240, "empty": 38, "error": 9},
+            "avg_latency_ms": 142,
+            "p95_latency_ms": 380
+          },
+          ...
+        ],
+        "router_only_turns": 38   // turns where router called no tools
+      }
+    """
+    since = datetime.now(timezone.utc) - _WINDOW_TO_DELTA[window]
+
+    rows = (db.query(AuditLog)
+            .filter(AuditLog.action == "assistant.agentic.turn")
+            .filter(AuditLog.created_at >= since)
+            .all())
+
+    # Per-tool accumulators. defaultdict so we don't need to seed each
+    # tool name up front — the keys land as the audit data flows in,
+    # which is the right shape if/when new tools are added later.
+    calls_count:   dict[str, int]               = defaultdict(int)
+    turns_with:    dict[str, int]               = defaultdict(int)
+    status_counts: dict[str, dict[str, int]]    = defaultdict(lambda: defaultdict(int))
+    latencies:     dict[str, list[int]]         = defaultdict(list)
+
+    router_only_turns = 0
+    total_turns = len(rows)
+
+    for r in rows:
+        meta = r.metadata_json or {}
+        tools_called: list[dict] = meta.get("tools_called") or []
+
+        if not tools_called:
+            router_only_turns += 1
+            continue
+
+        # Each turn can call the same tool more than once (multi-tool
+        # query of the same kind). turns_with counts a tool ONCE per
+        # turn, calls counts every invocation. Both numbers are
+        # useful: turns_with for "does this tool ever fire?", calls
+        # for cost accounting.
+        seen_this_turn: set[str] = set()
+        for tc in tools_called:
+            name = tc.get("name") or "(unknown)"
+            status = tc.get("status") or "ok"
+            calls_count[name] += 1
+            status_counts[name][status] += 1
+            if name not in seen_this_turn:
+                turns_with[name] += 1
+                seen_this_turn.add(name)
+            # Per-tool latency lives under tools_called[i].metadata.tool_elapsed_ms
+            # (set by the agentic orchestrator when the tool executed).
+            inner_meta = tc.get("metadata") or {}
+            ms = inner_meta.get("tool_elapsed_ms")
+            if isinstance(ms, (int, float)):
+                latencies[name].append(int(ms))
+
+    # Compose the per-tool summary, sorted by total call count desc.
+    tools_summary: list[dict] = []
+    for name in sorted(calls_count.keys(), key=lambda n: -calls_count[n]):
+        lat = sorted(latencies[name])
+        avg = round(sum(lat) / len(lat)) if lat else None
+        p95 = lat[int(len(lat) * 0.95)] if len(lat) >= 20 else (
+            lat[-1] if lat else None
+        )
+        tools_summary.append({
+            "name": name,
+            "calls":      calls_count[name],
+            "turns_with": turns_with[name],
+            "by_status":  dict(status_counts[name]),
+            "avg_latency_ms": avg,
+            "p95_latency_ms": p95,
+        })
+
+    return {
+        "window": window,
+        "since":  since.isoformat().replace("+00:00", "Z"),
+        "total_turns": total_turns,
+        "router_only_turns": router_only_turns,
+        "tools": tools_summary,
+    }
+
+
 @router.get("/events")
 def drift_events(
     window: WindowLiteral = Query("7d"),

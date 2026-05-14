@@ -130,6 +130,141 @@ def test_drift_summary_aggregates_by_flow_and_reason(client, admin, db):
     assert pairs[("agentic", "refused_with_context")] == 1
 
 
+# ============================================================ tool-usage
+
+def _seed_agentic_turn(db, *, tools_called: list[dict],
+                       minutes_ago: int = 5,
+                       flow: str = "agentic"):
+    """Helper — write a single ``assistant.agentic.turn`` audit row
+    matching what AssistantOrchestrator._handle_agentic writes per
+    agentic chat turn."""
+    row = AuditLog(
+        user_id=None,
+        action="assistant.agentic.turn",
+        metadata_json={
+            "flow": flow,
+            "tools_called": tools_called,
+            "tools_planned": len(tools_called),
+            "tools_executed": len(tools_called),
+            "replans_fired": 0,
+            "elapsed_ms": 1234,
+            "phase": "synthesis",
+            "error": None,
+        },
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+    )
+    db.add(row); db.commit()
+    return row
+
+
+def test_tool_usage_requires_admin(client, user):
+    h = auth_header(client, user.email)
+    r = client.get("/api/v1/admin/assistant-drift/tool-usage", headers=h)
+    assert r.status_code in (401, 403)
+
+
+def test_tool_usage_empty_window(client, admin):
+    """Cold start: no agentic turns yet."""
+    h = auth_header(client, admin.email)
+    body = client.get(
+        "/api/v1/admin/assistant-drift/tool-usage?window=7d",
+        headers=h).json()
+    assert body["total_turns"] == 0
+    assert body["router_only_turns"] == 0
+    assert body["tools"] == []
+
+
+def test_tool_usage_aggregates_calls_and_turns(client, admin, db):
+    """Two turns: turn 1 calls faq_search + content_search; turn 2
+    calls faq_search again. Pin both counters: ``calls`` (every
+    invocation) and ``turns_with`` (each tool once per turn)."""
+    _seed_agentic_turn(db, tools_called=[
+        {"name": "faq_search",     "status": "ok",
+         "metadata": {"tool_elapsed_ms": 150}},
+        {"name": "content_search", "status": "empty",
+         "metadata": {"tool_elapsed_ms": 100}},
+    ])
+    _seed_agentic_turn(db, tools_called=[
+        {"name": "faq_search", "status": "ok",
+         "metadata": {"tool_elapsed_ms": 200}},
+    ])
+
+    h = auth_header(client, admin.email)
+    body = client.get(
+        "/api/v1/admin/assistant-drift/tool-usage", headers=h).json()
+
+    assert body["total_turns"] == 2
+    by_name = {t["name"]: t for t in body["tools"]}
+
+    # faq_search called twice (once per turn), turns_with = 2.
+    assert by_name["faq_search"]["calls"] == 2
+    assert by_name["faq_search"]["turns_with"] == 2
+    assert by_name["faq_search"]["by_status"] == {"ok": 2}
+
+    # content_search called once.
+    assert by_name["content_search"]["calls"] == 1
+    assert by_name["content_search"]["turns_with"] == 1
+    assert by_name["content_search"]["by_status"] == {"empty": 1}
+
+
+def test_tool_usage_router_only_turns_counted_separately(
+        client, admin, db,
+):
+    """A turn where the router answers without calling any tools is
+    valuable signal — pin it as ``router_only_turns`` so the dashboard
+    can show "X% of turns the router answered conversationally"."""
+    _seed_agentic_turn(db, tools_called=[])
+    _seed_agentic_turn(db, tools_called=[
+        {"name": "faq_search", "status": "ok", "metadata": {}},
+    ])
+
+    h = auth_header(client, admin.email)
+    body = client.get(
+        "/api/v1/admin/assistant-drift/tool-usage", headers=h).json()
+    assert body["total_turns"] == 2
+    assert body["router_only_turns"] == 1
+    # The router-only turn doesn't appear in any tool's count.
+    assert sum(t["calls"] for t in body["tools"]) == 1
+
+
+def test_tool_usage_latency_averaging(client, admin, db):
+    """Per-tool average latency is computed from each invocation's
+    metadata.tool_elapsed_ms. Pins the arithmetic."""
+    _seed_agentic_turn(db, tools_called=[
+        {"name": "faq_search", "status": "ok",
+         "metadata": {"tool_elapsed_ms": 100}},
+    ])
+    _seed_agentic_turn(db, tools_called=[
+        {"name": "faq_search", "status": "ok",
+         "metadata": {"tool_elapsed_ms": 200}},
+    ])
+    _seed_agentic_turn(db, tools_called=[
+        {"name": "faq_search", "status": "ok",
+         "metadata": {"tool_elapsed_ms": 300}},
+    ])
+
+    h = auth_header(client, admin.email)
+    body = client.get(
+        "/api/v1/admin/assistant-drift/tool-usage", headers=h).json()
+    faq = next(t for t in body["tools"] if t["name"] == "faq_search")
+    assert faq["avg_latency_ms"] == 200   # (100+200+300)/3
+
+
+def test_tool_usage_window_filter(client, admin, db):
+    """A 25-hour-old agentic turn should NOT appear in the 24h window."""
+    _seed_agentic_turn(
+        db, tools_called=[
+            {"name": "faq_search", "status": "ok", "metadata": {}}
+        ],
+        minutes_ago=60 * 25,
+    )
+    h = auth_header(client, admin.email)
+    body = client.get(
+        "/api/v1/admin/assistant-drift/tool-usage?window=24h",
+        headers=h).json()
+    assert body["total_turns"] == 0
+
+
 def test_drift_summary_window_24h_excludes_older_events(client, admin, db):
     """Window narrowing: a 25-hour-old event should NOT appear in the
     24h window. Pins the time-filter behavior so the dashboard's
