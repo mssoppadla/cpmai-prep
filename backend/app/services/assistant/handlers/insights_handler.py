@@ -1,15 +1,19 @@
 """Personalized insights based on the user's exam history."""
 from app.services.assistant.providers.base import LLMProvider
 from app.models.exam_session import ExamSession
+from app.services.assistant.system_prompt import configurable_handler_system
 
 
-SYSTEM = (
+# Hardcoded fallback — used when assistant.handler.insights.system is empty.
+DEFAULT_SYSTEM = (
     "You analyze a learner's CPMAI exam attempts and give actionable, encouraging "
     "feedback. Stay grounded in the data provided."
 )
 
 
 class InsightsHandler:
+    name = "insights"
+
     def __init__(self, db, provider: LLMProvider):
         self.db = db
         self.provider = provider
@@ -33,9 +37,10 @@ class InsightsHandler:
             f"- Set {s.exam_set_id} · score {s.score}% · {'passed' if s.passed else 'failed'}"
             for s in sessions
         )
+        system = configurable_handler_system(self.name, DEFAULT_SYSTEM)
         history = [
             {"role": "system", "content": f"Recent attempts:\n{summary}"},
             {"role": "user", "content": request.message},
         ]
-        return {"message": self.provider.complete(SYSTEM, history),
+        return {"message": self.provider.complete(system, history),
                 "citations": [], "suggested_actions": []}

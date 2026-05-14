@@ -185,3 +185,49 @@ def test_with_preamble_concatenates_handler_prompt(stub_settings):
     assert "HANDLER SPECIFIC GUIDANCE" in full
     # Guardrails come BEFORE the handler prompt.
     assert full.index("CPMAI") < full.index("HANDLER SPECIFIC GUIDANCE")
+
+
+# ============================================================ configurable_handler_system
+
+def test_configurable_handler_system_returns_fallback_when_unset(stub_settings):
+    """Empty / missing setting → use the handler's hardcoded default.
+    Pre-condition for safe rollout: every handler ships with a working
+    fallback so an admin who's never touched the setting still gets
+    the expected behavior."""
+    out = system_prompt.configurable_handler_system(
+        "faq", "fallback prompt for FAQ")
+    assert out == "fallback prompt for FAQ"
+
+
+def test_configurable_handler_system_returns_admin_value_when_set(stub_settings):
+    """Admin-saved value wins over the fallback. This is the headline
+    feature — operator iteration on prompts without code deploys."""
+    stub_settings["assistant.handler.faq.system"] = "ADMIN-CUSTOM FAQ PROMPT"
+    out = system_prompt.configurable_handler_system(
+        "faq", "fallback prompt")
+    assert out == "ADMIN-CUSTOM FAQ PROMPT"
+
+
+def test_configurable_handler_system_falls_back_on_whitespace_only(stub_settings):
+    """Whitespace-only saved value treated as 'unset' — operator can't
+    accidentally save a blank prompt and silently break the bot."""
+    stub_settings["assistant.handler.content.system"] = "   \n\t  \n"
+    out = system_prompt.configurable_handler_system(
+        "content", "fallback content prompt")
+    assert out == "fallback content prompt"
+
+
+def test_configurable_handler_system_uses_correct_key_per_handler(stub_settings):
+    """The key shape is ``assistant.handler.{name}.system`` — pin it,
+    because the admin UI and seed JSON encode the same convention.
+    Renaming the convention without updating both surfaces silently
+    breaks the wiring."""
+    stub_settings["assistant.handler.account.system"] = "ACCOUNT-SPECIFIC"
+    stub_settings["assistant.handler.insights.system"] = "INSIGHTS-SPECIFIC"
+    assert system_prompt.configurable_handler_system(
+        "account", "x") == "ACCOUNT-SPECIFIC"
+    assert system_prompt.configurable_handler_system(
+        "insights", "x") == "INSIGHTS-SPECIFIC"
+    # A handler with no override falls through.
+    assert system_prompt.configurable_handler_system(
+        "faq", "FAQ-FALLBACK") == "FAQ-FALLBACK"

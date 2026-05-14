@@ -21,10 +21,16 @@ from app.services.assistant.rag.handler_support import (
     SHARED_KNOWLEDGE_SOURCES,
     build_context_block, retrieve_context, to_citations,
 )
-from app.services.assistant.system_prompt import with_preamble
+from app.services.assistant.system_prompt import (
+    configurable_handler_system, with_preamble,
+)
 
 
-SYSTEM = (
+# Hardcoded fallback. The active prompt is admin-editable via
+# `assistant.handler.faq.system` (Runtime Settings → AI assistant
+# group). This constant is what's used when the setting is empty —
+# matches what the bot did before the setting existed.
+DEFAULT_SYSTEM = (
     "You answer factual questions about the CPMAI certification process — "
     "eligibility, exam format, scoring, scheduling — AND any topic "
     "covered by the admin-uploaded reference materials in the provided "
@@ -37,6 +43,8 @@ SYSTEM = (
 
 
 class FAQHandler:
+    name = "faq"   # also the settings-key segment: assistant.handler.faq.system
+
     def __init__(self, db, provider: LLMProvider):
         self.db = db; self.provider = provider
 
@@ -45,7 +53,8 @@ class FAQHandler:
             self.db, request.message,
             source_types=["faq", *SHARED_KNOWLEDGE_SOURCES])
         context = build_context_block(chunks)
-        base = (SYSTEM + "\n\n" + context) if context else SYSTEM
+        base_system = configurable_handler_system(self.name, DEFAULT_SYSTEM)
+        base = (base_system + "\n\n" + context) if context else base_system
         # Prepend admin-configured guardrails (preamble + allowed/banned).
         system = with_preamble(base)
         history = [{"role": m.role, "content": m.content} for m in request.history]

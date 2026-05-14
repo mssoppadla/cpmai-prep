@@ -8,10 +8,13 @@ from app.services.assistant.providers.base import LLMProvider
 from app.services.assistant.rag.handler_support import (
     build_context_block, retrieve_context, to_citations,
 )
-from app.services.assistant.system_prompt import with_preamble
+from app.services.assistant.system_prompt import (
+    configurable_handler_system, with_preamble,
+)
 
 
-SYSTEM = (
+# Hardcoded fallback — used when assistant.handler.account.system is empty.
+DEFAULT_SYSTEM = (
     "You answer questions about CPMAI Prep accounts, subscriptions, billing, "
     "pricing, and payment plans. Be concise. Always cite the specific plan "
     "(name + price) when relevant. Never reveal another user's details."
@@ -19,6 +22,8 @@ SYSTEM = (
 
 
 class AccountHandler:
+    name = "account"
+
     def __init__(self, db, provider: LLMProvider):
         self.db = db
         self.provider = provider
@@ -27,7 +32,8 @@ class AccountHandler:
         chunks = retrieve_context(
             self.db, request.message, source_types=["plan"])
         context = build_context_block(chunks)
-        base = (SYSTEM + "\n\n" + context) if context else SYSTEM
+        base_system = configurable_handler_system(self.name, DEFAULT_SYSTEM)
+        base = (base_system + "\n\n" + context) if context else base_system
         system = with_preamble(base)
         history = [{"role": m.role, "content": m.content} for m in request.history]
         history.append({"role": "user", "content": request.message})

@@ -743,3 +743,147 @@ knowing the message exists.
   (e.g. embedded React components, conditional logic). Configurability
   for those becomes a CMS-shaped problem; do that explicitly, not via
   settings_store.
+
+---
+
+## 45. Assistant control plane: configurable handler prompts + drift dashboard
+
+When the operator started running real chats they hit a recurring
+loop: bot refuses a topic → operator edits a setting → wait for
+something to happen → check a sample chat → tweak again. Every step
+required code knowledge or log-trawling. This row documents the
+operator surface we built to break that loop, AND how it stays usable
+when the agentic toggle ships.
+
+### Three pieces, one PR
+
+1. **Settings UI grouping** (frontend only, zero schema change).
+   Settings are now grouped by their first dot-segment (`assistant.*`,
+   `pricing.*`, etc.) into collapsible cards in `/admin/settings`.
+   New keys auto-land in the right group — when the agentic toggle
+   adds `assistant.agentic.*` keys later, no UI work is needed.
+
+2. **Configurable per-handler SYSTEM prompts.** Each handler's
+   `SYSTEM = "..."` constant is now editable via:
+
+   ```
+   assistant.handler.faq.system
+   assistant.handler.content.system
+   assistant.handler.account.system
+   assistant.handler.insights.system
+   ```
+
+   Empty value → handler's hardcoded `DEFAULT_SYSTEM` wins. Operator
+   can A/B different prompt phrasings without a code deploy. The
+   convention is exposed via `system_prompt.configurable_handler_system(
+   name, fallback)` — same helper will serve future
+   `assistant.agentic.routing_system` and
+   `assistant.agentic.synthesis_system` keys when the agentic toggle
+   ships. Naming: handler classes carry a `name` class attribute
+   (e.g. `FAQHandler.name = "faq"`) that's both the settings-key
+   segment AND the drift-context discriminator.
+
+3. **Drift detector + dashboard.** Post-response checks that catch
+   when the LLM goes off the rails. Four rules out of the box:
+
+   | Rule | Fires when |
+   |---|---|
+   | `refused_with_context` | LLM says "outside the scope" but RAG actually retrieved chunks |
+   | `empty_response` | LLM returned <20 chars |
+   | `missing_citation` | Chunks retrieved but response has no `[Source N]` reference |
+   | `invented_citation` | Response cited `[Source N]` for N beyond the retrieval set |
+
+   Each fires → writes one `audit_log` row with action
+   `assistant.drift.{rule_name}` and metadata including the `flow`
+   discriminator (`legacy` today, `agentic` once the toggle ships).
+   The `/admin/assistant-drift` page renders side-by-side comparison
+   cards: Legacy vs Agentic, with rate-of-drift per turn and
+   per-rule breakdown.
+
+### Why the side-by-side comparison matters
+
+When the agentic toggle ships, the operator needs an evidence-based
+answer to *"is the agentic flow actually better than the legacy
+flow?"* The drift dashboard's two-column layout IS that evidence:
+
+```
+┌──────────────────────┬──────────────────────────────┐
+│      Legacy          │           Agentic            │
+│  12 / 1,043 turns    │       4 / 412 turns          │
+│      1.15%           │           0.97%              │
+├──────────────────────┼──────────────────────────────┤
+│  refused_with_ctx 8  │  refused_with_ctx        1   │
+│  missing_citation 2  │  missing_citation        2   │
+│  invented_citation 2 │  invented_citation       1   │
+└──────────────────────┴──────────────────────────────┘
+```
+
+Until agentic ships, the right-hand column shows "— not active"
+instead of misleading 0% rates. The schema is already flow-aware
+so flipping the toggle starts populating the comparison
+automatically — no schema migration, no UI change.
+
+### Reusability for the future agentic / LangGraph toggle
+
+Each piece of this PR was designed so the agentic work is one-line
+additions, not refactors:
+
+| Piece | What stays reusable |
+|---|---|
+| Settings naming `assistant.handler.{name}.system` | `assistant.agentic.routing_system`, `assistant.agentic.synthesis_system` slot in cleanly. Same `configurable_handler_system` helper signature. |
+| Drift detector rule registry | Adding `wrong_tool_selected`, `multi_tool_only_cited_one`, `tool_call_syntax_error` is one new function appended to `DRIFT_RULES`. |
+| `assistant.drift.*` action prefix | Dashboard filter is prefix-based; new rules with the same prefix appear in the UI automatically. |
+| `flow` discriminator on every drift event | Already wired; agentic-flow code just writes `flow: "agentic"` instead of `"legacy"`. Comparison cards populate automatically. |
+| Question-routing eval matrix `QuestionCase` dataclass | Has `expected_agentic_tools` field today (unused). When agentic ships, add a `test_agentic_routing` parametrised over the same `QUESTIONS` list — matrix doesn't move. |
+
+What we explicitly did NOT pre-build: the agentic provider interface
+(`complete_with_tools`), handler `gather()` methods (data-only
+return shape), tool definitions, agentic orchestrator path. Building
+those before we have the toggle on real traffic risks freezing
+design choices we don't have data to make. They're all bounded
+additions when needed.
+
+### When to enable each piece
+
+| Setting | Default | Enable when |
+|---|---|---|
+| `assistant.handler.{name}.system` | empty (use code default) | Bot refuses a topic the operator wants allowed; edit the appropriate handler's prompt to broaden scope. |
+| `assistant.drift_detection_enabled` | false | After ~100 chats — gives enough data for trends to be meaningful. Off by default to avoid noise during initial rollout. |
+
+### Pinned by
+
+- `tests/unit/test_assistant_system_prompt.py` — 14 tests pinning
+  preamble assembly + `configurable_handler_system` semantics
+  (empty / whitespace-only saved value falls back to the hardcoded
+  default; admin-set value wins).
+- `tests/unit/test_assistant_drift.py` — 26 tests pinning each rule's
+  positive and negative paths + the dispatcher's exception-swallowing
+  contract + the `flow` field's presence in audit metadata
+  (regression guard for the side-by-side comparison).
+- `tests/integration/test_admin_assistant_drift.py` — 10 tests for
+  the dashboard API: RBAC, summary aggregation, window filtering,
+  events list filters by flow / reason / handler.
+- `tests/integration/test_assistant_question_routing.py` — the eval
+  matrix itself. 10 frozen questions × (intent + sources)
+  assertions. Includes the GDPR regression case explicitly.
+
+### Operator runbook
+
+**"My bot is refusing a topic it shouldn't":**
+
+1. Go to `/admin/assistant-drift` → look for `refused_with_context`
+   events on the relevant handler.
+2. Read the question + response excerpt for a few. Common patterns:
+   - Topic isn't in `assistant.allowed_topics` → add to
+     `assistant.allowed_exceptions` (the "additional things that
+     ARE allowed" field).
+   - Handler's SYSTEM prompt is too narrow → edit
+     `assistant.handler.{handler}.system` to broaden it.
+   - Wrong handler is being routed to → either the regex
+     classifier needs a new keyword, or wait for the agentic
+     toggle to land for LLM-driven routing.
+3. Edit the appropriate setting in `/admin/settings` (now grouped
+   under "AI assistant" for discoverability).
+4. Settings cache TTL is ~30s — wait, retry the question.
+5. Check `/admin/assistant-drift` again over the next few hundred
+   turns to see if the rule's count actually drops.

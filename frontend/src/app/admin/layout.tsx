@@ -17,6 +17,7 @@ const NAV = [
   { href: "/admin/settings",           label: "Runtime Settings" },
   { href: "/admin/llm-providers",      label: "LLM Providers" },
   { href: "/admin/payment-providers",  label: "Payment Providers" },
+  { href: "/admin/assistant-drift",    label: "Assistant Drift" },
   { href: "/admin/geoip",              label: "GeoIP" },
   { href: "/admin/pricing",            label: "Pricing / FX" },
 ];

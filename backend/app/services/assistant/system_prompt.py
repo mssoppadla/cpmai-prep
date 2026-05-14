@@ -81,3 +81,29 @@ def with_preamble(handler_system: str) -> str:
     full prompt with admin guardrails prepended."""
     preamble = assemble_preamble()
     return preamble + handler_system if preamble else handler_system
+
+
+def configurable_handler_system(handler_name: str, fallback: str) -> str:
+    """Return the admin-editable SYSTEM prompt for a given handler, or
+    the hardcoded fallback if the operator hasn't customised it.
+
+    Settings key shape: ``assistant.handler.{name}.system``. So FAQ
+    handler reads from ``assistant.handler.faq.system``, Content from
+    ``assistant.handler.content.system``, etc.
+
+    Why this helper exists rather than inlining settings_store calls
+    in each handler:
+
+      1. Single source of truth for the key naming convention. When
+         the agentic toggle ships, it uses parallel keys like
+         ``assistant.agentic.routing_system`` — same helper, just a
+         different key. No new pattern, no duplication.
+      2. Consistent fallback semantics. Empty / whitespace-only stored
+         value falls back to the hardcoded default — operator can't
+         accidentally save a blank SYSTEM and break the bot.
+      3. Trivial to audit which handlers expose configurable prompts:
+         grep for ``configurable_handler_system(``.
+    """
+    raw = settings_store.get_str(
+        f"assistant.handler.{handler_name}.system", "").strip()
+    return raw or fallback
