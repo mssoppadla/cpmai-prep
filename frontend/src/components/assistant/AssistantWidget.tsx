@@ -160,6 +160,36 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
+  // Anonymous-visitor intent tracking.
+  //
+  // When an anon user opens the chat panel, fire ONE anon-event to the
+  // backend so the operator can see "where unconverted traffic is
+  // coming from" in /admin/leads's Anonymous Traffic section. The
+  // backend short-circuits the call for authenticated users, so a user
+  // who signs in mid-session doesn't get retroactively tracked.
+  //
+  // Why useRef rather than useState for the de-dupe flag: setting state
+  // would trigger a re-render. The flag is purely a side-effect guard.
+  //
+  // Why per-page-load rather than per-day-per-anon: the audit_logs row
+  // count is a function of (sessions × anon visitors × pages-with-
+  // bubble). De-duping per session keeps that volume in check while
+  // still surfacing genuinely new anon arrivals. The summary endpoint
+  // aggregates by anon_id, so a chatty single anon doesn't skew counts.
+  const anonEventFired = useRef(false);
+  useEffect(() => {
+    // Inline `!user` rather than `isAnon` — `isAnon` is declared
+    // below for readability in the JSX, but this effect runs above
+    // that declaration in source order. TypeScript caught the use-
+    // before-declaration; the semantics are identical either way.
+    if (open && !user && !anonEventFired.current) {
+      anonEventFired.current = true;
+      // Fire-and-forget. Lib client swallows errors; this is operational
+      // telemetry, not user-blocking.
+      assistant.anonEvent("bubble_open");
+    }
+  }, [open, user]);
+
   // Anon users see the bubble + the panel — opening it shows the
   // configured "please sign in" CTA instead of the chat input. The
   // bubble is one of the strongest acquisition affordances on the

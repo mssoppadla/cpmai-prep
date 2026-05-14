@@ -273,6 +273,23 @@ export const assistant = {
     };
     return { response: data, quota };
   },
+  /** Record an anonymous-visitor interaction (typically: clicked the
+   *  chat bubble while not signed in). Server captures IP + geoip and
+   *  writes one audit_logs row. No-op when the request is from a
+   *  signed-in user — the endpoint short-circuits server-side so
+   *  the frontend doesn't need to branch.
+   *
+   *  Fire-and-forget: don't await failures, don't surface errors —
+   *  this is operational telemetry, not a load-bearing call. */
+  async anonEvent(kind: string = "bubble_open"): Promise<void> {
+    try {
+      await request("/assistant/anon-event", {
+        method: "POST", authed: true, json: { kind },
+      });
+    } catch {
+      /* swallow — anon-event is best-effort tracking, never user-visible */
+    }
+  },
   /** Flag an AI turn as unhelpful. Idempotent on (turn_id) — the
    *  backend returns the existing flag row on second submit instead
    *  of erroring, so the widget can be safely re-clicked. */
@@ -611,6 +628,26 @@ export const admin = {
    *  events (refused-with-context, missing-citation, etc.) so admins
    *  can see when the LLM goes off the rails — and compare legacy vs
    *  agentic flows side-by-side once the agentic toggle ships. */
+  /** Anonymous-visitor traffic — reads the `assistant.anon.*` audit
+   *  events that fire when an unauthenticated user clicks the chat
+   *  bubble. Drives the "Anonymous traffic" section on /admin/leads. */
+  anonymousTraffic: {
+    async summary(window: "24h" | "7d" | "30d" = "7d") {
+      const { data } = await request<{
+        window: string;
+        since: string;
+        totals: { unique_anons: number; events: number };
+        by_country: {
+          country: string | null;
+          events: number;
+          unique_anons: number;
+        }[];
+        by_day: { day: string; events: number; unique_anons: number }[];
+      }>(`/admin/anonymous-traffic/summary?window=${window}`,
+         { authed: true });
+      return data;
+    },
+  },
   assistantDrift: {
     async summary(window: "24h" | "7d" | "30d" = "7d") {
       const { data } = await request<{

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from app.core.audit import audit_log
 from app.core.deps import get_current_user, get_db, get_optional_user
 from app.core.exceptions import NotFoundError
 from app.core.limiter import limiter
@@ -12,6 +13,8 @@ from app.models.user import User
 from app.schemas.assistant import AssistantRequest, AssistantResponse
 from app.services.assistant.orchestrator import AssistantOrchestrator
 from app.services.assistant.guardrails import AssistantGuardrails
+from app.services.geoip.ip_extraction import extract_client_ip
+from app.services.geoip.lookup import lookup as geoip_lookup
 
 router = APIRouter()
 guardrails = AssistantGuardrails()
@@ -36,6 +39,97 @@ def chat(payload: AssistantRequest, request: Request, response: Response,
     response.headers["X-Chat-Quota-Remaining"] = str(quota["remaining"])
     response.headers["X-Chat-Quota-Reset"]     = quota["reset_at_utc"]
     return result
+
+
+# ---------------------------------------------------------------------------
+# Anonymous-visitor intent tracking. Fired when an anonymous user opens
+# the chat widget — they showed conversion intent but the panel they see
+# is a "please sign in" CTA. Where did this unconverted traffic come
+# from? This endpoint captures the geoip-enriched event so /admin/leads's
+# Anonymous Traffic section can roll it up by country / day.
+#
+# Volume control: rate-limited per-IP so a stuck client looping the
+# bubble can't flood audit_logs. The frontend also de-dupes per session
+# (only fires once per page-load lifecycle).
+# ---------------------------------------------------------------------------
+
+
+class AnonEventIn(BaseModel):
+    """Kind enum is open-ended on purpose — start with bubble_open
+    today, may add page_view / cta_seen later as appetite for tracking
+    grows. The kind goes into the audit_log action suffix so dashboard
+    filters can subset cleanly without metadata-JSON parsing."""
+    kind: str = Field(default="bubble_open", max_length=64,
+                       description="What the anonymous user did "
+                                   "(bubble_open, etc.)")
+
+
+@router.post("/anon-event", status_code=204)
+@limiter.limit("60/minute")
+def anon_event(payload: AnonEventIn, request: Request,
+                user: User | None = Depends(get_optional_user),
+                db: Session = Depends(get_db)):
+    """Record an anonymous-visitor interaction with the chat surface.
+
+    No-op when the request is already authenticated — we only care about
+    unconverted traffic here. Returns 204 either way so the frontend
+    doesn't need to branch on the response.
+
+    Writes one ``audit_logs`` row with:
+      action      = "assistant.anon.{kind}"  (e.g. "assistant.anon.bubble_open")
+      ip          = the extracted client IP (honoring trusted-proxy depth)
+      user_id     = NULL (anonymous by definition)
+      metadata    = {country, city, anon_id} — country/city from the
+                    existing GeoIP service; anon_id from the cookie
+                    middleware (groups events from the same browser
+                    even across page loads)
+
+    Failure modes — none take down the chat:
+      * GeoIP lookup fails → country/city omitted, event still recorded
+      * audit_log write fails → 204 returned anyway (operational
+        intelligence is best-effort, not load-bearing)
+    """
+    # Short-circuit for authenticated users — they're not anonymous.
+    # We still 204 (idempotent contract) so the frontend doesn't need
+    # to know whether the user signed in mid-session.
+    if user is not None:
+        return
+
+    anon_id = getattr(request.state, "anon_id", None)
+    ip = extract_client_ip(request)
+
+    country = city = None
+    if ip:
+        geo = geoip_lookup(ip)
+        if geo:
+            country = geo.country
+            city = geo.city
+
+    # Sanitise kind — only allow alphanumeric + underscore so the
+    # action column stays clean and we don't end up with
+    # "assistant.anon.foo; DROP TABLE..." style mischief from a
+    # crafted client. Doesn't 400 on garbage — silently coerces.
+    safe_kind = "".join(c for c in (payload.kind or "")
+                         if c.isalnum() or c == "_") or "unknown"
+
+    try:
+        audit_log(
+            db, None, f"assistant.anon.{safe_kind}",
+            metadata={
+                "anon_id":  anon_id,
+                "country":  country,
+                "city":     city,
+                # ip is also in the audit_log.ip column — we omit it
+                # from metadata to avoid duplicate storage. The
+                # dashboard reads country/city from metadata and ip
+                # from the column directly when an admin drills in.
+            },
+            ip=ip,
+        )
+    except Exception:
+        # Operational intelligence is best-effort. A stuck DB or
+        # malformed metadata shouldn't surface to the visitor.
+        pass
 
 
 # ---------------------------------------------------------------------------

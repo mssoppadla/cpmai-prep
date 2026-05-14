@@ -157,6 +157,13 @@ export default function ContactsPage() {
         </button>
       </header>
 
+      {/* Unconverted-traffic rollup. Sits ABOVE the contacts table
+          because operators usually open this page asking "who's
+          showing up but not converting" — this answers it directly,
+          and the contact stream below answers "of those who did
+          convert, what are their details". */}
+      <AnonymousTrafficSection />
+
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4
                       flex gap-2 flex-wrap items-center">
         <input
@@ -456,5 +463,160 @@ function ScoreChip({ score }: { score: number | null }) {
       <span className="uppercase tracking-wide">{tier}</span>
       <span className="opacity-70">{score}</span>
     </span>
+  );
+}
+
+
+// ============================================================================
+// Anonymous traffic section — rollup of unconverted visitors.
+//
+// Sourced from `assistant.anon.*` audit_log events fired when an anon
+// visitor opens the chat bubble. Three rollups so the operator can
+// answer "where is unconverted traffic coming from?" without opening
+// a SQL terminal:
+//
+//   • Headline: unique anonymous visitors + total events (the "events"
+//     number surfaces multi-open anons separately from drive-by ones)
+//   • By country: ranked, top-N
+//   • By day: chronological bar-chart-style table
+//
+// Self-contained so the contacts page above stays focused on the
+// per-contact stream. Re-fetches whenever the window selector changes.
+// ============================================================================
+
+type AnonWindow = "24h" | "7d" | "30d";
+
+function AnonymousTrafficSection() {
+  const [window, setWindow] = useState<AnonWindow>("7d");
+  const [data, setData] = useState<Awaited<
+    ReturnType<typeof admin.anonymousTraffic.summary>
+  > | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    admin.anonymousTraffic.summary(window)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setErr(errMsg(e)); });
+    return () => { cancelled = true; };
+  }, [window]);
+
+  const maxDayEvents = useMemo(() => {
+    if (!data) return 0;
+    return Math.max(0, ...data.by_day.map(d => d.events));
+  }, [data]);
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl mb-6">
+      <header className="px-5 py-3 border-b border-slate-200
+                          flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">
+            Anonymous traffic
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Visitors who opened the chat without signing in. Where are
+            they coming from, when did they show up?
+          </p>
+        </div>
+        <select value={window}
+                onChange={(e) => setWindow(e.target.value as AnonWindow)}
+                className="px-2 py-1 text-xs border border-slate-300 rounded">
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+        </select>
+      </header>
+
+      {err && (
+        <div className="px-5 py-3 text-sm text-rose-700 bg-rose-50">{err}</div>
+      )}
+
+      {!data ? (
+        <div className="px-5 py-6 text-sm text-slate-500">Loading…</div>
+      ) : data.totals.events === 0 ? (
+        <div className="px-5 py-6 text-sm text-slate-500">
+          No anonymous traffic recorded in this window.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-0 divide-y
+                          md:divide-y-0 md:divide-x divide-slate-100">
+          {/* Column 1: headline */}
+          <div className="px-5 py-4">
+            <div className="text-xs text-slate-500 font-medium">
+              Unique visitors
+            </div>
+            <div className="text-3xl font-bold text-slate-900 mt-1">
+              {data.totals.unique_anons}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              {data.totals.events} total chat-bubble open{data.totals.events === 1 ? "" : "s"}
+            </div>
+          </div>
+
+          {/* Column 2: by country */}
+          <div className="px-5 py-4">
+            <div className="text-xs text-slate-500 font-medium mb-2">
+              Top regions
+            </div>
+            {data.by_country.length === 0 ? (
+              <div className="text-xs text-slate-400">No data</div>
+            ) : (
+              <ul className="space-y-1 text-xs">
+                {data.by_country.slice(0, 6).map((c, i) => (
+                  <li key={i} className="flex items-center justify-between
+                                          text-slate-700">
+                    <span className="font-mono">
+                      {c.country ?? <em className="text-slate-400">unresolved</em>}
+                    </span>
+                    <span>
+                      <strong>{c.unique_anons}</strong>
+                      <span className="text-slate-400 ml-1">
+                        ({c.events} open{c.events === 1 ? "" : "s"})
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Column 3: by day — minimal text "bar chart" */}
+          <div className="px-5 py-4">
+            <div className="text-xs text-slate-500 font-medium mb-2">
+              Daily breakdown
+            </div>
+            <ul className="space-y-1 text-xs">
+              {data.by_day.slice(-7).map((d) => {
+                // Width as percentage of the max-day count, so the
+                // longest bar fills the column and others scale down.
+                // Cleanest no-dep visualisation — Tailwind + flexbox.
+                const widthPct = maxDayEvents > 0
+                  ? Math.max(2, Math.round((d.events / maxDayEvents) * 100))
+                  : 0;
+                return (
+                  <li key={d.day} className="flex items-center gap-2
+                                              text-slate-700">
+                    <span className="font-mono text-slate-500 w-16
+                                       flex-shrink-0">
+                      {d.day.slice(5)}
+                    </span>
+                    <div className="flex-1 relative h-4 bg-slate-50 rounded
+                                       overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 bg-indigo-200"
+                           style={{ width: `${widthPct}%` }} />
+                      <span className="absolute inset-0 flex items-center
+                                         px-1.5 text-[10px] text-slate-700">
+                        {d.events > 0 ? d.events : ""}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
