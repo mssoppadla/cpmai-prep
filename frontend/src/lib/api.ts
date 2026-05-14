@@ -708,6 +708,24 @@ export const admin = {
          { authed: true });
       return data;
     },
+    async toolUsage(window: "24h" | "7d" | "30d" = "7d") {
+      const { data } = await request<{
+        window: string;
+        since: string;
+        total_turns: number;
+        router_only_turns: number;
+        tools: {
+          name: string;
+          calls: number;
+          turns_with: number;
+          by_status: Record<string, number>;
+          avg_latency_ms: number | null;
+          p95_latency_ms: number | null;
+        }[];
+      }>(`/admin/assistant-drift/tool-usage?window=${window}`,
+          { authed: true });
+      return data;
+    },
     async events(params: {
       window?: "24h" | "7d" | "30d";
       // Backend filters on the metadata.flow value. shadow_agentic

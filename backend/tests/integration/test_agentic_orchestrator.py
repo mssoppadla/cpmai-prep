@@ -170,16 +170,20 @@ class TestAgenticOrchestratorRouterPicksOneTool:
         assert result.message == "The exam fee is documented [Source 1]."
         # Citations passed through from the tool's RetrievedChunk.
         assert len(result.citations) == 1
-        # Tool call summary captures the OK status.
-        assert result.tools_called == [{
-            "name": "faq_search",
-            "status": "ok",
-            "metadata": {
-                "chunks_returned": 1,
-                "top_similarity": 0.6,
-                "query": "exam fee",
-            },
-        }]
+        # Tool call summary captures the OK status. Metadata gets the
+        # tool's own keys (chunks_returned etc.) PLUS the orchestrator-
+        # added ``tool_elapsed_ms``; assert per-key instead of exact-
+        # match to keep the test robust against future telemetry adds.
+        assert len(result.tools_called) == 1
+        tc = result.tools_called[0]
+        assert tc["name"] == "faq_search"
+        assert tc["status"] == "ok"
+        assert tc["metadata"]["chunks_returned"] == 1
+        assert tc["metadata"]["top_similarity"] == 0.6
+        assert tc["metadata"]["query"] == "exam fee"
+        # Latency stamp added by the orchestrator — int, >= 0.
+        assert isinstance(tc["metadata"]["tool_elapsed_ms"], int)
+        assert tc["metadata"]["tool_elapsed_ms"] >= 0
         # Metadata records the phase + counts so the future drift
         # dashboard can show "1/1 OK".
         assert result.metadata["phase"] == "synthesis"

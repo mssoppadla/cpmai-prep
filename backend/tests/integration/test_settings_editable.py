@@ -87,6 +87,19 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "assistant.drift_detection_enabled": True,
     "assistant.classifier.default_intent":
                                          "faq",
+    # Classifier keyword overrides — five lists, one per intent.
+    # The happy-path values just demonstrate the wire shape; real
+    # admin edits will paste the seeded lists and add/remove entries.
+    "assistant.classifier.keywords.pmi_reference":
+                                         ["pmi.org", "official exam"],
+    "assistant.classifier.keywords.insights":
+                                         ["my score", "improve"],
+    "assistant.classifier.keywords.account":
+                                         ["billing", "refund"],
+    "assistant.classifier.keywords.content":
+                                         ["explain", "phase"],
+    "assistant.classifier.keywords.faq":
+                                         ["exam pattern", "cost", "fee"],
     "assistant.allowed_exceptions_directive":
                                          "Custom directive: never refuse these topics.",
     # Agentic toggle — orchestration flow selector. "percent:25" is a

@@ -356,6 +356,25 @@ EDITABLE: dict[str, Callable] = {
     "assistant.classifier.default_intent":
         lambda v: isinstance(v, str) and v.lower() in {
             "account", "faq", "content", "insights", "pmi_reference"},
+    # Admin-tunable keyword lists for the legacy classifier. Each is
+    # a list of substrings the classifier matches case-insensitively
+    # against the user's message. Order WITHIN a list does not matter
+    # (any match counts); order BETWEEN intents is hardcoded in code
+    # (PMI > INSIGHTS > ACCOUNT > CONTENT > FAQ). Empty list = the
+    # intent never matches via keyword. Missing setting falls back to
+    # the hardcoded default in intent_classifier.py.
+    # Cap of 100 entries × 200 chars is generous — typical lists have
+    # ~10-15 short substrings.
+    "assistant.classifier.keywords.pmi_reference":
+        _short_str_list(max_items=100, max_item_len=200),
+    "assistant.classifier.keywords.insights":
+        _short_str_list(max_items=100, max_item_len=200),
+    "assistant.classifier.keywords.account":
+        _short_str_list(max_items=100, max_item_len=200),
+    "assistant.classifier.keywords.content":
+        _short_str_list(max_items=100, max_item_len=200),
+    "assistant.classifier.keywords.faq":
+        _short_str_list(max_items=100, max_item_len=200),
     # Pre-text injected before the operator's allowed_exceptions list
     # in the system prompt. Empty falls back to the strong hardcoded
     # default ("Do NOT decline... Do NOT apologize..."). Tune for

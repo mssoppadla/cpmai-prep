@@ -238,6 +238,32 @@ class AssistantOrchestrator:
         except Exception:
             log.exception("assistant.drift_detection_crashed")
 
+        # Per-turn agentic telemetry — written to audit_log under
+        # ``assistant.agentic.turn`` so the /admin/assistant-drift
+        # dashboard can aggregate "which tools fired on real traffic"
+        # AND "what's the per-tool latency distribution" without
+        # needing a new column on AssistantLog (no migration).
+        #
+        # One row per agentic turn. At our scale (~100 turns/day
+        # post-rollout) that's noise on audit_logs volume but a
+        # rich observability signal. The metadata includes per-tool
+        # latency stashed in ToolResult.metadata.tool_elapsed_ms
+        # by the orchestrator (PR #N).
+        try:
+            audit_log(self.db, user.id if user else None,
+                       "assistant.agentic.turn", {
+                "flow": decision.primary.value,
+                "tools_called": result.tools_called,
+                "tools_planned": result.metadata.get("tools_planned"),
+                "tools_executed": result.metadata.get("tools_executed"),
+                "replans_fired": result.metadata.get("replans_fired"),
+                "elapsed_ms": result.metadata.get("elapsed_ms"),
+                "phase": result.metadata.get("phase"),
+                "error": result.error,
+            })
+        except Exception:
+            log.exception("assistant.agentic_turn_audit_failed")
+
         # Per-turn log row. We store the tool-call summary in the
         # response_preview's metadata field via a JSON-encoded
         # extension... wait, there's no metadata column on

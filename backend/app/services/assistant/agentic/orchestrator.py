@@ -396,13 +396,29 @@ class AgenticOrchestrator:
             # Tool execution. Tools are contractually no-raise; this
             # try/except is belt-and-braces against future tools
             # forgetting that contract.
+            #
+            # We time each execution and stash the elapsed_ms in
+            # ToolResult.metadata. This propagates through
+            # _summarise_tool_calls into the per-turn audit row, so a
+            # future "which tool is slowest" dashboard panel can
+            # aggregate without changing the orchestrator. Cost: one
+            # extra time.monotonic() call per tool — nanoseconds.
+            t_tool = time.monotonic()
             try:
-                results.append(tool.execute(ctx, cleaned))
+                r = tool.execute(ctx, cleaned)
+                # ToolResult.metadata is a defaultdict-ish dict the
+                # tool may have already populated (chunks_returned,
+                # top_similarity, etc.). Add latency to it without
+                # clobbering the tool's own keys.
+                r.metadata = {**(r.metadata or {}),
+                              "tool_elapsed_ms": _ms_since(t_tool)}
+                results.append(r)
             except Exception as e:           # pragma: no cover — guard
                 log.exception("agentic.tool_raised", extra={"tool": tc.name})
                 results.append(ToolResult(
                     tool_name=tc.name, status=ToolStatus.ERROR,
                     error=f"tool raised: {e}",
+                    metadata={"tool_elapsed_ms": _ms_since(t_tool)},
                 ))
         return results
 
