@@ -134,26 +134,32 @@ QUESTIONS: list[QuestionCase] = [
     ),
 
     # ---- DEFAULT FALLTHROUGH: questions the regex doesn't recognise
-    # default to FAQ. The fix that landed in PR #53 means FAQ now also
-    # queries `upload`, so admin-uploaded knowledge bases serve the
-    # tail. This case specifically guards the GDPR-question regression.
+    # default to CONTENT (not FAQ — see classifier.classify docstring
+    # for the full rationale; short version: ContentHandler has the
+    # broader DEFAULT_SYSTEM and is the surface operators customise,
+    # so it's the better catch-all for off-keyword questions).
     QuestionCase(
         question="What are GDPR Rules?",
-        expected_intent=Intent.FAQ,           # default fallthrough
-        expected_legacy_sources={"faq", "upload"},
-        expected_agentic_tools={"faq", "content", "upload"},
-        notes="REGRESSION: GDPR fell through to FAQ default and "
-              "without upload-corpus inclusion got refused. Pin both "
-              "the routing AND the source_types so the bug can't "
-              "silently come back.",
+        expected_intent=Intent.CONTENT,       # default fallthrough is now CONTENT
+        expected_legacy_sources={"question_explanation", "upload"},
+        expected_agentic_tools={"content", "upload"},
+        notes="REGRESSION (operator-reported, May 2026): GDPR fell "
+              "through to FAQ default; FAQHandler's narrow self-image "
+              "('CPMAI certification process') made the LLM refuse "
+              "even with retrieved context AND an explicit ALSO ALLOWED "
+              "preamble entry. Fix: default fallthrough is CONTENT, "
+              "which has a broader prompt and is the operator-customised "
+              "handler. Pin both the routing change AND the source "
+              "filter so neither can silently regress.",
     ),
     QuestionCase(
         question="Tell me about machine learning model evaluation",
-        expected_intent=Intent.FAQ,           # default fallthrough
-        expected_legacy_sources={"faq", "upload"},
+        expected_intent=Intent.CONTENT,       # default fallthrough is now CONTENT
+        expected_legacy_sources={"question_explanation", "upload"},
         expected_agentic_tools={"content", "upload"},
-        notes="ML/AI topic falls through to FAQ default; upload corpus "
-              "is the safety net.",
+        notes="ML/AI topic falls through to CONTENT default; the broader "
+              "system prompt + upload corpus together let the LLM answer "
+              "without refusing.",
     ),
 ]
 

@@ -37,6 +37,31 @@ easy to inspect during eval debugging.
 from app.core.settings_store import settings_store
 
 
+# Default ALSO ALLOWED directive — the imperative wording that goes
+# BEFORE the operator's exception list. Strong, repetitive, anti-
+# refusal language because softer wording (earlier draft: "these
+# subjects ARE in scope") didn't stop gpt-4o-mini from refusing
+# when a handler-level SYSTEM had a narrower self-image. Don't
+# soften without re-running the operator-reported GDPR repro from
+# tests/integration/test_assistant_question_routing.py.
+#
+# Admin can override via ``assistant.allowed_exceptions_directive`` —
+# useful if switching to a model that needs different prompt-
+# engineering (Sonnet may not need the imperative tone; some other
+# model might need it amplified further).
+_DEFAULT_EXCEPTIONS_DIRECTIVE = (
+    "ALSO ALLOWED (CRITICAL — read carefully) — the following "
+    "specific subjects ARE in scope. Treat them as first-class "
+    "topics regardless of any other framing in this prompt. "
+    "Do NOT decline questions about them. Do NOT respond with "
+    "'I cannot help with this' or 'this is outside the scope.' "
+    "Do NOT apologize for answering. If retrieved context "
+    "covers the subject, answer from it. If retrieved context "
+    "does NOT cover the subject, answer from your general "
+    "knowledge concisely."
+)
+
+
 def assemble_preamble() -> str:
     """Return the admin-configured guardrail header, or empty string if
     nothing is set. Handlers prepend this to their intent-specific
@@ -58,14 +83,18 @@ def assemble_preamble() -> str:
         # Top-level "ALSO ALLOWED" block. Independent of both
         # allowed_topics and banned_topics: items here are brought
         # IN-scope even if they aren't in TOPIC SCOPE, and they
-        # override anything in BANNED. The "even if not listed above"
-        # wording is crucial — without it the model tends to treat
-        # this as a no-op when TOPIC SCOPE is already narrow.
-        parts.append(
-            "ALSO ALLOWED — these specific subjects ARE in scope, even "
-            "if they don't appear in TOPIC SCOPE above and even if they "
-            "would otherwise be banned. Answer questions about them the "
-            "same way you would for any in-scope subject:\n" + exceptions)
+        # override anything in BANNED.
+        #
+        # Directive wording is admin-overridable via
+        # ``assistant.allowed_exceptions_directive``. Empty / unset
+        # falls back to the strong default constant above. Operator
+        # would override this if switching to a different LLM or
+        # tuning prompt style for their specific model.
+        directive = (settings_store.get_str(
+            "assistant.allowed_exceptions_directive", "") or "").strip()
+        if not directive:
+            directive = _DEFAULT_EXCEPTIONS_DIRECTIVE
+        parts.append(directive + "\n" + exceptions)
     if banned:
         parts.append(
             "BANNED — politely decline to discuss these UNLESS the "

@@ -125,11 +125,19 @@ def test_allowed_exceptions_overrides_narrow_allowed_topics(stub_settings):
     assert "ALSO ALLOWED" in out
     assert "CPMAI Body of Knowledge only" in out
     assert "GDPR Rules, AI Act" in out
-    # And the "ALSO ALLOWED" wording must make clear to the LLM that
-    # these are in scope EVEN IF not in TOPIC SCOPE.
-    # Lowercase the prompt for a more forgiving substring check.
+    # ALSO ALLOWED wording must give the LLM unambiguous "don't refuse"
+    # signals. Earlier soft wording ("these subjects ARE in scope")
+    # didn't stop gpt-4o-mini from refusing — see the classifier-default
+    # hotfix docstring for the operator-reported repro. Pin the
+    # imperative anti-refusal phrasing.
     lowered = out.lower()
-    assert "even if" in lowered or "even though" in lowered
+    assert "do not decline" in lowered, (
+        "ALSO ALLOWED block must explicitly tell the LLM not to "
+        "decline — without this the model anchors to whatever narrower "
+        "framing the handler-level SYSTEM prompt provides")
+    assert "regardless" in lowered, (
+        "ALSO ALLOWED must make clear these topics override narrower "
+        "framing in the rest of the prompt")
 
 
 def test_allowed_exceptions_overrides_banned_topics(stub_settings):
@@ -215,6 +223,43 @@ def test_configurable_handler_system_falls_back_on_whitespace_only(stub_settings
     out = system_prompt.configurable_handler_system(
         "content", "fallback content prompt")
     assert out == "fallback content prompt"
+
+
+def test_allowed_exceptions_directive_uses_default_when_unset(stub_settings):
+    """Empty / unset directive setting → strong hardcoded default
+    appears in the rendered prompt. This is the operator-friendly
+    default: get the strong anti-refusal language without having to
+    write it themselves."""
+    stub_settings["assistant.allowed_exceptions"] = "GDPR Rules"
+    out = system_prompt.assemble_preamble()
+    lowered = out.lower()
+    assert "do not decline" in lowered, (
+        "Default directive must include 'Do NOT decline' — that's the "
+        "imperative wording that defeats LLM conservatism")
+    assert "gdpr rules" in lowered
+
+
+def test_allowed_exceptions_directive_uses_admin_value_when_set(stub_settings):
+    """Admin-saved directive wins over the hardcoded default. Operator
+    knob for tuning prompt style per LLM (e.g. softer language for
+    Sonnet which doesn't need the imperative tone)."""
+    stub_settings["assistant.allowed_exceptions"] = "Compliance"
+    stub_settings["assistant.allowed_exceptions_directive"] = (
+        "POLICY (custom): Answer freely about the following subjects.")
+    out = system_prompt.assemble_preamble()
+    assert "POLICY (custom):" in out
+    assert "Compliance" in out
+    # Default wording must NOT appear — admin's override fully replaces.
+    assert "Do NOT decline" not in out
+
+
+def test_allowed_exceptions_directive_whitespace_only_falls_back(stub_settings):
+    """Whitespace-only saved value treated as 'unset' — operator can't
+    accidentally save a blank directive and weaken the prompt."""
+    stub_settings["assistant.allowed_exceptions"] = "GDPR"
+    stub_settings["assistant.allowed_exceptions_directive"] = "   \n\t  "
+    out = system_prompt.assemble_preamble()
+    assert "do not decline" in out.lower()
 
 
 def test_configurable_handler_system_uses_correct_key_per_handler(stub_settings):

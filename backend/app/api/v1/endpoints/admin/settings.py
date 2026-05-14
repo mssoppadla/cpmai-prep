@@ -321,6 +321,20 @@ EDITABLE: dict[str, Callable] = {
     # /admin/assistant-drift. Off by default during initial rollout
     # so operators don't see noise before tuning.
     "assistant.drift_detection_enabled": _bool,
+    # Classifier default fallthrough — which Intent (and therefore
+    # which handler) runs when the regex classifier doesn't match
+    # any keyword. Defaults to "content"; switch to "faq" for the
+    # legacy behavior, or to any Intent enum value name. Malformed
+    # values fall back to "content" at runtime.
+    "assistant.classifier.default_intent":
+        lambda v: isinstance(v, str) and v.lower() in {
+            "account", "faq", "content", "insights", "pmi_reference"},
+    # Pre-text injected before the operator's allowed_exceptions list
+    # in the system prompt. Empty falls back to the strong hardcoded
+    # default ("Do NOT decline... Do NOT apologize..."). Tune for
+    # different LLMs — some need more imperative language, others
+    # need less. 4000 chars is generous for multi-paragraph prompts.
+    "assistant.allowed_exceptions_directive": _optional_str(4000),
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),
