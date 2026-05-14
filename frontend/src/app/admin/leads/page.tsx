@@ -554,29 +554,41 @@ function AnonymousTrafficSection() {
             </div>
           </div>
 
-          {/* Column 2: by country */}
+          {/* Column 2: by region (country + city). Uses the same
+              countryAndCity helper the leads table below renders for
+              its Location column — so a row reads as "🇮🇳 Bengaluru"
+              rather than "IN", consistent with the rest of the
+              admin surface. Rows with neither country nor city
+              (unresolved IPs — datacenter / proxy / private) get
+              the "unresolved" label so they stay visible. */}
           <div className="px-5 py-4">
             <div className="text-xs text-slate-500 font-medium mb-2">
               Top regions
             </div>
-            {data.by_country.length === 0 ? (
+            {data.by_region.length === 0 ? (
               <div className="text-xs text-slate-400">No data</div>
             ) : (
               <ul className="space-y-1 text-xs">
-                {data.by_country.slice(0, 6).map((c, i) => (
-                  <li key={i} className="flex items-center justify-between
-                                          text-slate-700">
-                    <span className="font-mono">
-                      {c.country ?? <em className="text-slate-400">unresolved</em>}
-                    </span>
-                    <span>
-                      <strong>{c.unique_anons}</strong>
-                      <span className="text-slate-400 ml-1">
-                        ({c.events} open{c.events === 1 ? "" : "s"})
+                {data.by_region.slice(0, 6).map((c, i) => {
+                  const label = countryAndCity(c.country, c.city);
+                  const unresolved = !c.country && !c.city;
+                  return (
+                    <li key={i} className="flex items-center justify-between
+                                            text-slate-700">
+                      <span>
+                        {unresolved
+                          ? <em className="text-slate-400">unresolved</em>
+                          : label}
                       </span>
-                    </span>
-                  </li>
-                ))}
+                      <span>
+                        <strong>{c.unique_anons}</strong>
+                        <span className="text-slate-400 ml-1">
+                          ({c.events} open{c.events === 1 ? "" : "s"})
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

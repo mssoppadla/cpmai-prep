@@ -14,7 +14,8 @@ Test surface pins:
   - GeoIP lookup is best-effort (lookup failure → event still recorded)
   - Aggregation correctly de-dupes per anon_id
   - by_day fills zero-count gap days so the chart renders continuously
-  - by_country preserves null (unresolved IPs) as a distinct bucket
+  - by_region preserves null (unresolved IPs) as a distinct bucket
+  - by_region groups on (country, city) so cities surface separately
 """
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -148,7 +149,7 @@ def test_summary_empty_when_no_events(client, admin):
     body = r.json()
     assert body["totals"]["unique_anons"] == 0
     assert body["totals"]["events"] == 0
-    assert body["by_country"] == []
+    assert body["by_region"] == []
     # by_day is always populated (even with zeros) so the chart
     # renders a continuous timeline. 7 days + today = 8 buckets.
     assert len(body["by_day"]) == 8
@@ -160,35 +161,42 @@ def test_summary_dedupes_unique_anons(client, admin, db):
     1 unique anon, not 5. Distinguishes 'high-intent' single anons
     from genuine multi-visitor traffic."""
     for _ in range(5):
-        _seed_anon_event(db, anon_id="anon-A", country="IN")
-    _seed_anon_event(db, anon_id="anon-B", country="IN")
+        _seed_anon_event(db, anon_id="anon-A", country="IN", city="Bengaluru")
+    _seed_anon_event(db, anon_id="anon-B", country="IN", city="Bengaluru")
 
     h = auth_header(client, admin.email)
     body = client.get("/api/v1/admin/anonymous-traffic/summary",
                        headers=h).json()
     assert body["totals"]["unique_anons"] == 2
     assert body["totals"]["events"] == 6
-    assert body["by_country"] == [
-        {"country": "IN", "events": 6, "unique_anons": 2},
+    assert body["by_region"] == [
+        {"country": "IN", "city": "Bengaluru",
+         "events": 6, "unique_anons": 2},
     ]
 
 
-def test_summary_groups_by_country(client, admin, db):
-    _seed_anon_event(db, anon_id="anon-IN1", country="IN")
-    _seed_anon_event(db, anon_id="anon-IN2", country="IN")
-    _seed_anon_event(db, anon_id="anon-US1", country="US")
-    _seed_anon_event(db, anon_id="anon-noip", country=None)
+def test_summary_groups_by_region(client, admin, db):
+    """Two cities in the same country surface as separate rows so the
+    operator can see WHICH city the unconverted interest sits in.
+    Renders like the leads-table 'Location' column below."""
+    _seed_anon_event(db, anon_id="anon-IN1", country="IN", city="Bengaluru")
+    _seed_anon_event(db, anon_id="anon-IN2", country="IN", city="Bengaluru")
+    _seed_anon_event(db, anon_id="anon-IN3", country="IN", city="Mumbai")
+    _seed_anon_event(db, anon_id="anon-US1", country="US", city="Seattle")
+    _seed_anon_event(db, anon_id="anon-noip", country=None, city=None)
 
     h = auth_header(client, admin.email)
     body = client.get("/api/v1/admin/anonymous-traffic/summary",
                        headers=h).json()
-    by_country = {c["country"]: c for c in body["by_country"]}
-    assert by_country["IN"]["events"] == 2
-    assert by_country["IN"]["unique_anons"] == 2
-    assert by_country["US"]["events"] == 1
+    by_region = {(r["country"], r["city"]): r for r in body["by_region"]}
+    # Bengaluru and Mumbai are separate rows under IN.
+    assert by_region[("IN", "Bengaluru")]["events"] == 2
+    assert by_region[("IN", "Bengaluru")]["unique_anons"] == 2
+    assert by_region[("IN", "Mumbai")]["events"] == 1
+    assert by_region[("US", "Seattle")]["events"] == 1
     # Null IPs (private/datacenter) preserved as a distinct bucket so
     # operators can spot them rather than them silently hiding.
-    assert by_country[None]["events"] == 1
+    assert by_region[(None, None)]["events"] == 1
 
 
 def test_summary_window_24h_excludes_older(client, admin, db):
@@ -220,11 +228,15 @@ def test_summary_by_day_fills_zero_count_gaps(client, admin, db):
 
 def test_summary_response_shape(client, admin, db):
     """Pin the response keys so the frontend can rely on shape."""
-    _seed_anon_event(db, country="IN")
+    _seed_anon_event(db, country="IN", city="Bengaluru")
     h = auth_header(client, admin.email)
     body = client.get("/api/v1/admin/anonymous-traffic/summary",
                        headers=h).json()
     assert set(body.keys()) >= {
-        "window", "since", "totals", "by_country", "by_day"
+        "window", "since", "totals", "by_region", "by_day"
     }
     assert set(body["totals"].keys()) == {"unique_anons", "events"}
+    # Each region row carries country + city + counts.
+    assert set(body["by_region"][0].keys()) == {
+        "country", "city", "events", "unique_anons",
+    }

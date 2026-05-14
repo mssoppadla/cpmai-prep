@@ -160,22 +160,57 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
-  // Anonymous-visitor intent tracking.
+  // Anonymous-visitor tracking — two distinct events:
   //
-  // When an anon user opens the chat panel, fire ONE anon-event to the
-  // backend so the operator can see "where unconverted traffic is
-  // coming from" in /admin/leads's Anonymous Traffic section. The
-  // backend short-circuits the call for authenticated users, so a user
-  // who signs in mid-session doesn't get retroactively tracked.
+  //   1. page_view   — fired ONCE per browser session, on any page the
+  //                    widget mounts on (so just landing on the site
+  //                    counts; the visitor doesn't have to interact
+  //                    with the bubble). This is "raw traffic".
+  //   2. bubble_open — fired ONCE per browser session when an anon
+  //                    actually clicks the chat. This is "intent to
+  //                    engage" — a stronger signal than a page view.
   //
-  // Why useRef rather than useState for the de-dupe flag: setting state
-  // would trigger a re-render. The flag is purely a side-effect guard.
+  // Both go through the same /assistant/anon-event endpoint; the `kind`
+  // ends up as the audit_logs.action suffix and the summary endpoint
+  // aggregates either way. The dashboard shows total events + unique
+  // anons; operators can compare bubble_open count vs page_view count
+  // to see the conversion rate from traffic to engagement.
   //
-  // Why per-page-load rather than per-day-per-anon: the audit_logs row
-  // count is a function of (sessions × anon visitors × pages-with-
-  // bubble). De-duping per session keeps that volume in check while
-  // still surfacing genuinely new anon arrivals. The summary endpoint
-  // aggregates by anon_id, so a chatty single anon doesn't skew counts.
+  // Backend short-circuits for authenticated users, so a user who
+  // signs in mid-session won't get retroactively tracked.
+  //
+  // Why sessionStorage rather than useRef for the page_view flag:
+  //   * useRef dedupes within a single React mount only. The widget
+  //     IS mounted at the layout level so route changes don't unmount
+  //     it — but a full page reload (Ctrl-R, navigating to an
+  //     external link and back, opening the site in a new tab) WOULD
+  //     remount and fire again.
+  //   * sessionStorage survives full reloads within the same tab,
+  //     resets when the tab closes. That matches the conceptual unit
+  //     of "one visit" — a returning visitor next day counts again,
+  //     but tab-internal navigation/refresh doesn't.
+  //
+  // The audit_logs volume is bounded by (sessions × distinct kinds).
+  // For a site at our scale that's fine; if traffic explodes we can
+  // add a daily TTL job.
+  useEffect(() => {
+    if (user) return;
+    if (typeof window === "undefined") return;   // SSR guard
+    const KEY = "cpmai_anon_pageview_fired";
+    try {
+      if (sessionStorage.getItem(KEY)) return;
+      sessionStorage.setItem(KEY, "1");
+    } catch {
+      // Storage blocked (private-browsing quirks, strict cookie
+      // settings) — fire anyway. Worst case the same anon counts
+      // twice per route change. Better than no data.
+    }
+    assistant.anonEvent("page_view");
+  }, [user]);
+
+  // bubble_open — fires when the anon clicks the bubble to actually
+  // engage with chat. Kept separate from page_view so the dashboard
+  // can show both "traffic" and "engagement" metrics.
   const anonEventFired = useRef(false);
   useEffect(() => {
     // Inline `!user` rather than `isAnon` — `isAnon` is declared
