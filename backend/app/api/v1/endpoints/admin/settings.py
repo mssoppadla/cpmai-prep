@@ -97,6 +97,33 @@ def _float_in(lo: float, hi: float):
     return lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def _is_flow_value(v) -> bool:
+    """Validate ``assistant.flow``.
+
+    Accepts the four canonical orchestration-flow strings plus the
+    ``percent:N`` cohort form (N integer 0..100). Anything else gets
+    rejected at PATCH; the runtime resolver also falls back to
+    ``legacy`` on malformed values as a defence-in-depth measure.
+
+    Why allow ``percent:0`` and ``percent:100``: they're the natural
+    end-points of a gradual rollout — 0 means "I want to enable the
+    setting but keep agentic off", 100 means "fully rolled out, ready
+    to switch to plain 'agentic' on the next save".
+    """
+    if not isinstance(v, str):
+        return False
+    s = v.strip().lower()
+    if s in {"legacy", "agentic", "shadow"}:
+        return True
+    if s.startswith("percent:"):
+        try:
+            n = int(s.split(":", 1)[1])
+        except ValueError:
+            return False
+        return 0 <= n <= 100
+    return False
+
+
 # Keys whose ``value`` should be masked in GET responses. The PATCH
 # endpoint still accepts plaintext (no other way to update a secret).
 # Source of truth for "is this key secret" lives in the geoip package
@@ -335,6 +362,26 @@ EDITABLE: dict[str, Callable] = {
     # different LLMs — some need more imperative language, others
     # need less. 4000 chars is generous for multi-paragraph prompts.
     "assistant.allowed_exceptions_directive": _optional_str(4000),
+    # Agentic toggle — selects orchestration flow.
+    #   "legacy"           = current keyword-classifier + handlers pipeline
+    #   "agentic"          = router + tool-calling + synthesis
+    #   "percent:<0-100>"  = N% of users get agentic (deterministic hash)
+    #   "shadow"           = run both, return legacy, log agentic for compare
+    # Anything else falls back to "legacy" at runtime (safest default).
+    # Validator accepts the four canonical strings plus the percent:N
+    # form with N in 0..100.
+    "assistant.flow":                        lambda v: _is_flow_value(v),
+    # Hard cap on tool calls per agentic turn (including router re-plans).
+    # Cost guardrail — keeps a confused router from looping. 1..10 is
+    # the sane range; default 4.
+    "assistant.agentic.tools_max_calls":     _int_in(1, 10),
+    # Admin-tunable router/synthesis system prompts. Empty falls back
+    # to the shipped defaults baked into the agentic orchestrator.
+    "assistant.agentic.router_system":       _optional_str(8000),
+    "assistant.agentic.synthesis_system":    _optional_str(8000),
+    # Fraction of shadow-mode requests on which agentic actually runs.
+    # 0.0 = shadow disabled, 1.0 = every legacy request also runs agentic.
+    "assistant.agentic.shadow_sampling_rate": _float_in(0.0, 1.0),
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),

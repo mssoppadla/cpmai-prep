@@ -1,4 +1,25 @@
-"""Assistant orchestrator: classify intent → route to handler → guardrail output."""
+"""Assistant orchestrator: classify intent → route to handler → guardrail output.
+
+Top-level entry point is :meth:`AssistantOrchestrator.handle`, which
+guardrails the input/output and runs ONE of two orchestration flows
+based on the ``assistant.flow`` setting (resolved per-request via
+:mod:`app.services.assistant.flow`):
+
+  * **legacy**  — the keyword-classifier + per-intent handler pipeline
+                  documented in this file's class body. Default and only
+                  fully-implemented flow today.
+  * **agentic** — LangGraph-style router + tool-calling + synthesis.
+                  Currently a placeholder (raises NotImplementedError).
+                  The agentic implementation lands in a follow-up PR;
+                  the foundation here is the settings + flow resolver +
+                  the dispatch branch that flips between them.
+
+Why land the dispatch branch BEFORE the agentic impl: it lets us ship
+the setting (and admin-validate it, and seed it as "legacy") without
+risk of any user actually triggering the unfinished code path. Once
+agentic implementation lands, operators flip the setting and traffic
+moves over with no further deploy.
+"""
 import structlog
 from sqlalchemy.orm import Session
 from app.utils.pii import redact
@@ -6,6 +27,7 @@ from app.models.assistant_log import AssistantLog
 from app.models.user import User
 from app.schemas.assistant import AssistantRequest, AssistantResponse
 from app.services.assistant.drift import DriftContext, detect_and_log
+from app.services.assistant.flow import Flow, FlowDecision, resolve_flow
 from app.services.assistant.guardrails import AssistantGuardrails
 from app.services.assistant.intent_classifier import IntentClassifier, Intent
 from app.services.assistant.llm_registry import LLMRegistry
@@ -39,9 +61,50 @@ class AssistantOrchestrator:
 
     def handle(self, request: AssistantRequest, user: User | None
                ) -> AssistantResponse:
+        # Input guardrails are layer-zero — they run before BOTH flows
+        # (regex injection check, length cap, Redis cooldown).
         safe_msg = self.guardrails.check_input(
             request.message, user_id=request.user_id, anon_id=request.anon_id,
         )
+
+        # Decide flow per-request. Default + every-fallback is legacy;
+        # the orchestrator can never get stuck on a broken agentic
+        # branch due to a bad setting value.
+        decision = resolve_flow(
+            user_id=user.id if user else None,
+            anon_id=request.anon_id,
+        )
+
+        if decision.primary is Flow.LEGACY:
+            return self._handle_legacy(request, user, safe_msg, decision)
+
+        # Agentic path — implementation lands in the follow-up PR. The
+        # raise here is intentional: we want the foundation (settings +
+        # resolver + dispatch) to be reviewable and tested before the
+        # router/tools/synthesis code arrives. With the seed default
+        # of "legacy", no real request ever reaches this branch on prod
+        # until an admin opts in.
+        raise NotImplementedError(
+            "Agentic flow is not yet wired in. Set assistant.flow=legacy "
+            "to disable (this is also the seed default). The agentic "
+            "implementation lands in a follow-up PR.")
+
+    # ------------------------------------------------------------ legacy
+    def _handle_legacy(
+        self,
+        request: AssistantRequest,
+        user: User | None,
+        safe_msg: str,
+        decision: FlowDecision,
+    ) -> AssistantResponse:
+        """Original keyword-classifier + per-intent-handler pipeline.
+
+        Identical in behaviour to the pre-refactor ``handle()`` body —
+        kept byte-for-byte equivalent except for the ``flow=`` value
+        passed to the drift detector (now sourced from the FlowDecision
+        rather than hard-coded). Regression test in
+        ``test_orchestrator_flow_dispatch.py`` pins this contract.
+        """
         intent, confidence = self.classifier.classify(safe_msg, request.history)
         provider = LLMRegistry.get_active()
 
@@ -71,7 +134,7 @@ class AssistantOrchestrator:
         try:
             detect_and_log(self.db, DriftContext(
                 user_id=user.id if user else None,
-                flow="legacy",            # agentic toggle path will write "agentic"
+                flow=decision.primary.value,   # "legacy" or "agentic"
                 handler=_INTENT_TO_HANDLER_NAME.get(intent, intent.value),
                 intent=intent.value,
                 question=safe_msg,
