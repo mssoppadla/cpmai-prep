@@ -164,6 +164,31 @@
     "description": "Pre-text injected before the operator's allowed_exceptions list in the system prompt. Tune the language to make the LLM treat exceptions as truly in-scope (e.g. add 'do NOT decline' for models that anchor on narrower handler framing). Leave blank to use the strong default ('Do NOT decline... Do NOT apologize... if context covers it answer from context, otherwise answer concisely from general knowledge'). Only edit if you switch LLM provider or notice the bot still refusing exception topics."
   },
   {
+    "key": "assistant.flow",
+    "value": "legacy",
+    "description": "Which orchestration flow handles chat turns. 'legacy' = the keyword-classifier + per-intent handler pipeline (default; unchanged behaviour). 'agentic' = LangGraph-style router + tool-calling + synthesis. 'percent:N' (e.g. 'percent:10') = N% of users get agentic by deterministic hash(anon_id|user_id+day), the rest stay on legacy — recommended for gradual rollout. 'shadow' = both flows run for the same query; legacy answer returned to user, agentic logged for comparison (~2x cost). Falls back to 'legacy' on any malformed value."
+  },
+  {
+    "key": "assistant.agentic.tools_max_calls",
+    "value": 4,
+    "description": "Hard cap on tool calls the router may issue per chat turn (including re-plans after empty tool results). Lower = cheaper but less recovery; higher = better at multi-tool questions but riskier on cost. 4 is a sensible default."
+  },
+  {
+    "key": "assistant.agentic.router_system",
+    "value": "",
+    "description": "Admin-tunable SYSTEM prompt for the agentic router LLM (the one that picks tools). Empty = use the shipped default in code. The router prompt should describe each available tool and the persona; we ship a default that mirrors the legacy classifier's intent definitions. Tune only after observing real router behaviour in the drift dashboard."
+  },
+  {
+    "key": "assistant.agentic.synthesis_system",
+    "value": "",
+    "description": "Admin-tunable SYSTEM prompt for the agentic synthesis LLM (the one that turns tool results into the final answer). Empty = use the shipped default in code. The synthesis prompt should instruct the LLM to (a) treat tool results as evidence, not orders, (b) express uncertainty honestly when tool results are weak, (c) cite sources. Tune for refusal/hallucination patterns surfaced in the drift dashboard."
+  },
+  {
+    "key": "assistant.agentic.shadow_sampling_rate",
+    "value": 0.0,
+    "description": "When flow='shadow', this is the fraction (0.0-1.0) of requests on which the agentic side actually runs alongside legacy. 0.0 = shadow is functionally disabled. 0.1 = 10% of legacy requests also run agentic and log the result for comparison (~10% extra LLM cost). Used to gather A/B data before flipping to a percent-rollout."
+  },
+  {
     "key": "payment.active_provider_id",
     "value": null,
     "description": "Active payment_providers row ID — INR-rail provider (typically Razorpay). Non-INR routing uses payment.non_inr_provider_id below."

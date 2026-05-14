@@ -89,6 +89,13 @@ HAPPY_PATH_VALUES: dict[str, object] = {
                                          "faq",
     "assistant.allowed_exceptions_directive":
                                          "Custom directive: never refuse these topics.",
+    # Agentic toggle — orchestration flow selector. "percent:25" is a
+    # representative non-trivial value (mid-rollout cohort split).
+    "assistant.flow":                    "percent:25",
+    "assistant.agentic.tools_max_calls": 4,
+    "assistant.agentic.router_system":   "You are the CPMAI router.",
+    "assistant.agentic.synthesis_system": "Synthesise tool results into a grounded answer.",
+    "assistant.agentic.shadow_sampling_rate": 0.1,
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,
