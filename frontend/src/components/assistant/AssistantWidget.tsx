@@ -76,8 +76,10 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
   const [notifications, setNotifications] = useState<AssistantNotification[]>([]);
 
   // Per-turn flag UI state, keyed by turn_id from the AssistantResponse.
+  // "resolved" mode is the post-withdrawal terminal state: the user
+  // saw their own flag close. Shipped in feat/flagged-turn-resolve.
   const [flagState, setFlagState] = useState<Record<number, {
-    mode: "idle" | "open" | "submitting" | "sent" | "error";
+    mode: "idle" | "open" | "submitting" | "sent" | "error" | "resolved";
     note: string;
     err?: string;
   }>>({});
@@ -117,6 +119,43 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
         ...s, mode: "error", note: s?.note ?? "",
         err: errMsg(e),
       } }));
+    }
+  }
+
+  // User withdraws their own flag — either pending (before admin
+  // replied) or after seeing the admin reply. Idempotent on the
+  // backend; UI just shows the terminal "resolved" mode.
+  async function resolveUserFlag(turnId: number) {
+    try {
+      await assistant.resolveFlaggedTurn(turnId);
+      setFlagState((m) => ({ ...m, [turnId]: { mode: "resolved", note: "" } }));
+    } catch (e) {
+      // Don't surface errors — resolve is a "best effort" UX action.
+      // If the network failed, the next page refresh will re-fetch
+      // the real state from the server.
+      console.error("[chat] resolve flag failed", e);
+    }
+  }
+
+  // After the admin's reply lands and the user sees the
+  // SupportReplyBubble, they can mark the whole thread resolved.
+  // Optimistically removes the bubble from the local notifications
+  // list so the widget chrome stops nagging the user about it.
+  async function resolveNotificationFromBubble(
+    flagId: number, logId: number,
+  ) {
+    try {
+      // Resolve is keyed on the chat turn (log_id), not the flag_id.
+      // The user-facing endpoint takes log_id because the user
+      // doesn't know flag_ids.
+      await assistant.resolveFlaggedTurn(logId);
+      setNotifications((n) => n.filter((x) => x.id !== flagId));
+      // Also stamp the flag state if we have one for this turn so
+      // the "Wasn't helpful?" affordance under the turn bubble
+      // reflects the resolved state.
+      setFlagState((m) => ({ ...m, [logId]: { mode: "resolved", note: "" } }));
+    } catch (e) {
+      console.error("[chat] resolve from notification failed", e);
     }
   }
 
@@ -418,7 +457,10 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
                   />
                 )}
                 {notifications.map((n) => (
-                  <SupportReplyBubble key={n.id} notification={n} />
+                  <SupportReplyBubble key={n.id} notification={n}
+                                       onResolve={() =>
+                                         resolveNotificationFromBubble(
+                                           n.id, n.assistant_log_id)} />
                 ))}
                 {turns.map((t, i) => (
                   <TurnBubble key={i} turn={t}
@@ -434,7 +476,8 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
                               onFlagNoteChange={(id, v) => setFlagState((m) => ({
                                 ...m, [id]: { ...(m[id] ?? { mode: "open", note: "" }), note: v },
                               }))}
-                              onFlagSubmit={submitFlag} />
+                              onFlagSubmit={submitFlag}
+                              onFlagResolve={resolveUserFlag} />
                 ))}
                 {busy && (
                   <div className="flex items-start gap-2">
@@ -687,19 +730,20 @@ function EmptyState({
 
 
 interface FlagUiState {
-  mode: "idle" | "open" | "submitting" | "sent" | "error";
+  mode: "idle" | "open" | "submitting" | "sent" | "error" | "resolved";
   note: string;
   err?: string;
 }
 
 function TurnBubble({ turn, flagState, onFlagOpen, onFlagCancel,
-                     onFlagNoteChange, onFlagSubmit }: {
+                     onFlagNoteChange, onFlagSubmit, onFlagResolve }: {
   turn: ChatTurn;
   flagState?: FlagUiState;
   onFlagOpen?: (id: number) => void;
   onFlagCancel?: (id: number) => void;
   onFlagNoteChange?: (id: number, v: string) => void;
   onFlagSubmit?: (id: number) => void;
+  onFlagResolve?: (id: number) => void;
 }) {
   if (turn.role === "user") {
     return (
@@ -732,7 +776,8 @@ function TurnBubble({ turn, flagState, onFlagOpen, onFlagCancel,
           <FlagControl turnId={turnId} state={flagState}
                        onOpen={onFlagOpen} onCancel={onFlagCancel}
                        onNoteChange={onFlagNoteChange}
-                       onSubmit={onFlagSubmit} />
+                       onSubmit={onFlagSubmit}
+                       onResolve={onFlagResolve} />
         )}
       </div>
     </div>
@@ -741,18 +786,45 @@ function TurnBubble({ turn, flagState, onFlagOpen, onFlagCancel,
 
 
 function FlagControl({ turnId, state, onOpen, onCancel, onNoteChange,
-                       onSubmit }: {
+                       onSubmit, onResolve }: {
   turnId: number; state?: FlagUiState;
   onOpen?: (id: number) => void;
   onCancel?: (id: number) => void;
   onNoteChange?: (id: number, v: string) => void;
   onSubmit?: (id: number) => void;
+  /** User-initiated withdrawal — called when the user taps
+   *  "Withdraw" / "Mark resolved" under their own flag. Optional;
+   *  if omitted, the resolve UI is hidden (graceful degrade). */
+  onResolve?: (id: number) => void;
 }) {
   const mode = state?.mode ?? "idle";
+  if (mode === "resolved") {
+    // Terminal state after the user withdrew their own flag. Stays
+    // muted — we don't want to bother them about a thing they
+    // already closed.
+    return (
+      <div className="mt-1.5 text-xs text-slate-500 italic">
+        ✓ Flag withdrawn.
+      </div>
+    );
+  }
   if (mode === "sent") {
     return (
-      <div className="mt-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
-        ✓ Sent for review. A teammate will reply here when they can.
+      <div className="mt-1.5 text-xs text-emerald-700 bg-emerald-50 border
+                       border-emerald-200 rounded px-2 py-1 flex items-center
+                       justify-between gap-2">
+        <span>
+          ✓ Sent for review. A teammate will reply here when they can.
+        </span>
+        {onResolve && (
+          <button type="button"
+            onClick={() => onResolve(turnId)}
+            className="text-[11px] text-emerald-700 hover:text-emerald-900
+                       hover:underline shrink-0"
+            title="Withdraw this flag — you don't need a follow-up.">
+            Withdraw
+          </button>
+        )}
       </div>
     );
   }
@@ -802,8 +874,11 @@ function FlagControl({ turnId, state, onOpen, onCancel, onNoteChange,
 }
 
 
-function SupportReplyBubble({ notification }: {
+function SupportReplyBubble({ notification, onResolve }: {
   notification: AssistantNotification;
+  /** User taps "Mark resolved" — fire-and-forget call to the
+   *  resolve endpoint + optimistic-remove from the widget. */
+  onResolve?: () => void;
 }) {
   return (
     <div className="flex items-start gap-2">
@@ -818,8 +893,21 @@ function SupportReplyBubble({ notification }: {
           </div>
           {notification.admin_reply}
         </div>
-        <div className="text-[10px] text-slate-400 mt-1">
-          Re: <em>"{notification.original_message.slice(0, 80)}{notification.original_message.length > 80 ? "…" : ""}"</em>
+        <div className="text-[10px] text-slate-400 mt-1 flex items-center
+                          justify-between gap-2">
+          <span>
+            Re: <em>&ldquo;{notification.original_message.slice(0, 80)}
+              {notification.original_message.length > 80 ? "…" : ""}&rdquo;</em>
+          </span>
+          {onResolve && (
+            <button type="button"
+              onClick={onResolve}
+              className="text-[10px] text-emerald-700 hover:text-emerald-900
+                         hover:underline shrink-0"
+              title="Close this thread — this reply helped.">
+              Mark resolved
+            </button>
+          )}
         </div>
       </div>
     </div>
