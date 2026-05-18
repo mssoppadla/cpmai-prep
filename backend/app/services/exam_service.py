@@ -354,9 +354,13 @@ class ExamService:
         now = datetime.now(timezone.utc)
         not_expired = or_(Subscription.expires_at.is_(None),
                           Subscription.expires_at > now)
+        # revoked_at column ships in migration 0022 — once an admin
+        # revokes (e.g. after issuing a refund), the sub no longer
+        # grants paywall access regardless of expires_at.
         subs = (self.db.query(Subscription)
                 .filter(Subscription.user_id == user_id,
                         Subscription.status == "active",
+                        Subscription.revoked_at.is_(None),
                         not_expired)
                 .all())
         if not subs:

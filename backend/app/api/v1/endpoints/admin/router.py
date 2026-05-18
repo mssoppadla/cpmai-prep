@@ -9,6 +9,7 @@ from app.api.v1.endpoints.admin import (
     assistant_drift,
     assistant_flow,
     anonymous_traffic,
+    subscriptions,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -29,3 +30,9 @@ admin_router.include_router(pricing_admin.router, prefix="/pricing",      tags=[
 admin_router.include_router(assistant_drift.router, prefix="/assistant-drift", tags=["admin"])
 admin_router.include_router(assistant_flow.router,  prefix="/assistant-flow",  tags=["admin"])
 admin_router.include_router(anonymous_traffic.router, prefix="/anonymous-traffic", tags=["admin"])
+# Subscriptions admin: routes registered WITHOUT a prefix here because
+# they live at two different paths — /admin/users/{id}/subscriptions
+# (list + grant) and /admin/subscriptions/{id}/{extend,revoke}. The
+# router file declares each path absolutely so both surfaces are
+# co-located in one module.
+admin_router.include_router(subscriptions.router, tags=["admin"])

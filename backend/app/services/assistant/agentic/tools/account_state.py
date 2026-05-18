@@ -80,12 +80,13 @@ class AccountStateTool(Tool):
                 metadata={"has_subscription": False},
             )
 
-        # Active iff status='active' AND (no expires_at OR expires_at > now).
-        # Same logic the paywall enforces — keep them aligned.
+        # Active iff status='active' AND (no expires_at OR expires_at > now)
+        # AND not revoked. Same logic the paywall enforces — keep aligned.
         now = datetime.now(timezone.utc)
         is_active = (sub.status == "active"
                       and (sub.expires_at is None
-                           or sub.expires_at > now))
+                           or sub.expires_at > now)
+                      and sub.revoked_at is None)
 
         lines = [
             f"User {ctx.user.email} subscription:",

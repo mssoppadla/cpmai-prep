@@ -1143,6 +1143,49 @@ export const admin = {
       return data;
     },
   },
+  subscriptions: {
+    /** List all subscriptions for a user (current + historical, paid + manual).
+     *  Powers the "Subscriptions" sub-section on /admin/users/[id]. */
+    async listForUser(userId: number): Promise<SubscriptionAdminOut[]> {
+      const { data } = await request<SubscriptionAdminOut[]>(
+        `/admin/users/${userId}/subscriptions`, { authed: true });
+      return data;
+    },
+    /** Manually grant a paid plan to a user. Use when a payment was
+     *  debited at the gateway but never marked successful in our system
+     *  (e.g. PayPal PENDING that never released). */
+    async grant(userId: number, payload: {
+      plan_id: number;
+      period_days: number;
+      reason: string;
+      source?: "manual_admin_grant" | "comp" | "refund_reversed";
+    }): Promise<SubscriptionAdminOut> {
+      const { data } = await request<SubscriptionAdminOut>(
+        `/admin/users/${userId}/subscriptions`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    /** Bump expires_at by ``days`` for an existing sub. */
+    async extend(subscriptionId: number, payload: {
+      days: number; reason: string;
+    }): Promise<SubscriptionAdminOut> {
+      const { data } = await request<SubscriptionAdminOut>(
+        `/admin/subscriptions/${subscriptionId}/extend`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    /** Mark a sub as revoked (typically after a refund). Paywall
+     *  ignores it from this point on regardless of expires_at.
+     *  Idempotent: re-revoking is a no-op. */
+    async revoke(subscriptionId: number, payload: {
+      reason: string;
+    }): Promise<SubscriptionAdminOut> {
+      const { data } = await request<SubscriptionAdminOut>(
+        `/admin/subscriptions/${subscriptionId}/revoke`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+  },
   rag: {
     async status(): Promise<{
       sources: Record<string, {
@@ -1192,6 +1235,32 @@ export const admin = {
     },
   },
 };
+
+/** One subscription row in the admin view, as returned by the
+ *  /admin/users/{id}/subscriptions endpoint. ``is_active_now`` is the
+ *  derived paywall view at fetch time (matches what exam_service +
+ *  account_state see); ``source``='paid' for organic rows and
+ *  'manual_admin_grant'/'comp'/'refund_reversed' for admin-granted. */
+export interface SubscriptionAdminOut {
+  id: number;
+  user_id: number;
+  plan: string;
+  plan_id: number | null;
+  status: string;
+  expires_at: string | null;
+  current_period_start: string | null;
+  current_period_end:   string | null;
+  source: string;
+  granted_by_user_id: number | null;
+  granted_by_email:   string | null;
+  grant_reason: string | null;
+  revoked_at: string | null;
+  revoked_by_user_id: number | null;
+  revoked_by_email:   string | null;
+  revoke_reason: string | null;
+  is_active_now: boolean;
+  created_at: string;
+}
 
 export interface RagDocumentOut {
   id: number;
