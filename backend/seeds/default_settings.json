@@ -40,6 +40,16 @@
     "description": "Lockout duration"
   },
   {
+    "key": "auth.access_token_expire_minutes",
+    "value": 240,
+    "description": "Access-token lifetime (minutes). Range 5..1440. Changing only affects NEWLY-issued tokens; existing JWTs keep their baked-in expiry until self-expiry."
+  },
+  {
+    "key": "auth.refresh_token_expire_days",
+    "value": 1,
+    "description": "Refresh-token lifetime (days). Range 1..30. Caps the effective session length — frontend 401 auto-refresh extends a session up to this idle window before forcing re-login."
+  },
+  {
     "key": "llm.active_provider_id",
     "value": null,
     "description": "ID of the currently active llm_providers row"

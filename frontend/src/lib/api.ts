@@ -96,6 +96,55 @@ interface FetchOpts extends RequestInit {
    *  on free sets. Backend's get_actor prefers Bearer when both are present. */
   withAnon?: boolean;
   json?: unknown;
+  /** Internal — set by request() when retrying after a silent refresh, so
+   *  we never recurse if the retried call also returns 401. Callers
+   *  should not set this directly. */
+  _isRetry?: boolean;
+}
+
+/**
+ * In-flight refresh deduper. Multiple concurrent requests that all see
+ * 401 must NOT each fire `/auth/refresh` independently — that races on
+ * localStorage and burns refresh attempts. We share a single promise
+ * across all concurrent callers so only one refresh is ever in flight.
+ */
+let _refreshInFlight: Promise<boolean> | null = null;
+
+async function silentRefresh(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  if (_refreshInFlight) return _refreshInFlight;
+  const refresh = window.localStorage.getItem(REFRESH_KEY);
+  if (!refresh) return false;
+  _refreshInFlight = (async () => {
+    try {
+      // Direct fetch — bypass request() so we never trigger our own
+      // 401-interceptor on the refresh call itself.
+      const r = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!r.ok) {
+        // Refresh token expired or revoked → drop tokens, force re-login.
+        clearTokens();
+        return false;
+      }
+      const data = await r.json() as { access: string; refresh: string };
+      setTokens(data.access, data.refresh);
+      return true;
+    } catch {
+      // Network failure — leave tokens in place so a subsequent request
+      // can try again. Don't clear: the user might just be offline.
+      return false;
+    } finally {
+      _refreshInFlight = null;
+    }
+  })();
+  return _refreshInFlight;
 }
 
 async function request<T>(path: string, opts: FetchOpts = {}): Promise<{
@@ -125,6 +174,29 @@ async function request<T>(path: string, opts: FetchOpts = {}): Promise<{
     credentials: opts.credentials ?? "same-origin",
     body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body,
   });
+
+  // 401 silent-refresh interceptor.
+  // When an authed request comes back 401 (likely access-token expiry),
+  // try the refresh-token flow once and replay the original request.
+  // This makes the effective session length the refresh-token lifetime
+  // (7 days idle) rather than the access-token lifetime (4h on prod),
+  // so a user who returns to a tab after 5 hours doesn't see a session-
+  // timeout error mid-action. Skips:
+  //   - `/auth/*` paths (refresh/login/signup) → never recurse
+  //   - non-authed requests (no token to refresh)
+  //   - retried requests (one retry per call, no infinite loop)
+  if (
+    res.status === 401 &&
+    opts.authed &&
+    !opts._isRetry &&
+    !path.startsWith("/auth/")
+  ) {
+    const refreshed = await silentRefresh();
+    if (refreshed) {
+      return request<T>(path, { ...opts, _isRetry: true });
+    }
+  }
+
   let body: unknown = null;
   if (res.status !== 204) {
     const txt = await res.text();
@@ -1071,6 +1143,49 @@ export const admin = {
       return data;
     },
   },
+  subscriptions: {
+    /** List all subscriptions for a user (current + historical, paid + manual).
+     *  Powers the "Subscriptions" sub-section on /admin/users/[id]. */
+    async listForUser(userId: number): Promise<SubscriptionAdminOut[]> {
+      const { data } = await request<SubscriptionAdminOut[]>(
+        `/admin/users/${userId}/subscriptions`, { authed: true });
+      return data;
+    },
+    /** Manually grant a paid plan to a user. Use when a payment was
+     *  debited at the gateway but never marked successful in our system
+     *  (e.g. PayPal PENDING that never released). */
+    async grant(userId: number, payload: {
+      plan_id: number;
+      period_days: number;
+      reason: string;
+      source?: "manual_admin_grant" | "comp" | "refund_reversed";
+    }): Promise<SubscriptionAdminOut> {
+      const { data } = await request<SubscriptionAdminOut>(
+        `/admin/users/${userId}/subscriptions`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    /** Bump expires_at by ``days`` for an existing sub. */
+    async extend(subscriptionId: number, payload: {
+      days: number; reason: string;
+    }): Promise<SubscriptionAdminOut> {
+      const { data } = await request<SubscriptionAdminOut>(
+        `/admin/subscriptions/${subscriptionId}/extend`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    /** Mark a sub as revoked (typically after a refund). Paywall
+     *  ignores it from this point on regardless of expires_at.
+     *  Idempotent: re-revoking is a no-op. */
+    async revoke(subscriptionId: number, payload: {
+      reason: string;
+    }): Promise<SubscriptionAdminOut> {
+      const { data } = await request<SubscriptionAdminOut>(
+        `/admin/subscriptions/${subscriptionId}/revoke`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+  },
   rag: {
     async status(): Promise<{
       sources: Record<string, {
@@ -1120,6 +1235,32 @@ export const admin = {
     },
   },
 };
+
+/** One subscription row in the admin view, as returned by the
+ *  /admin/users/{id}/subscriptions endpoint. ``is_active_now`` is the
+ *  derived paywall view at fetch time (matches what exam_service +
+ *  account_state see); ``source``='paid' for organic rows and
+ *  'manual_admin_grant'/'comp'/'refund_reversed' for admin-granted. */
+export interface SubscriptionAdminOut {
+  id: number;
+  user_id: number;
+  plan: string;
+  plan_id: number | null;
+  status: string;
+  expires_at: string | null;
+  current_period_start: string | null;
+  current_period_end:   string | null;
+  source: string;
+  granted_by_user_id: number | null;
+  granted_by_email:   string | null;
+  grant_reason: string | null;
+  revoked_at: string | null;
+  revoked_by_user_id: number | null;
+  revoked_by_email:   string | null;
+  revoke_reason: string | null;
+  is_active_now: boolean;
+  created_at: string;
+}
 
 export interface RagDocumentOut {
   id: number;

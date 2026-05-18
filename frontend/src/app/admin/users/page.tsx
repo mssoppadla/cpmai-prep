@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { admin, errMsg } from "@/lib/api";
 import type { UserAdminOut, UserRole } from "@/types/api";
 import { countryAndCity, countryFlag } from "@/lib/country-flag";
+import { UserSubscriptionsPanel } from "@/components/admin/UserSubscriptionsPanel";
 
 /**
  * Admin user list — filterable view of every user (Google + password).
@@ -19,6 +20,9 @@ export default function AdminUsersPage() {
   }>({ q: "", role: "", method: "" });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Inline subscription panel — only one user expanded at a time so the
+  // table doesn't sprawl. Click "Subscriptions" on a row to toggle.
+  const [expandedSubsUserId, setExpandedSubsUserId] = useState<number | null>(null);
 
   async function reload() {
     setBusy(true);
@@ -205,7 +209,8 @@ export default function AdminUsersPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50">
+                <Fragment key={u.id}>
+                <tr className="hover:bg-slate-50">
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium text-slate-900">
                       {u.name || <span className="italic text-slate-400">no name</span>}
@@ -270,45 +275,74 @@ export default function AdminUsersPage() {
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {me?.role === "super_admin" && (
-                      <div className="flex flex-col items-end gap-1">
-                        {u.role !== "super_admin" && (
-                          <select
-                            defaultValue=""
-                            onChange={(e) => {
-                              if (e.target.value) {
-                                changeRole(u, e.target.value as UserRole);
-                                e.target.value = "";
-                              }
-                            }}
-                            className="text-xs border border-slate-300 rounded px-2 py-1"
+                    <div className="flex flex-col items-end gap-1">
+                      {/* Subscriptions panel toggle — available to any admin
+                          (super_admin OR admin) since the user's confirmed
+                          design grants both roles the ability to resolve
+                          stuck-payment cases. */}
+                      <button
+                        onClick={() =>
+                          setExpandedSubsUserId((curr) =>
+                            curr === u.id ? null : u.id)
+                        }
+                        className="text-xs px-2 py-1 border border-slate-300 rounded text-slate-700 hover:bg-slate-50"
+                        title="Show subscriptions; grant / extend / revoke a paid plan for this user"
+                      >
+                        {expandedSubsUserId === u.id
+                          ? "Hide subscriptions"
+                          : "Subscriptions"}
+                      </button>
+                      {me?.role === "super_admin" && (
+                        <>
+                          {u.role !== "super_admin" && (
+                            <select
+                              defaultValue=""
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  changeRole(u, e.target.value as UserRole);
+                                  e.target.value = "";
+                                }
+                              }}
+                              className="text-xs border border-slate-300 rounded px-2 py-1"
+                            >
+                              <option value="">Change role…</option>
+                              {u.role !== "user" && <option value="user">→ user</option>}
+                              {u.role !== "admin" && <option value="admin">→ admin</option>}
+                              <option value="super_admin">→ super admin</option>
+                            </select>
+                          )}
+                          <button
+                            onClick={() => resetPassword(u)}
+                            className="text-xs px-2 py-1 border border-slate-300 rounded text-slate-700 hover:bg-slate-50"
+                            title="Force-reset this user's password"
                           >
-                            <option value="">Change role…</option>
-                            {u.role !== "user" && <option value="user">→ user</option>}
-                            {u.role !== "admin" && <option value="admin">→ admin</option>}
-                            <option value="super_admin">→ super admin</option>
-                          </select>
-                        )}
-                        <button
-                          onClick={() => resetPassword(u)}
-                          className="text-xs px-2 py-1 border border-slate-300 rounded text-slate-700 hover:bg-slate-50"
-                          title="Force-reset this user's password"
-                        >
-                          Reset password
-                        </button>
-                        <button
-                          onClick={() => setChatLimit(u)}
-                          className="text-xs px-2 py-1 border border-slate-300 rounded text-slate-700 hover:bg-slate-50"
-                          title="Override this user's daily chat-message cap"
-                        >
-                          {u.daily_chat_limit_override == null
-                            ? "Set chat limit"
-                            : "Edit chat limit"}
-                        </button>
-                      </div>
-                    )}
+                            Reset password
+                          </button>
+                          <button
+                            onClick={() => setChatLimit(u)}
+                            className="text-xs px-2 py-1 border border-slate-300 rounded text-slate-700 hover:bg-slate-50"
+                            title="Override this user's daily chat-message cap"
+                          >
+                            {u.daily_chat_limit_override == null
+                              ? "Set chat limit"
+                              : "Edit chat limit"}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
+                {expandedSubsUserId === u.id && (
+                  <tr className="bg-slate-50">
+                    <td colSpan={9} className="p-0">
+                      <UserSubscriptionsPanel
+                        userId={u.id}
+                        userEmail={u.email}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

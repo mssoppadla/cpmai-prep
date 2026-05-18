@@ -300,6 +300,11 @@ EDITABLE: dict[str, Callable] = {
     # Auth lockout policy
     "auth.lockout_threshold":            _int_in(1, 50),
     "auth.lockout_minutes":              _int_in(1, 1440),
+    # JWT token lifetimes — bounds also enforced defensively in
+    # app/core/security.py (clamp) so a direct-DB edit can't mint
+    # zero-second tokens. Lower access if a compromise is suspected.
+    "auth.access_token_expire_minutes":  _int_in(5, 1440),
+    "auth.refresh_token_expire_days":    _int_in(1, 30),
     # LLM / payment provider plumbing
     "llm.active_provider_id":            lambda v: v is None or isinstance(v, int),
     "llm.fallback_provider_id":          lambda v: v is None or isinstance(v, int),

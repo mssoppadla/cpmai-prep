@@ -29,11 +29,14 @@ class FaqSearchTool(Tool):
     name = "faq_search"
     description = (
         "Search the CPMAI FAQ and any admin-uploaded reference "
-        "documents for content relevant to the user's question. Use "
-        "this for factual questions about the certification process "
-        "(eligibility, exam format, scoring, scheduling) and for any "
-        "topic that might be covered in the admin's knowledge base "
-        "(e.g. GDPR, EU AI Act, trustworthy-AI principles)."
+        "documents for content relevant to the user's question. "
+        "FIRST CHOICE for almost every factual question — including: "
+        "PRICING, EXAM FEES, COURSE COSTS, subscription tiers, "
+        "refund / retake policy; certification process (eligibility, "
+        "exam format, scoring, scheduling); and any topic covered in "
+        "the admin's knowledge base (e.g. GDPR, EU AI Act, "
+        "trustworthy-AI principles). PREFER THIS over pmi_reference "
+        "unless the user explicitly asks for an official PMI URL."
     )
     parameters_schema: dict[str, Any] = {
         "type": "object",

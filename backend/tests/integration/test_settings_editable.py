@@ -52,6 +52,8 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     # auth.*
     "auth.lockout_threshold":            5,
     "auth.lockout_minutes":              15,
+    "auth.access_token_expire_minutes":  240,
+    "auth.refresh_token_expire_days":    1,
     # llm.* / payment.*
     "llm.active_provider_id":            None,
     "llm.fallback_provider_id":          None,

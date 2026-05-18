@@ -49,11 +49,14 @@ _INTENT_TO_RESPONSE: dict[str, tuple[str, str, str]] = {
 class PmiReferenceTool(Tool):
     name = "pmi_reference"
     description = (
-        "Return a link to PMI's official CPMAI page. Pick "
-        "intent='eco' for syllabus / exam-content / 'what's on the "
-        "exam' questions; pick intent='course' for registration / "
-        "exam fee / course bundle / scheduling questions. NO content "
-        "is generated — only an authoritative URL + framing text."
+        "Return a link to PMI's official CPMAI page. Use this ONLY "
+        "when the user explicitly asks for an authoritative PMI URL — "
+        "typically for the exam syllabus / Exam Content Outline "
+        "(intent='eco') or the PMI registration landing page "
+        "(intent='course'). NO content is generated — only the URL "
+        "+ framing text. DO NOT use this for pricing or cost "
+        "questions; those belong to faq_search (where admin-curated "
+        "FAQ entries give the actual numbers)."
     )
     parameters_schema: dict[str, Any] = {
         "type": "object",
@@ -62,10 +65,11 @@ class PmiReferenceTool(Tool):
                 "type": "string",
                 "enum": ["eco", "course"],
                 "description": (
-                    "Which official page to return — 'eco' (Exam "
-                    "Content Outline) for syllabus questions, "
-                    "'course' (Course Bundle page) for registration "
-                    "or fee questions."
+                    "Which official page to return — 'eco' for the "
+                    "Exam Content Outline (syllabus); 'course' for "
+                    "the PMI registration landing page. NOT a way "
+                    "to answer 'how much does it cost?' — use "
+                    "faq_search for that."
                 ),
             },
         },

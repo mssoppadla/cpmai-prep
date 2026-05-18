@@ -14,8 +14,17 @@ class Settings(BaseSettings):
     ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1"]
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # FALLBACK defaults — used only when settings_store has no row for
+    # the corresponding key. Once seeded, the runtime values in
+    # /admin/settings override these (and admins can re-tune without a
+    # redeploy). See app.core.security for the read path + bounds.
+    #
+    # Defaults: 240 min (4h) access + 1 day refresh. The frontend's 401
+    # auto-refresh extends the effective session to the refresh-token
+    # lifetime (1 day idle), balancing UX with daily re-auth.
+    # Lower access to 15 if a credential compromise is suspected.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 240
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 1
 
     DATABASE_URL: str = "postgresql+psycopg2://cpmai:cpmai_dev@postgres:5432/cpmai_prep"
     REDIS_URL: str = "redis://redis:6379/0"
