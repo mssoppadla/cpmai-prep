@@ -196,20 +196,37 @@ drift?) tuples — train a classifier, deploy alongside the rules. See
 
 ## Frontend
 
-### 11. No 401 auto-refresh — user sees session timeout mid-action
+### 11. ~~No 401 auto-refresh — user sees session timeout mid-action~~ ✅ Fixed
 
-**Limitation**: The frontend's `request()` function doesn't auto-retry on
-401 with `auth.refresh()`. A user whose access token expired mid-action
-sees an error and has to re-login.
+**Status**: Resolved in `feat/session-router-admin-grant`.
 
-**Why OK now**: We bumped `ACCESS_TOKEN_EXPIRE_MINUTES` to 120 on prod;
-the chance of an expiry mid-action is low.
+The frontend's `request()` helper now intercepts 401s on authed calls,
+silently calls `/auth/refresh` (deduped across concurrent in-flight
+requests), and replays the original request with the fresh token.
+Combined with admin-tunable token lifetimes (default 4h access + 1 day
+refresh), the **effective session length is the refresh-token lifetime
+(1 day idle by default, admin-tunable up to 30 days)** — users no
+longer see mid-action session timeouts unless they've been gone past
+the refresh window.
 
-**Workaround**: Refresh the page (top-level page loads call `auth.me()`
-which auto-refreshes if needed).
-
-**When we'd fix it**: bundled into the next bug-fix PR (~30 LOC + tests).
-See backlog.
+Implementation details:
+- Singleton in-flight refresh promise prevents N parallel 401s from
+  firing N separate refresh calls (race + wasted attempts).
+- `/auth/*` paths skip the interceptor — protects against an infinite
+  loop if the refresh token itself is rejected.
+- One retry per request via internal `_isRetry` flag.
+- Refresh failure path clears tokens cleanly; the original 401 surfaces
+  to the caller so existing error UI still works.
+- **Both lifetimes are admin-tunable at runtime** via `/admin/settings`
+  (`auth.access_token_expire_minutes`, range 5–1440;
+  `auth.refresh_token_expire_days`, range 1–30) — no redeploy needed.
+  Changes affect only newly-issued tokens; in-flight JWTs keep their
+  baked-in expiry. Rotate `SECRET_KEY` to force-logout everyone.
+- Coverage:
+  - `frontend/src/__tests__/auth-401-autorefresh.test.ts` (5 cases)
+  - `backend/tests/unit/test_token_expiry_settings.py` (8 cases:
+    fallback · admin override (access + refresh) · defensive clamps
+    (min/max for both) · in-flight token carry-over).
 
 ### 12. No real-time admin notifications
 

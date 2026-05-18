@@ -247,7 +247,7 @@ Full deep-dive: [agentic-toggle-architecture.md](agentic-toggle-architecture.md)
 
 - **Google Sign-In** (one-tap) — primary path
 - **Password (argon2)** — fallback + bootstrap admin
-- **JWT** access token (15 min by default, 120 min on prod) + refresh token (7 days)
+- **JWT** access token (default 4h) + refresh token (default 1 day), both **admin-tunable at runtime** via `/admin/settings` (`auth.access_token_expire_minutes` 5–1440 · `auth.refresh_token_expire_days` 1–30)
 - **Roles**: `super_admin`, `admin`, `user`, plus anonymous visitors tracked
   by a cookie-bound `anon_id` for funnel analytics
 

@@ -209,19 +209,35 @@ embeddings + every query embedding.
 
 ### JWT (access + refresh) over server-side sessions
 
-**Decision**: Access token (15 min default, 120 min on prod) + refresh
-token (7 days), both signed JWTs stored client-side in `localStorage`.
+**Decision**: Access token (default 240 min / 4h) + refresh token
+(default 1 day), both signed JWTs stored client-side in `localStorage`.
+**Both lifetimes are admin-tunable at runtime** via `/admin/settings`
+(`auth.access_token_expire_minutes`, range 5–1440;
+`auth.refresh_token_expire_days`, range 1–30) — no redeploy to re-tune.
+
+The frontend's `request()` helper transparently calls `/auth/refresh`
+on any 401 (one in-flight refresh shared across concurrent calls), so
+the effective user-visible session length is the refresh-token
+lifetime, not the access-token lifetime.
 
 **Trade-off**:
 
-- ✅ Stateless — backend doesn't store sessions, scales horizontally without
-  a shared session store
+- ✅ Stateless — backend doesn't store sessions, scales horizontally
+  without a shared session store
 - ✅ Mobile / SPA-friendly — Bearer header works everywhere
-- ❌ Revocation is harder than server sessions — a stolen access token is
-  valid until expiry (we don't run a denylist today)
-- ❌ Refresh-token rotation isn't implemented (a fresh refresh is minted on
-  each `/auth/refresh` call but the old one is still valid until its own
-  expiry)
+- ✅ Operators can re-tune the security/UX dial without a redeploy
+  (shrink access to 15 min on compromise; extend refresh to 30 days
+  for a low-friction "remember me" demo)
+- ❌ Revocation is harder than server sessions — a stolen access token
+  is valid until expiry (we don't run a denylist today). Rotate
+  `SECRET_KEY` to force-logout everyone in an emergency.
+- ❌ Refresh-token rotation isn't implemented (a fresh refresh is
+  minted on each `/auth/refresh` call but the old one is still valid
+  until its own expiry)
+- ❌ Tunability comes with a foot-gun: a direct-DB edit could set
+  access=0 and lock everyone out. Defensive clamps in
+  `core/security.py` floor at the validator's lower bound to
+  protect against this.
 
 ### Google Sign-In as the primary path
 

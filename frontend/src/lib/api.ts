@@ -96,6 +96,55 @@ interface FetchOpts extends RequestInit {
    *  on free sets. Backend's get_actor prefers Bearer when both are present. */
   withAnon?: boolean;
   json?: unknown;
+  /** Internal — set by request() when retrying after a silent refresh, so
+   *  we never recurse if the retried call also returns 401. Callers
+   *  should not set this directly. */
+  _isRetry?: boolean;
+}
+
+/**
+ * In-flight refresh deduper. Multiple concurrent requests that all see
+ * 401 must NOT each fire `/auth/refresh` independently — that races on
+ * localStorage and burns refresh attempts. We share a single promise
+ * across all concurrent callers so only one refresh is ever in flight.
+ */
+let _refreshInFlight: Promise<boolean> | null = null;
+
+async function silentRefresh(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  if (_refreshInFlight) return _refreshInFlight;
+  const refresh = window.localStorage.getItem(REFRESH_KEY);
+  if (!refresh) return false;
+  _refreshInFlight = (async () => {
+    try {
+      // Direct fetch — bypass request() so we never trigger our own
+      // 401-interceptor on the refresh call itself.
+      const r = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!r.ok) {
+        // Refresh token expired or revoked → drop tokens, force re-login.
+        clearTokens();
+        return false;
+      }
+      const data = await r.json() as { access: string; refresh: string };
+      setTokens(data.access, data.refresh);
+      return true;
+    } catch {
+      // Network failure — leave tokens in place so a subsequent request
+      // can try again. Don't clear: the user might just be offline.
+      return false;
+    } finally {
+      _refreshInFlight = null;
+    }
+  })();
+  return _refreshInFlight;
 }
 
 async function request<T>(path: string, opts: FetchOpts = {}): Promise<{
@@ -125,6 +174,29 @@ async function request<T>(path: string, opts: FetchOpts = {}): Promise<{
     credentials: opts.credentials ?? "same-origin",
     body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body,
   });
+
+  // 401 silent-refresh interceptor.
+  // When an authed request comes back 401 (likely access-token expiry),
+  // try the refresh-token flow once and replay the original request.
+  // This makes the effective session length the refresh-token lifetime
+  // (7 days idle) rather than the access-token lifetime (4h on prod),
+  // so a user who returns to a tab after 5 hours doesn't see a session-
+  // timeout error mid-action. Skips:
+  //   - `/auth/*` paths (refresh/login/signup) → never recurse
+  //   - non-authed requests (no token to refresh)
+  //   - retried requests (one retry per call, no infinite loop)
+  if (
+    res.status === 401 &&
+    opts.authed &&
+    !opts._isRetry &&
+    !path.startsWith("/auth/")
+  ) {
+    const refreshed = await silentRefresh();
+    if (refreshed) {
+      return request<T>(path, { ...opts, _isRetry: true });
+    }
+  }
+
   let body: unknown = null;
   if (res.status !== 204) {
     const txt = await res.text();
