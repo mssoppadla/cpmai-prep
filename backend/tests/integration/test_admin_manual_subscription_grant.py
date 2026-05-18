@@ -56,6 +56,7 @@ def grant_plan(db):
         name="Premium Test",
         slug="premium-test",
         description="Test plan for grant tests",
+        bundle_type="exam_bundle",
         currency="INR",
         base_price_paise=100000,
         duration_days=30,

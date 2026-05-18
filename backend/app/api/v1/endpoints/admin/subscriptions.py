@@ -169,9 +169,14 @@ def list_user_subscriptions(user_id: int,
     user = db.get(User, user_id)
     if not user:
         raise NotFoundError()
+    # Order by id DESC (monotonic + unique) as a tie-breaker on
+    # created_at — SQLite's CURRENT_TIMESTAMP is only second-precision,
+    # so two grants in the same second would otherwise come back in
+    # arbitrary order on tests.
     subs = (db.query(Subscription)
             .filter(Subscription.user_id == user_id)
-            .order_by(desc(Subscription.created_at))
+            .order_by(desc(Subscription.created_at),
+                      desc(Subscription.id))
             .all())
     if not subs:
         return []
