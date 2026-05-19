@@ -33,7 +33,7 @@ import type {
 } from "@/types/api";
 import PageMetadataPanel from "@/components/cms/PageMetadataPanel";
 import AIAssistButton from "@/components/cms/AIAssistButton";
-import type { useCreateBlockNote } from "@blocknote/react";
+import type { BlockNoteEditor as BlockNoteEditorInstance } from "@blocknote/core";
 
 // SSR off — ProseMirror needs the DOM.
 const BlockNoteEditor = dynamic(
@@ -86,8 +86,11 @@ export default function ContentPageEditorView({
   // Stable initial blocks fed to BlockNote. Set ONCE after load.
   const [initialBlocks, setInitialBlocks] = useState<PartialBlock[] | undefined>(undefined);
 
-  // Editor instance ref — used by AIAssistButton.
-  const editorRef = useRef<ReturnType<typeof useCreateBlockNote> | null>(null);
+  // Editor instance ref — used by AIAssistButton. Typed loosely
+  // (any-generics) because the page doesn't perform schema-specific
+  // operations; it just hands the ref to children that do.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editorRef = useRef<BlockNoteEditorInstance<any, any, any> | null>(null);
 
   // ----------------------------------------------------- load
 

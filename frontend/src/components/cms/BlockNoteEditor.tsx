@@ -35,7 +35,11 @@ import {
   defaultBlockSpecs,
   filterSuggestionItems,
 } from "@blocknote/core";
-import type { Block, PartialBlock } from "@blocknote/core";
+import type {
+  Block,
+  BlockNoteEditor as BlockNoteEditorInstance,
+  PartialBlock,
+} from "@blocknote/core";
 
 import { youtubeGallerySpec } from "./blocks/YouTubeGalleryBlock";
 
@@ -65,7 +69,15 @@ const editorSchema = BlockNoteSchema.create({
   },
 });
 
-type EditorType = ReturnType<typeof useCreateBlockNote<typeof editorSchema.blockSchema>>;
+// Editor type derived from the schema we just constructed.
+// ``BlockNoteEditorInstance`` is the core editor class (aliased to avoid
+// colliding with this file's default-exported component, also named
+// "BlockNoteEditor"). The three generics are
+// <BlockSchema, InlineContentSchema, StyleSchema>. We don't restrict
+// the inline/style ones here because the suggestion-menu helper
+// doesn't care about them.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EditorType = BlockNoteEditorInstance<typeof editorSchema.blockSchema, any, any>;
 
 
 /** Slash menu entry for inserting a YouTube gallery. Shown when the
@@ -78,12 +90,16 @@ function insertYouTubeGalleryItem(editor: EditorType) {
     subtext: "Embed multiple YouTube videos as a clickable grid",
     icon: <span aria-hidden>▶</span>,
     onItemClick: () => {
-      editor.insertInlineContent;
-      // Insert an empty gallery block where the cursor is.
+      // Insert an empty gallery block where the cursor is. We cast
+      // through ``unknown`` because BlockNote's typed insert signature
+      // is keyed off the exact custom-block name string, which TS can't
+      // narrow inside this helper function.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.insertBlocks([{ type: "youtubeGallery", props: { urls: "", columns: 3 } } as any],
-                         editor.getTextCursorPosition().block,
-                         "after");
+      editor.insertBlocks(
+        [{ type: "youtubeGallery", props: { urls: "", columns: 3 } }] as unknown as any[],
+        editor.getTextCursorPosition().block,
+        "after",
+      );
     },
   };
 }
@@ -100,8 +116,12 @@ interface BlockNoteEditorProps {
   /** Optional placeholder shown when the document is empty. */
   placeholderText?: string;
   /** Imperative ref to the editor instance. Used by AI assist buttons
-   *  to insert / replace blocks programmatically. */
-  editorRef?: React.MutableRefObject<ReturnType<typeof useCreateBlockNote> | null>;
+   *  to insert / replace blocks programmatically. Typed with any-generics
+   *  so callers don't need to import the internal schema type — they
+   *  only use generic editor operations (replaceBlocks, getSelection,
+   *  updateBlock, document). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editorRef?: React.MutableRefObject<BlockNoteEditorInstance<any, any, any> | null>;
 }
 
 export default function BlockNoteEditor({
