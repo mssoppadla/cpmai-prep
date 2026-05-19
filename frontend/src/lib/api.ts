@@ -9,6 +9,10 @@ import type {
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
   FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
+  ContentPageOut, ContentPageCreateIn, ContentPageUpdateIn,
+  CmsGeneratePageIn, CmsGeneratePageOut,
+  CmsFillBlockIn, CmsFillBlockOut,
+  CmsImproveBlockIn, CmsImproveBlockOut,
   QuestionAdminIn, QuestionAdminOut, ExamSetLinkedQuestion,
   SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
@@ -685,6 +689,55 @@ export const admin = {
     },
     async delete(id: number) {
       await request(`/admin/faqs/${id}`, { method: "DELETE", authed: true });
+    },
+  },
+  contentPages: {
+    async list(includeUnpublished: boolean = true) {
+      const qs = includeUnpublished ? "" : "?include_unpublished=false";
+      const { data } = await request<ContentPageOut[]>(
+        `/admin/content-pages${qs}`, { authed: true });
+      return data;
+    },
+    async get(id: number) {
+      const { data } = await request<ContentPageOut>(
+        `/admin/content-pages/${id}`, { authed: true });
+      return data;
+    },
+    async create(p: ContentPageCreateIn) {
+      const { data } = await request<ContentPageOut>(
+        "/admin/content-pages", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: ContentPageUpdateIn) {
+      const { data } = await request<ContentPageOut>(
+        `/admin/content-pages/${id}`,
+        { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async delete(id: number) {
+      await request(
+        `/admin/content-pages/${id}`,
+        { method: "DELETE", authed: true });
+    },
+  },
+  cmsAi: {
+    async generatePage(p: CmsGeneratePageIn) {
+      const { data } = await request<CmsGeneratePageOut>(
+        "/admin/cms-ai/generate-page",
+        { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async fillBlock(p: CmsFillBlockIn) {
+      const { data } = await request<CmsFillBlockOut>(
+        "/admin/cms-ai/fill-block",
+        { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async improveBlock(p: CmsImproveBlockIn) {
+      const { data } = await request<CmsImproveBlockOut>(
+        "/admin/cms-ai/improve-block",
+        { method: "POST", json: p, authed: true });
+      return data;
     },
   },
   settings: {

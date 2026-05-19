@@ -11,6 +11,7 @@ from app.api.v1.endpoints.admin import (
     anonymous_traffic,
     subscriptions,
     content_pages,
+    cms_ai,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -20,6 +21,7 @@ admin_router.include_router(exam_sets.router,    prefix="/exam-sets",     tags=[
 admin_router.include_router(leads.router,        prefix="/leads",         tags=["admin"])
 admin_router.include_router(faqs.router,         prefix="/faqs",          tags=["admin"])
 admin_router.include_router(content_pages.router, prefix="/content-pages", tags=["admin"])
+admin_router.include_router(cms_ai.router,        prefix="/cms-ai",        tags=["admin"])
 admin_router.include_router(settings_ep.router,  prefix="/settings",      tags=["admin"])
 admin_router.include_router(llm_providers.router,    prefix="/llm-providers",     tags=["admin"])
 admin_router.include_router(payment_providers.router,prefix="/payment-providers", tags=["admin"])
