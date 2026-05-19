@@ -75,6 +75,7 @@ redis_module.redis_client = fakeredis.FakeRedis()
 from app.core.database import Base
 from app.core.security import hash_password
 from app.models import (                                             # noqa
+    Tenant,
     User, UserRole, Topic, Question, QuestionOption, Difficulty,
     ExamSet, ExamSetQuestion, ExamSession, ExamAttemptAnswer,
     Subscription, Payment, WebhookEvent, Lead, LeadSource,
@@ -108,6 +109,18 @@ def db(db_engine):
     Session = sessionmaker(bind=db_engine, autoflush=False, autocommit=False)
     s = Session()
     try:
+        # Seed the default tenant (CPMAI, id=1). Multi-tenancy contract
+        # I-2 — this row is permanent in production. In tests, every DB
+        # fixture starts with it pre-seeded so existing tests that don't
+        # care about tenants keep working (FK from audit_logs.tenant_id
+        # would otherwise reject any audit_log() call).
+        s.add(Tenant(
+            id=1, slug="cpmai", name="CPMAI Prep",
+            plan="enterprise", status="active",
+            settings_json={}, feature_overrides={},
+            storage_used_bytes=0,
+        ))
+        s.commit()
         # Seed the 6 CPMAI topics — many tests rely on these.
         topics = [
             ("BU", "Business Understanding", 1),
@@ -123,6 +136,16 @@ def db(db_engine):
         yield s
     finally:
         s.close()
+
+
+@pytest.fixture
+def default_tenant(db):
+    """Returns the CPMAI tenant row (id=1) that ``db`` seeds.
+
+    Exposed as a named fixture so tests asserting on tenant behaviour
+    don't have to remember "db magically seeds tenant id=1".
+    """
+    return db.get(Tenant, 1)
 
 
 @pytest.fixture
