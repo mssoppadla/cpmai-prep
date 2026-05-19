@@ -22,3 +22,11 @@ from app.models.rag_document import RagDocument                      # noqa
 from app.models.payment_provider import PaymentProviderConfig    # noqa
 from app.models.faq import FaqItem                                # noqa
 from app.models.content_page import ContentPage                   # noqa
+from app.models.lms import (                                       # noqa
+    Course, Chapter, Lesson, LessonFile,
+    Enrollment, LessonProgress,
+    CourseCategory, CourseCategoryLink, CourseAnnouncement,
+    LessonNote, CourseReview,
+    LmsQuiz, LmsQuizQuestion, LmsQuizQuestionOption,
+    LmsQuizAttempt, LmsQuizAttemptAnswer,
+)
