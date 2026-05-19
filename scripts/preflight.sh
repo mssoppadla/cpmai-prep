@@ -46,6 +46,17 @@ if [ -z "${SKIP_FRONTEND:-}" ]; then
   ok "frontend tests green"
   ran "frontend vitest unit tests"
 
+  # ALWAYS run strict TypeScript typecheck. Vitest uses esbuild and only
+  # compiles files actually imported by tests, so type errors elsewhere
+  # slip through. ``tsc --noEmit`` is cross-platform (unlike `next build`
+  # which has the @vercel/og Windows incompat), fast (~10s), and catches
+  # everything CI's `next build` typecheck step does. This closes the
+  # gap where a TS error reaches the CI gate uncaught.
+  say "frontend: tsc --noEmit (strict typecheck)"
+  ( cd frontend && npx tsc --noEmit ) || die "frontend typecheck failed (fix TS errors above)"
+  ok "frontend typecheck green"
+  ran "frontend tsc --noEmit"
+
   # Skip `next build` on Windows. @vercel/og (used by /twitter-image)
   # calls fileURLToPath() with a Windows-style path during prerender →
   # TypeError: Invalid URL. Linux Docker build (prod) and Linux CI are
