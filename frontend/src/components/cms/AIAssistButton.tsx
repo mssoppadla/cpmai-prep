@@ -21,10 +21,15 @@
 import { useState } from "react";
 import { admin, errMsg } from "@/lib/api";
 import type { CmsImproveTone } from "@/types/api";
-import type { useCreateBlockNote } from "@blocknote/react";
-import type { Block } from "@blocknote/core";
+import type {
+  Block, BlockNoteEditor as BlockNoteEditorInstance,
+} from "@blocknote/core";
 
-type EditorInstance = ReturnType<typeof useCreateBlockNote>;
+// AIAssistButton uses only generic editor operations (replaceBlocks,
+// getSelection, updateBlock, document) — none are schema-specific —
+// so we accept any schema flavour to keep the prop loose.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EditorInstance = BlockNoteEditorInstance<any, any, any>;
 
 interface AIAssistButtonProps {
   /** Set by the parent via BlockNoteEditor's editorRef prop. */
