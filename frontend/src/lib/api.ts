@@ -10,6 +10,7 @@ import type {
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
   FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
   ContentPageOut, ContentPageCreateIn, ContentPageUpdateIn,
+  ContentPagePublicOut, ContentPageNavItemOut,
   CmsGeneratePageIn, CmsGeneratePageOut,
   CmsFillBlockIn, CmsFillBlockOut,
   CmsImproveBlockIn, CmsImproveBlockOut,
@@ -525,6 +526,39 @@ export const content = {
   },
 };
 
+/**
+ * Public CMS endpoints — no auth required (anon-friendly). Auth headers
+ * are still attached if a token exists so the visibility filter widens
+ * for signed-in users (authenticated tier) and subscribers (subscribed
+ * tier).
+ */
+export const cmsPublic = {
+  async nav(): Promise<ContentPageNavItemOut[]> {
+    const { data } = await request<unknown>(
+      "/cms/nav", { authed: true });  // authed: true means "send token if present"
+    // Coerce defensively: anything other than an array becomes empty so
+    // a malformed / mocked / outdated response can't crash the header.
+    return Array.isArray(data) ? (data as ContentPageNavItemOut[]) : [];
+  },
+  async page(slug: string): Promise<ContentPagePublicOut> {
+    const { data } = await request<ContentPagePublicOut>(
+      `/cms/pages/${encodeURIComponent(slug)}`, { authed: true });
+    return data;
+  },
+  async landing(): Promise<ContentPagePublicOut | null> {
+    // 404 is the documented "no landing configured" response — translate
+    // to null so callers don't have to catch ApiError for the happy path.
+    try {
+      const { data } = await request<ContentPagePublicOut>(
+        "/cms/landing", { authed: true });
+      return data;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
+};
+
 export const admin = {
   questions: {
     async list(p?: {
@@ -718,6 +752,18 @@ export const admin = {
       await request(
         `/admin/content-pages/${id}`,
         { method: "DELETE", authed: true });
+    },
+    async setLanding(id: number) {
+      const { data } = await request<ContentPageOut>(
+        `/admin/content-pages/${id}/set-landing`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    async clearLanding(id: number) {
+      const { data } = await request<ContentPageOut>(
+        `/admin/content-pages/${id}/clear-landing`,
+        { method: "POST", authed: true });
+      return data;
     },
   },
   cmsAi: {

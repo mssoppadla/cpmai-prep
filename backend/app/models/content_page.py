@@ -26,8 +26,7 @@ Author tracking:
   always show "(removed user)" in the UI when this is None.
 """
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Integer, JSON, String,
-    UniqueConstraint,
+    Boolean, Column, DateTime, ForeignKey, Index, Integer, JSON, String, text,
 )
 from sqlalchemy.sql import func
 
@@ -42,9 +41,22 @@ NAV_VISIBILITY_CHOICES = ("always", "authenticated", "subscribed", "hidden")
 
 class ContentPage(Base):
     __tablename__ = "content_pages"
+    # Slug uniqueness is enforced by a PARTIAL unique index that excludes
+    # soft-deleted rows — defined in migration 0026 so an admin can reuse
+    # a slug after deleting the previous page with that slug. SQLAlchemy
+    # tests rebuild the schema from these declarations, so we mirror the
+    # partial index here.
     __table_args__ = (
-        UniqueConstraint("tenant_id", "slug",
-                         name="uq_content_pages_tenant_slug"),
+        Index(
+            "uq_content_pages_tenant_slug_live",
+            "tenant_id", "slug",
+            unique=True,
+            # Dialect-specific where clauses — SQLite uses 0/1 for booleans,
+            # Postgres uses true/false. Both create the same logical partial
+            # unique index "this combo unique among non-deleted rows".
+            sqlite_where=text("is_deleted = 0"),
+            postgresql_where=text("is_deleted = false"),
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -80,6 +92,14 @@ class ContentPage(Base):
 
     # Publication state. Drafts are admin-visible only.
     is_published = Column(Boolean, nullable=False, default=False)
+
+    # When true AND ``settings.cms.use_cms_landing`` is enabled, this
+    # page replaces the default marketing homepage at ``/``. Enforced
+    # by a partial unique index: at most one row per tenant where
+    # ``is_landing = true AND is_deleted = false``. Setting a new
+    # landing must un-set the previous one in the same transaction
+    # (see ``app/api/v1/endpoints/admin/content_pages.py::set_landing``).
+    is_landing = Column(Boolean, nullable=False, default=False)
 
     # Soft delete fields. is_deleted is the queryable flag; the
     # timestamp/user are for audit/forensics.

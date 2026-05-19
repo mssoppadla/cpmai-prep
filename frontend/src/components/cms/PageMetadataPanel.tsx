@@ -15,6 +15,7 @@ interface PageMetadata {
   nav_label: string | null;
   nav_order: number;
   is_published: boolean;
+  is_landing: boolean;
 }
 
 interface PageMetadataPanelProps {
@@ -22,6 +23,9 @@ interface PageMetadataPanelProps {
   onChange: (patch: Partial<PageMetadata>) => void;
   /** Original slug at load — used to warn about URL breakage. */
   originalSlug: string;
+  /** Toggle this page's landing status. Wired up by the parent (which
+   *  knows the page id and the API). Called with the desired new state. */
+  onSetLanding?: (toLanding: boolean) => Promise<void>;
 }
 
 const VISIBILITY_OPTIONS: { value: NavVisibility; label: string; help: string }[] = [
@@ -36,7 +40,7 @@ const VISIBILITY_OPTIONS: { value: NavVisibility; label: string; help: string }[
 ];
 
 export default function PageMetadataPanel({
-  meta, onChange, originalSlug,
+  meta, onChange, originalSlug, onSetLanding,
 }: PageMetadataPanelProps) {
   const slugChanged = meta.slug !== originalSlug;
   return (
@@ -135,6 +139,32 @@ export default function PageMetadataPanel({
           is live at its public URL.
         </p>
       </div>
+
+      {/* Landing-page section. Toggling here updates the DB; the page
+       *  only ACTUALLY becomes the / route when the cms.use_cms_landing
+       *  setting is also on (see /admin/settings). */}
+      {onSetLanding && (
+        <div className="pt-4 border-t border-slate-100">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={meta.is_landing}
+              onChange={(e) => onSetLanding(e.target.checked)} />
+            <span className="text-sm font-medium text-slate-800">
+              Use as landing page
+            </span>
+          </label>
+          <p className="text-xs text-slate-500 mt-1 ml-6">
+            When checked, this page becomes the candidate for the homepage
+            at <code className="px-1 bg-slate-100 rounded">/</code>.
+            It only goes live when the <code className="px-1 bg-slate-100 rounded">cms.use_cms_landing</code>{" "}
+            setting is also enabled — toggle that in{" "}
+            <a href="/admin/settings" className="text-indigo-600 hover:underline">
+              /admin/settings
+            </a>.
+          </p>
+        </div>
+      )}
     </aside>
   );
 }

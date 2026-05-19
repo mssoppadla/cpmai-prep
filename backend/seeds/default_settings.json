@@ -383,5 +383,10 @@
     "key": "geoip.trusted_proxy_count",
     "value": 1,
     "description": "How many X-Forwarded-For hops are our own proxies, counting from the right. cpmai has 1 (Caddy). Change only when the network topology changes."
+  },
+  {
+    "key": "cms.use_cms_landing",
+    "value": false,
+    "description": "When true, the public homepage at / renders the content_page marked is_landing=true. When false (default), / always shows the marketing homepage regardless of any is_landing flag. Per-deploy switch so the operator can preview / safely toggle without rebuilding."
   }
 ]

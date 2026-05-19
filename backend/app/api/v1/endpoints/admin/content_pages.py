@@ -57,16 +57,19 @@ def _scoped_query(db: Session):
 
 
 def _slug_taken(db: Session, slug: str, *, exclude_id: int | None = None) -> bool:
-    """Is this slug already used by ANY page in the current tenant?
+    """Is this slug already used by a LIVE page in the current tenant?
 
-    Includes soft-deleted pages — the DB unique constraint covers them
-    too, and pre-empting the DB error here gives the client a clean 409
-    instead of a 500. Restoring or renaming the soft-deleted page is
-    the operator's path to reusing a slug.
+    Excludes soft-deleted rows so an admin can re-create a page with the
+    same slug after deleting the previous one. The DB enforces the same
+    via a partial unique index (migration 0026): the constraint is
+    ``UNIQUE (tenant_id, slug) WHERE NOT is_deleted``. We mirror the
+    filter here to surface a clean 409 instead of a constraint-violation
+    500.
     """
     q = db.query(ContentPage.id).filter(
         ContentPage.tenant_id == get_current_tenant_id(),
         ContentPage.slug == slug,
+        ContentPage.is_deleted.is_(False),
     )
     if exclude_id is not None:
         q = q.filter(ContentPage.id != exclude_id)
@@ -171,6 +174,70 @@ def update_content_page(
     audit_log(
         db, admin.id, "content_page.updated",
         {"id": page.id, "slug": page.slug, "changed": sorted(updates.keys())},
+    )
+    return page
+
+
+@router.post("/{page_id}/set-landing", response_model=ContentPageOut)
+def set_landing(
+    page_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+):
+    """Mark this page as the tenant's landing page.
+
+    Atomically un-sets any previously-marked landing and sets this one.
+    The DB partial unique index (one is_landing=true per tenant) would
+    catch a race even if two admins clicked simultaneously, but we
+    serialise in one transaction to avoid surfacing constraint errors
+    to the UI.
+
+    Effect on the public site is gated by the ``cms.use_cms_landing``
+    setting: when that's false (default), this designation is stored
+    but the marketing homepage at ``/`` still wins. When true, this
+    page replaces the marketing homepage.
+    """
+    page = _scoped_query(db).filter(ContentPage.id == page_id).first()
+    if not page:
+        raise NotFoundError("Content page not found")
+
+    tenant_id = get_current_tenant_id()
+    # Unset any previous landing in this tenant — same transaction.
+    (db.query(ContentPage)
+       .filter(ContentPage.tenant_id == tenant_id,
+               ContentPage.is_landing.is_(True),
+               ContentPage.id != page.id)
+       .update({"is_landing": False}, synchronize_session=False))
+    page.is_landing = True
+    db.commit(); db.refresh(page)
+    audit_log(
+        db, admin.id, "content_page.set_landing",
+        {"id": page.id, "slug": page.slug, "title": page.title},
+    )
+    return page
+
+
+@router.post("/{page_id}/clear-landing", response_model=ContentPageOut)
+def clear_landing(
+    page_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+):
+    """Unset the landing flag for this page (no replacement).
+
+    After this call, no page is marked as landing for the tenant — the
+    public ``/`` route falls back to the marketing homepage regardless
+    of ``cms.use_cms_landing``."""
+    page = _scoped_query(db).filter(ContentPage.id == page_id).first()
+    if not page:
+        raise NotFoundError("Content page not found")
+    if not page.is_landing:
+        return page  # no-op
+    page.is_landing = False
+    db.commit(); db.refresh(page)
+    audit_log(
+        db, admin.id, "content_page.clear_landing",
+        {"id": page.id, "slug": page.slug},
     )
     return page
 

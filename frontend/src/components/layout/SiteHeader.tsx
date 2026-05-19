@@ -23,9 +23,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { auth, content as contentApi } from "@/lib/api";
+import { auth, cmsPublic, content as contentApi } from "@/lib/api";
 import { GoogleSignInButton } from "@/lib/google-auth";
-import type { SiteChrome, UserOut } from "@/types/api";
+import type {
+  ContentPageNavItemOut,
+  SiteChrome,
+  UserOut,
+} from "@/types/api";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
@@ -60,15 +64,29 @@ export function SiteHeader({ active = null }: { active?: ActiveNav }) {
   const router = useRouter();
   const [me, setMe] = useState<UserOut | null | undefined>(undefined);
   const [site, setSite] = useState<SiteChrome>(SITE_FALLBACK);
+  const [cmsNav, setCmsNav] = useState<ContentPageNavItemOut[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     contentApi.site().then((s) => { if (!cancelled) setSite(s); }).catch(() => {});
+    // Public CMS nav — empty array on any failure so the header still
+    // renders cleanly without published CMS pages. Re-fetched when the
+    // user logs in (the visibility filter widens for authenticated /
+    // subscribed tiers — see backend nav_query.py).
+    cmsPublic.nav().then((items) => {
+      if (!cancelled) setCmsNav(items);
+    }).catch(() => {});
     (async () => {
       try {
         const u = await auth.me();
         if (!cancelled) setMe(u);
+        // After login the user's visibility tier may have widened —
+        // re-fetch the nav so authenticated/subscribed pages appear.
+        try {
+          const items = await cmsPublic.nav();
+          if (!cancelled) setCmsNav(items);
+        } catch {}
       } catch {
         const ok = await auth.refresh();
         if (cancelled) return;
@@ -118,12 +136,23 @@ export function SiteHeader({ active = null }: { active?: ActiveNav }) {
           {site.brand_name}
         </Link>
 
-        {/* Nav — desktop */}
+        {/* Nav — desktop. Static items first, then any CMS-published
+         *  nav items in admin-defined order. */}
         <nav className="hidden sm:flex items-center gap-1 ml-2">
           {navLink("exams", "/exams", "Mock Exams")}
           {navLink("faqs",  "/#faq-heading", "FAQs")}
           {site.show_pricing_link &&
             navLink("pricing", "/pricing", "Pricing")}
+          {cmsNav.map((item) => (
+            <Link
+              key={item.slug}
+              href={`/pages/${item.slug}`}
+              onClick={() => setMenuOpen(false)}
+              className="px-3 py-2 text-sm rounded-md transition text-slate-700 hover:text-indigo-600 hover:bg-slate-50"
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
 
         {/* Spacer pushes auth area to the right */}
@@ -202,6 +231,16 @@ export function SiteHeader({ active = null }: { active?: ActiveNav }) {
             {navLink("faqs",  "/#faq-heading", "FAQs")}
             {site.show_pricing_link &&
               navLink("pricing", "/pricing", "Pricing")}
+            {cmsNav.map((item) => (
+              <Link
+                key={item.slug}
+                href={`/pages/${item.slug}`}
+                onClick={() => setMenuOpen(false)}
+                className="px-3 py-2 text-sm rounded-md text-slate-700 hover:text-indigo-600 hover:bg-slate-50"
+              >
+                {item.label}
+              </Link>
+            ))}
             {!me && GOOGLE_CLIENT_ID && (
               <div className="py-2 px-3">
                 <GoogleSignInButton

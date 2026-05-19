@@ -459,6 +459,11 @@ EDITABLE: dict[str, Callable] = {
     "geoip.refresh_enabled":             _bool,
     "geoip.refresh_schedule":            _cron_expression,
     "geoip.trusted_proxy_count":         _int_str_in(1, 10),
+    # CMS landing-page master switch. When true and a content_page is
+    # marked is_landing=true, the public / route serves the CMS page
+    # instead of the marketing homepage. See migration 0025 and
+    # backend/app/api/v1/endpoints/cms_public.py::cms_landing.
+    "cms.use_cms_landing":               _bool,
 }
 
 

@@ -16,6 +16,7 @@ const baseMeta = {
   nav_label: null,
   nav_order: 100,
   is_published: false,
+  is_landing: false,
 };
 
 function renderPanel(overrides = {}) {

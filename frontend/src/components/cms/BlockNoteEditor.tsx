@@ -24,13 +24,69 @@
  * changes.
  */
 import { useEffect, useMemo, useRef } from "react";
-import { useCreateBlockNote } from "@blocknote/react";
+import {
+  SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
+  useCreateBlockNote,
+} from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
+import {
+  BlockNoteSchema,
+  defaultBlockSpecs,
+  filterSuggestionItems,
+} from "@blocknote/core";
 import type { Block, PartialBlock } from "@blocknote/core";
+
+import { youtubeGallerySpec } from "./blocks/YouTubeGalleryBlock";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import "@mantine/core/styles.css";
+
+
+/**
+ * Editor schema = stock BlockNote blocks + our custom YouTube gallery.
+ *
+ * Register the custom block by adding it to ``blockSpecs``. The slash
+ * menu doesn't auto-include custom blocks — we add a menu entry below
+ * in the ``SuggestionMenuController`` so users can find it via "/".
+ *
+ * NOTE on the ``youtubeGallerySpec()`` call: BlockNote 0.51's
+ * ``createReactBlockSpec`` returns a function (a spec FACTORY) that
+ * must be invoked to produce the actual ``BlockSpec``. Spreading the
+ * factory itself into ``blockSpecs`` crashes during schema
+ * construction with "Cannot read properties of undefined (reading
+ * 'node')". Always call the factory.
+ */
+const editorSchema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    youtubeGallery: youtubeGallerySpec(),
+  },
+});
+
+type EditorType = ReturnType<typeof useCreateBlockNote<typeof editorSchema.blockSchema>>;
+
+
+/** Slash menu entry for inserting a YouTube gallery. Shown when the
+ *  user types "/yt" or "/youtube" or "/gallery". */
+function insertYouTubeGalleryItem(editor: EditorType) {
+  return {
+    title: "YouTube Gallery",
+    aliases: ["youtube", "yt", "video", "gallery"],
+    group: "Media",
+    subtext: "Embed multiple YouTube videos as a clickable grid",
+    icon: <span aria-hidden>▶</span>,
+    onItemClick: () => {
+      editor.insertInlineContent;
+      // Insert an empty gallery block where the cursor is.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.insertBlocks([{ type: "youtubeGallery", props: { urls: "", columns: 3 } } as any],
+                         editor.getTextCursorPosition().block,
+                         "after");
+    },
+  };
+}
 
 interface BlockNoteEditorProps {
   /** Initial blocks loaded from the server. The editor will be
@@ -58,6 +114,7 @@ export default function BlockNoteEditor({
   // lifetime of this component. We seed it with the server's blocks
   // once; subsequent edits flow OUT via onBlocksChange.
   const editor = useCreateBlockNote({
+    schema: editorSchema,
     initialContent: useMemo(
       () =>
         initialBlocks && initialBlocks.length > 0
@@ -97,7 +154,23 @@ export default function BlockNoteEditor({
       {placeholderText && (
         <div className="text-xs text-slate-400 mb-2">{placeholderText}</div>
       )}
-      <BlockNoteView editor={editor} theme="light" />
+      <BlockNoteView editor={editor} theme="light" slashMenu={false}>
+        {/* Custom slash menu so we can add the YouTube Gallery entry
+         *  alongside the stock blocks. ``slashMenu={false}`` disables
+         *  the built-in one to avoid duplicates. */}
+        <SuggestionMenuController
+          triggerCharacter="/"
+          getItems={async (query) =>
+            filterSuggestionItems(
+              [
+                ...getDefaultReactSlashMenuItems(editor as unknown as EditorType),
+                insertYouTubeGalleryItem(editor as unknown as EditorType),
+              ],
+              query,
+            )
+          }
+        />
+      </BlockNoteView>
     </div>
   );
 }
