@@ -45,8 +45,9 @@ const GROUPS: NavGroupDef[] = [
     icon: "📚",
     defaultExpanded: true,
     items: [
-      { href: "/admin/faqs",        label: "FAQs" },
-      { href: "/admin/rag-sources", label: "RAG Sources" },
+      { href: "/admin/content-pages", label: "Content Pages", badge: "NEW" },
+      { href: "/admin/faqs",          label: "FAQs" },
+      { href: "/admin/rag-sources",   label: "RAG Sources" },
     ],
   },
   {

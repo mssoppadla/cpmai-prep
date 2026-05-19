@@ -275,6 +275,73 @@ export interface FaqIn {
   is_active: boolean;
 }
 
+// ---------- CMS content pages --------------------------------------------
+// Mirrors backend/app/schemas/content_page.py
+export type NavVisibility = "always" | "authenticated" | "subscribed" | "hidden";
+
+/** A BlockNote block. We deliberately keep this loose — the canonical
+ *  schema lives in @blocknote/core; we just need to round-trip the
+ *  JSON to/from the API without losing fields. */
+export type BlockNoteBlock = {
+  id?: string;
+  type: string;
+  props?: Record<string, unknown>;
+  content?: unknown;
+  children?: BlockNoteBlock[];
+  [k: string]: unknown;
+};
+
+export interface ContentPageOut {
+  id: number;
+  tenant_id: number;
+  slug: string;
+  title: string;
+  blocks: BlockNoteBlock[];
+  nav_visibility: NavVisibility;
+  nav_label: string | null;
+  nav_order: number;
+  is_published: boolean;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by: number | null;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContentPageCreateIn {
+  slug: string;
+  title: string;
+  blocks?: BlockNoteBlock[];
+  nav_visibility?: NavVisibility;
+  nav_label?: string | null;
+  nav_order?: number;
+  is_published?: boolean;
+}
+
+export interface ContentPageUpdateIn {
+  slug?: string;
+  title?: string;
+  blocks?: BlockNoteBlock[];
+  nav_visibility?: NavVisibility;
+  nav_label?: string | null;
+  nav_order?: number;
+  is_published?: boolean;
+}
+
+// ---------- CMS AI ---------------------------------------------------------
+export type CmsBlockType =
+  | "paragraph" | "heading" | "bulletListItem" | "numberedListItem";
+export type CmsImproveTone =
+  | "shorter" | "longer" | "friendlier" | "formal" | "grammar";
+
+export interface CmsGeneratePageIn { prompt: string }
+export interface CmsGeneratePageOut { blocks: BlockNoteBlock[] }
+export interface CmsFillBlockIn { block_type: CmsBlockType; context: string }
+export interface CmsFillBlockOut { text: string }
+export interface CmsImproveBlockIn { text: string; tone: CmsImproveTone }
+export interface CmsImproveBlockOut { text: string }
+
 // ---------- Landing copy --------------------------------------------------
 export interface LandingCopy {
   lead_section_heading: string;
