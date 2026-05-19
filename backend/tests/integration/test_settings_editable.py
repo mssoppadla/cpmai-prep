@@ -144,6 +144,8 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "geoip.refresh_enabled":             True,
     "geoip.refresh_schedule":            "17 4 * * 3,6",
     "geoip.trusted_proxy_count":         1,
+    # CMS landing master switch — bool, round-trip-tested.
+    "cms.use_cms_landing":               True,
 }
 
 

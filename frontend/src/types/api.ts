@@ -301,12 +301,32 @@ export interface ContentPageOut {
   nav_label: string | null;
   nav_order: number;
   is_published: boolean;
+  is_landing: boolean;
   is_deleted: boolean;
   deleted_at: string | null;
   deleted_by: number | null;
   created_by: number | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Public payload — admin-only fields stripped (tenant_id, deleted_*, etc.). */
+export interface ContentPagePublicOut {
+  id: number;
+  slug: string;
+  title: string;
+  blocks: BlockNoteBlock[];
+  nav_visibility: NavVisibility;
+  nav_label: string | null;
+  nav_order: number;
+  is_landing: boolean;
+  updated_at: string;
+}
+
+export interface ContentPageNavItemOut {
+  slug: string;
+  label: string;
+  order: number;
 }
 
 export interface ContentPageCreateIn {

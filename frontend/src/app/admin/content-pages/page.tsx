@@ -73,6 +73,36 @@ export default function ContentPagesAdminPage() {
     } finally { setBusy(false); }
   }
 
+  // Reorder a page by bumping its nav_order. Swaps with the adjacent
+  // page in the sort so the user gets visible movement immediately.
+  async function move(idx: number, direction: -1 | 1) {
+    if (!rows) return;
+    const target = rows[idx];
+    const neighborIdx = idx + direction;
+    if (neighborIdx < 0 || neighborIdx >= rows.length) return;
+    const neighbor = rows[neighborIdx];
+    // Optimistic UI: swap locally first, then PATCH both. If a PATCH
+    // fails we reload to recover.
+    const a = target.nav_order;
+    const b = neighbor.nav_order;
+    const newOrderA = a === b ? a - direction : b;
+    const newOrderB = a === b ? a : a;
+    const next = rows.slice();
+    next[idx] = { ...target, nav_order: newOrderA };
+    next[neighborIdx] = { ...neighbor, nav_order: newOrderB };
+    setRows([...next].sort((p, q) => p.nav_order - q.nav_order || p.id - q.id));
+    try {
+      await Promise.all([
+        admin.contentPages.update(target.id, { nav_order: newOrderA }),
+        admin.contentPages.update(neighbor.id, { nav_order: newOrderB }),
+      ]);
+    } catch (e) {
+      console.error("[admin/content-pages] reorder", e);
+      setErr(errMsg(e));
+      await reload();
+    }
+  }
+
   async function deletePage(id: number, slug: string) {
     const ok = confirm(
       `Delete page "${slug}"?\n\nThis soft-deletes the page — it stays in ` +
@@ -170,6 +200,7 @@ export default function ContentPagesAdminPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-left">
               <tr>
+                <th className="px-4 py-3 font-medium w-20">Order</th>
                 <th className="px-4 py-3 font-medium">Title / Slug</th>
                 <th className="px-4 py-3 font-medium">Visibility</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -178,13 +209,39 @@ export default function ContentPagesAdminPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.map((r, idx) => (
                 <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-600 text-xs">
+                    <div className="flex flex-col gap-0.5 items-start">
+                      <button onClick={() => move(idx, -1)}
+                              disabled={idx === 0}
+                              aria-label="Move up"
+                              className="px-1.5 py-0.5 text-slate-500 hover:text-indigo-600 disabled:text-slate-300 disabled:cursor-not-allowed">
+                        ▲
+                      </button>
+                      <span className="px-1.5 font-mono">{r.nav_order}</span>
+                      <button onClick={() => move(idx, +1)}
+                              disabled={idx === rows.length - 1}
+                              aria-label="Move down"
+                              className="px-1.5 py-0.5 text-slate-500 hover:text-indigo-600 disabled:text-slate-300 disabled:cursor-not-allowed">
+                        ▼
+                      </button>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
-                    <Link href={`/admin/content-pages/${r.id}`}
-                          className="font-medium text-indigo-700 hover:underline">
-                      {r.title}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/admin/content-pages/${r.id}`}
+                            className="font-medium text-indigo-700 hover:underline">
+                        {r.title}
+                      </Link>
+                      {r.is_landing && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
+                                         bg-purple-100 text-purple-700"
+                              title="This page is marked as the landing page. It takes effect when cms.use_cms_landing is enabled in settings.">
+                          Landing
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-slate-500 mt-0.5">
                       <code className="px-1 bg-slate-100 rounded">/{r.slug}</code>
                     </div>

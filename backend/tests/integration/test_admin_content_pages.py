@@ -171,24 +171,33 @@ def test_delete_already_deleted_returns_404(client, db, admin, default_tenant):
     assert r2.status_code == 404
 
 
-def test_softdeleted_slug_still_blocks_creation(client, db, admin, default_tenant):
-    """Soft-deleted pages still hold their slug — the DB unique
-    constraint covers them and we surface a clean 409 instead of
-    letting the IntegrityError become a 500.
+def test_softdeleted_slug_can_be_reused(client, db, admin, default_tenant):
+    """After an admin soft-deletes a page, its slug becomes available
+    again. The DB uses a partial unique index (migration 0026) so the
+    soft-deleted row keeps its slug for audit / restore purposes but
+    no longer blocks new page creation.
 
-    Phase 1 operator path to reusing a slug: rename the soft-deleted
-    page (or hard-delete it via DB console). A Phase 2 "Trash" admin
-    view will expose this in the UI.
+    Operator-requested behaviour after the initial Phase 1 release.
     """
     r = client.post(CMS_BASE, headers=auth_header(client, admin.email),
                     json=_make_payload(slug="about"))
     page_id = r.json()["id"]
     client.delete(f"{CMS_BASE}/{page_id}",
                   headers=auth_header(client, admin.email))
-    # Same slug → blocked, even though the page is soft-deleted
+    # Same slug — now allowed because the previous page is soft-deleted.
     r2 = client.post(CMS_BASE, headers=auth_header(client, admin.email),
                      json=_make_payload(slug="about", title="About v2"))
-    assert r2.status_code == 409, r2.text
+    assert r2.status_code == 201, r2.text
+    # The new page has a fresh id; the deleted one still exists in DB
+    # with the same slug but is_deleted=true.
+    assert r2.json()["id"] != page_id
+    from app.models.content_page import ContentPage
+    rows = (db.query(ContentPage)
+              .filter(ContentPage.slug == "about")
+              .order_by(ContentPage.id).all())
+    assert len(rows) == 2
+    assert rows[0].id == page_id and rows[0].is_deleted is True
+    assert rows[1].id == r2.json()["id"] and rows[1].is_deleted is False
 
 
 # ----------------------------------------------------------- slug uniqueness

@@ -54,6 +54,7 @@ type EditorMeta = {
   nav_label: string | null;
   nav_order: number;
   is_published: boolean;
+  is_landing: boolean;
 };
 
 function metaFrom(p: ContentPageOut): EditorMeta {
@@ -64,6 +65,7 @@ function metaFrom(p: ContentPageOut): EditorMeta {
     nav_label: p.nav_label,
     nav_order: p.nav_order,
     is_published: p.is_published,
+    is_landing: p.is_landing,
   };
 }
 
@@ -241,6 +243,18 @@ export default function ContentPageEditorView({
           meta={meta}
           onChange={onMetaChange}
           originalSlug={page.slug}
+          onSetLanding={async (toLanding) => {
+            try {
+              const updated = toLanding
+                ? await admin.contentPages.setLanding(pageId)
+                : await admin.contentPages.clearLanding(pageId);
+              setPage(updated);
+              setMeta((m) => (m ? { ...m, is_landing: updated.is_landing } : m));
+            } catch (e) {
+              console.error("[cms editor] set-landing", e);
+              setErr(errMsg(e));
+            }
+          }}
         />
       </div>
     </div>

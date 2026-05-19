@@ -45,6 +45,7 @@ const samplePage = {
   nav_label: null,
   nav_order: 10,
   is_published: true,
+  is_landing: false,
   is_deleted: false,
   deleted_at: null,
   deleted_by: null,

@@ -26,6 +26,7 @@ import LearnerDashboard from "@/app/(app)/dashboard/page";
 import ExamSetsListPage from "@/app/(app)/exams/page";
 import ResultsPage from "@/app/(app)/exams/results/[id]/page";
 import PricingPage from "@/app/pricing/page";
+import PublicContentPage from "@/app/pages/[slug]/page";
 
 const BRAND = "CPMAI Prep";
 const COPY = "© 2026 CPMAI Prep. All rights reserved.";
@@ -86,6 +87,29 @@ describe("page chrome — every public page wraps SiteHeader + SiteFooter", () =
     }) as typeof fetch;
 
     render(<ResultsPage />);
+    await expectHeaderAndFooter();
+  });
+
+  it("/pages/[slug] (CMS page)", async () => {
+    // Return a published page from the public /cms/pages/{slug} endpoint
+    // so the route renders content. Chrome must wrap so CMS pages look
+    // and feel like the rest of the site.
+    const baseFetch = global.fetch;
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/cms/pages/")) {
+        return new Response(JSON.stringify({
+          id: 1, slug: "demo", title: "Demo Page",
+          blocks: [{ type: "paragraph", content: "Hello body" }],
+          nav_visibility: "always", nav_label: null, nav_order: 100,
+          is_landing: false, updated_at: "2026-05-19T00:00:00Z",
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(input, init);
+    }) as typeof fetch;
+
+    const ui = await PublicContentPage({ params: { slug: "demo" } });
+    render(ui);
     await expectHeaderAndFooter();
   });
 

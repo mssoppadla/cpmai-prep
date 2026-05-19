@@ -1,14 +1,37 @@
 /**
  * Landing page (server-rendered).
  *
- * FAQs and the lead-section copy are fetched from the backend on each
- * request so admins can edit them via /admin/faqs and /admin/settings
- * without redeploying. A fallback copy is used if the API is down.
+ * Two paths through this route:
+ *
+ *  1. **CMS landing override**. If the operator has marked a content_page
+ *     as the landing page AND enabled the ``cms.use_cms_landing`` setting,
+ *     the backend's /cms/landing endpoint returns that page and we render
+ *     its BlockNote blocks via ``RenderBlocks``. Marketing copy is bypassed.
+ *
+ *  2. **Marketing default**. Otherwise we render the legacy marketing
+ *     landing — hero + lead form + FAQs. FAQs and lead copy are fetched
+ *     from the backend on each request so admins can edit them via
+ *     /admin/faqs and /admin/settings without redeploying. A fallback
+ *     copy is used if the API is down.
+ *
+ * The CMS-landing branch is gated by the setting so the operator can
+ * preview a CMS landing in admin without it going live. Flipping the
+ * setting in /admin/settings is the "publish landing" action.
  */
+import type { ContentPagePublicOut } from "@/types/api";
 import { JsonLd, organizationSchema, courseSchema, faqSchema } from "@/components/seo/JsonLd";
 import { LeadCaptureForm } from "@/components/lead/LeadCaptureForm";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import RenderBlocks from "@/components/cms/RenderBlocks";
+
+
+// CMS-aware landing route: must re-fetch on every request so that
+// toggling the cms.use_cms_landing setting OR editing the landing
+// page takes effect on the very next load. Without this, Next's
+// default fetch cache would freeze the FIRST render's outcome.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -41,7 +64,59 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
+/**
+ * Try to fetch the CMS landing page. Returns null on 404 (no landing
+ * configured OR setting disabled) and on any other error — the
+ * marketing page is the safe fallback.
+ */
+async function fetchCmsLanding(): Promise<ContentPagePublicOut | null> {
+  try {
+    const r = await fetch(`${API}/cms/landing`, { cache: "no-store" });
+    if (!r.ok) return null;
+    const data = await r.json();
+    // Defensive validation — only proceed if the response actually
+    // looks like a page payload. Anything else (e.g. test mocks
+    // returning `[]` or `{}` for unmatched routes) falls back to the
+    // marketing homepage so we don't crash on missing fields.
+    if (data && typeof data === "object" && !Array.isArray(data)
+        && typeof (data as { slug?: unknown }).slug === "string"
+        && Array.isArray((data as { blocks?: unknown }).blocks)) {
+      return data as ContentPagePublicOut;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+
 export default async function Landing() {
+  // 1. Check the CMS landing path first. When the operator has set a
+  //    page AND enabled the setting, render that and skip the marketing
+  //    flow entirely.
+  const cmsLanding = await fetchCmsLanding();
+  if (cmsLanding) {
+    return (
+      <>
+        <SiteHeader active="home" />
+        <main className="min-h-screen">
+          <article className="max-w-3xl mx-auto px-6 py-10">
+            <header className="mb-6">
+              <h1 className="text-4xl font-bold text-slate-900 mb-2">
+                {cmsLanding.title}
+              </h1>
+            </header>
+            <div className="prose-cms">
+              <RenderBlocks blocks={cmsLanding.blocks} />
+            </div>
+          </article>
+        </main>
+        <SiteFooter />
+      </>
+    );
+  }
+
+  // 2. Default — render the existing marketing landing.
   const [faqs, landing] = await Promise.all([
     fetchJson<typeof FALLBACK_FAQS>("/content/faqs", FALLBACK_FAQS),
     fetchJson<typeof FALLBACK_LANDING>("/content/landing", FALLBACK_LANDING),

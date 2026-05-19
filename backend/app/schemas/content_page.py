@@ -47,12 +47,41 @@ class ContentPageOut(BaseModel):
     nav_label: Optional[str]
     nav_order: int
     is_published: bool
+    is_landing: bool
     is_deleted: bool
     deleted_at: Optional[datetime]
     deleted_by: Optional[int]
     created_by: Optional[int]
     created_at: datetime
     updated_at: datetime
+
+
+class ContentPagePublicOut(BaseModel):
+    """Public payload — what end-user routes return.
+
+    Strips admin-only fields (tenant_id, created_by, deleted_*, etc.)
+    and never exposes drafts or soft-deleted rows (the endpoint filter
+    enforces this). Safe to cache.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    title: str
+    blocks: list[dict[str, Any]]
+    nav_visibility: NavVisibility
+    nav_label: Optional[str]
+    nav_order: int
+    is_landing: bool
+    updated_at: datetime
+
+
+class ContentPageNavItemOut(BaseModel):
+    """One nav link returned by /cms/v1/nav. Minimal payload — just
+    what the header needs to render a link."""
+    slug: str
+    label: str
+    order: int
 
 
 class ContentPageCreateIn(BaseModel):
