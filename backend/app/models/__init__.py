@@ -1,4 +1,5 @@
 """Import order matters for SQLAlchemy relationship resolution."""
+from app.models.tenant import Tenant                    # noqa
 from app.models.user import User, UserRole              # noqa
 from app.models.topic import Topic                      # noqa
 from app.models.question import Question, QuestionOption, Difficulty, QuestionType  # noqa
