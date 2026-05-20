@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_log
@@ -232,6 +232,16 @@ def get_public_course(
         raise NotFoundError("Course not found")
     enrolled = _active_enrollment(db, user, c.id) is not None
 
+    # Social-proof signal for the course detail hero: how many active
+    # enrollments are on this course. We count rows from the canonical
+    # enrollments table; expired / cancelled rows still flag interest
+    # so we keep them in the count. Cheap aggregate so doesn't bloat
+    # the request (single COUNT alongside the chapter fetch).
+    enrollment_count = db.query(func.count(Enrollment.id)).filter(
+        Enrollment.course_id == c.id,
+        Enrollment.tenant_id == c.tenant_id,
+    ).scalar() or 0
+
     chapters = list(db.query(Chapter).filter(
         Chapter.course_id == c.id,
         Chapter.is_published.is_(True),
@@ -256,6 +266,7 @@ def get_public_course(
     return {
         "course": CoursePublicOut.model_validate(c).model_dump(),
         "is_enrolled": enrolled,
+        "enrollment_count": enrollment_count,
         "chapters": [
             {
                 "id": ch.id,

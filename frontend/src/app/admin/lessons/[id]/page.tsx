@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { admin, errMsg, absoluteUploadUrl } from "@/lib/api";
+import VideoCompressDialog from "@/components/lms/VideoCompressDialog";
 import type {
   LessonOut, LessonUpdateIn, LessonFileOut, LessonFileCreateIn,
   QuizOut, QuizQuestionOut, QuizOptionOut, QuizQuestionType,
@@ -73,12 +74,18 @@ export default function LessonEditorPage({
           checklist_items: l.checklist_items,
         });
         setInitialBlocks(l.body_blocks as PartialBlock[]);
-        // Load existing files
+        // Load existing files. Wrapped in its own try so a transient
+        // files-API hiccup doesn't block the lesson editor from opening
+        // — but we DO surface the error to the toolbar so the admin
+        // knows the file list shown is incomplete, instead of silently
+        // showing an empty Attached Files panel that hides existing
+        // uploads.
         try {
           const fs = await admin.lms.listLessonFiles(lessonId);
           setFiles(fs);
         } catch (fe) {
-          console.warn("[lesson editor] files", fe);
+          console.error("[lesson editor] files", fe);
+          setErr(`Could not load attached files: ${errMsg(fe)}. The lesson opened but the file list may be incomplete — refresh to retry.`);
         }
       } catch (e) {
         console.error("[lesson editor] load", e);
@@ -323,13 +330,14 @@ function VideoUploadField({
 }) {
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // The compress dialog opens immediately on file pick. It re-encodes
+  // entirely client-side via MediaRecorder, or the admin can skip
+  // straight to upload-original. Either way, the resulting File goes
+  // through the same admin.uploads.file path.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const isR2 = videoProvider === "r2" && videoUrl?.startsWith("/uploads/");
 
-  async function handleFile(file: File) {
-    if (!file.type.startsWith("video/")) {
-      setErr("Please select a video file (.mp4, .webm, .mov)");
-      return;
-    }
+  async function actuallyUpload(file: File) {
     setErr(null); setUploading(true);
     try {
       const uploaded = await admin.uploads.file(file);
@@ -337,6 +345,15 @@ function VideoUploadField({
     } catch (e) {
       setErr(errMsg(e));
     } finally { setUploading(false); }
+  }
+
+  function handleFile(file: File) {
+    if (!file.type.startsWith("video/")) {
+      setErr("Please select a video file (.mp4, .webm, .mov)");
+      return;
+    }
+    setErr(null);
+    setPendingFile(file);   // opens the compress dialog
   }
 
   return (
@@ -370,16 +387,27 @@ function VideoUploadField({
                className="hidden" />
         <div className="text-sm text-slate-700">
           {uploading ? (
-            "Uploading… (may take a minute for large videos)"
+            "Uploading… (may take a few minutes for hour-long lectures)"
           ) : (
             <>
               <strong>Click to upload</strong> a video file
-              <div className="text-xs text-slate-500 mt-1">MP4, WebM, MOV — up to 100MB.</div>
+              <div className="text-xs text-slate-500 mt-1">
+                MP4, WebM, MOV — up to 1 GB. A compression step opens
+                automatically so you can shrink before upload.
+              </div>
             </>
           )}
         </div>
       </label>
       {err && <p className="text-xs text-rose-600 mt-2">{err}</p>}
+      {pendingFile && (
+        <VideoCompressDialog
+          file={pendingFile}
+          onUseCompressed={(f) => { setPendingFile(null); void actuallyUpload(f); }}
+          onUseOriginal={(f) => { setPendingFile(null); void actuallyUpload(f); }}
+          onCancel={() => setPendingFile(null)}
+        />
+      )}
     </div>
   );
 }
@@ -397,6 +425,14 @@ function FileAttachmentsSection({
 }) {
   const [category, setCategory] = useState<FileCategory>("reference");
   const [dragging, setDragging] = useState(false);
+  // Pull the server-side cap so the picker hint stays accurate even
+  // if MAX_UPLOAD_MB is bumped on the VPS. One fetch on mount; fall
+  // back to the conservative 100 MB display if the config endpoint
+  // fails (unauth users wouldn't see this section anyway).
+  const [maxMb, setMaxMb] = useState<number>(1024);
+  useEffect(() => {
+    admin.uploads.config().then((c) => setMaxMb(c.max_mb)).catch(() => {});
+  }, []);
 
   async function handleFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -404,6 +440,10 @@ function FileAttachmentsSection({
     for (let i = 0; i < list.length; i++) {
       await onUpload(list[i], category);
     }
+  }
+
+  function isImage(mime: string | null | undefined): boolean {
+    return !!mime && mime.startsWith("image/");
   }
 
   return (
@@ -444,7 +484,7 @@ function FileAttachmentsSection({
             <>
               <strong>Drop files here</strong> or click to select
               <div className="text-xs text-slate-500 mt-1">
-                PDFs, datasets, starter code, slides. Up to 100MB each.
+                PDFs, images, datasets, starter code, slides. Up to {maxMb >= 1024 ? `${(maxMb/1024).toFixed(0)} GB` : `${maxMb} MB`} each.
               </div>
             </>
           )}
@@ -454,22 +494,37 @@ function FileAttachmentsSection({
       {files.length > 0 && (
         <ul className="divide-y divide-slate-100 mt-3">
           {files.map((f) => (
-            <li key={f.id} className="flex items-center justify-between py-2 text-sm">
-              <div>
-                <a href={absoluteUploadUrl(f.file_url)}
-                   target="_blank" rel="noopener noreferrer"
-                   className="text-indigo-700 hover:underline">
-                  {f.filename}
-                </a>
-                <span className="ml-2 text-xs text-slate-500">[{f.file_category}]</span>
-                {f.file_size_bytes && (
-                  <span className="ml-2 text-xs text-slate-400">
-                    {(f.file_size_bytes / 1024).toFixed(0)} KB
-                  </span>
+            <li key={f.id} className="flex items-center justify-between py-2 text-sm gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {isImage(f.mime_type) && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={absoluteUploadUrl(f.file_url)}
+                    alt={f.filename}
+                    className="w-12 h-12 object-cover rounded border border-slate-200 flex-shrink-0"
+                    loading="lazy"
+                  />
                 )}
+                <div className="min-w-0">
+                  <a href={absoluteUploadUrl(f.file_url)}
+                     target="_blank" rel="noopener noreferrer"
+                     className="text-indigo-700 hover:underline truncate block">
+                    {f.filename}
+                  </a>
+                  <div>
+                    <span className="text-xs text-slate-500">[{f.file_category}]</span>
+                    {f.file_size_bytes && (
+                      <span className="ml-2 text-xs text-slate-400">
+                        {f.file_size_bytes >= 1024 * 1024
+                          ? `${(f.file_size_bytes / (1024 * 1024)).toFixed(1)} MB`
+                          : `${(f.file_size_bytes / 1024).toFixed(0)} KB`}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
               <button onClick={() => onDelete(f.id)}
-                      className="text-rose-600 hover:underline text-xs">
+                      className="text-rose-600 hover:underline text-xs flex-shrink-0">
                 Remove
               </button>
             </li>
@@ -536,11 +591,23 @@ function QuizBuilder({ lessonId, onError }: { lessonId: number; onError: (s: str
       }
       const qs = await admin.lms.listQuizQuestions(lessonId);
       setQuestions(qs);
-      // Loading options would require an endpoint per question; we'd
-      // need a "GET /quiz-questions/{id}/options" endpoint. For now,
-      // the admin sees questions only — they manage options inline when
-      // adding via prompt (multi-step). PR follow-up: add list endpoint
-      // to surface existing options.
+      // Hydrate options-per-question in parallel so the builder can
+      // SHOW existing options (not just append new ones). Each request
+      // is independent; Promise.all settles after the last one. We
+      // accept partial failures — if one question's options 500s the
+      // others still render — but log so a broken endpoint isn't silent.
+      const entries = await Promise.all(
+        qs.filter((q) => q.question_type !== "short_answer").map(async (q) => {
+          try {
+            const opts = await admin.lms.listQuizOptions(q.id);
+            return [q.id, opts] as const;
+          } catch (e) {
+            console.error(`[quiz builder] options for Q${q.id}`, e);
+            return [q.id, []] as const;
+          }
+        }),
+      );
+      setOptionsByQ(Object.fromEntries(entries));
     } catch (e) { onError(errMsg(e)); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lessonId]);
@@ -577,6 +644,24 @@ function QuizBuilder({ lessonId, onError }: { lessonId: number; onError: (s: str
     try {
       await admin.lms.deleteQuizQuestion(qid);
       setQuestions((prev) => prev.filter((q) => q.id !== qid));
+      // Drop the now-orphaned options from local state too. The
+      // delete endpoint cascades server-side, but we don't refetch.
+      setOptionsByQ((prev) => {
+        const next = { ...prev };
+        delete next[qid];
+        return next;
+      });
+    } catch (e) { onError(errMsg(e)); }
+  }
+
+  async function deleteOption(qid: number, oid: number) {
+    if (!confirm("Delete this option?")) return;
+    try {
+      await admin.lms.deleteQuizOption(oid);
+      setOptionsByQ((prev) => ({
+        ...prev,
+        [qid]: (prev[qid] ?? []).filter((o) => o.id !== oid),
+      }));
     } catch (e) { onError(errMsg(e)); }
   }
 
@@ -653,7 +738,14 @@ function QuizBuilder({ lessonId, onError }: { lessonId: number; onError: (s: str
                   ) : (
                     <span className="text-slate-400">○</span>
                   )}
-                  <span>{o.text}</span>
+                  <span className="flex-1">{o.text}</span>
+                  <button
+                    onClick={() => deleteOption(q.id, o.id)}
+                    className="text-rose-600 hover:underline"
+                    aria-label={`Delete option ${o.text}`}
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>

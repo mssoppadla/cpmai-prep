@@ -476,6 +476,180 @@ def test_public_catalog_anonymous_works(client, db, default_tenant):
     assert r.status_code == 200
 
 
+# ============================================================ admin: list quiz options
+# Pinned because the admin quiz builder UI relies on this to show
+# existing options on lesson editor open; without the GET endpoint
+# the admin could only ADD options, never see ones already stored.
+
+def test_admin_list_quiz_options(client, db, admin, lesson):
+    quiz, q, correct, wrong = _make_quiz(client, db, admin, lesson)
+    r = client.get(f"{ADM}/quiz-questions/{q['id']}/options",
+                   headers=auth_header(client, admin.email))
+    assert r.status_code == 200
+    opts = r.json()
+    assert len(opts) == 2
+    # Ordered by position
+    assert opts[0]["text"] == "4"
+    assert opts[0]["is_correct"] is True
+    assert opts[1]["text"] == "5"
+    assert opts[1]["is_correct"] is False
+
+
+def test_admin_list_quiz_options_unknown_question(client, db, admin, default_tenant):
+    r = client.get(f"{ADM}/quiz-questions/9999/options",
+                   headers=auth_header(client, admin.email))
+    assert r.status_code == 404
+
+
+# ============================================================ admin: lesson-file delete unlinks disk
+# Pinned because the prior implementation only deleted the DB row, so
+# /app/uploads accumulated orphans forever. The delete endpoint now
+# unlinks the on-disk file when file_url points at our own /uploads/*
+# tree, leaving external URLs (Vimeo / S3 / YouTube) untouched.
+
+def test_lesson_file_delete_unlinks_local_file(client, db, admin, lesson, tmp_path, monkeypatch):
+    # Point the unlink helper at a sandbox dir so we don't have to
+    # write into /app/uploads on the test runner. The endpoint resolves
+    # the path against module-level _UPLOAD_ROOT, which we monkey-patch.
+    from app.api.v1.endpoints.admin import lms as admin_lms
+    monkeypatch.setattr(admin_lms, "_UPLOAD_ROOT", tmp_path)
+
+    # Plant a fake uploaded file at the path the file_url will point to.
+    rel = "1/2026/05/abc-test.pdf"
+    abs_path = tmp_path / rel
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.write_bytes(b"%PDF-1.4 fake")
+    assert abs_path.exists()
+
+    # Register the LessonFile row pointing at it.
+    add = client.post(f"{ADM}/lessons/{lesson.id}/files",
+                      headers=auth_header(client, admin.email),
+                      json={"filename": "abc-test.pdf",
+                            "file_url": f"/uploads/{rel}",
+                            "file_category": "reference"})
+    assert add.status_code == 201, add.text
+    file_id = add.json()["id"]
+
+    # Delete the row → both DB row AND disk file should be gone.
+    r = client.delete(f"{ADM}/lesson-files/{file_id}",
+                      headers=auth_header(client, admin.email))
+    assert r.status_code == 204
+    assert not abs_path.exists(), "physical file should have been unlinked"
+
+
+def test_lesson_file_delete_preserves_external_url(client, db, admin, lesson, tmp_path, monkeypatch):
+    # External URLs (Vimeo, S3, YouTube) must not be touched on delete —
+    # we don't own them. We can't actually verify "no HTTP DELETE was
+    # made" easily, so this test just confirms the endpoint succeeds
+    # without raising on a non-local URL.
+    from app.api.v1.endpoints.admin import lms as admin_lms
+    monkeypatch.setattr(admin_lms, "_UPLOAD_ROOT", tmp_path)
+
+    add = client.post(f"{ADM}/lessons/{lesson.id}/files",
+                      headers=auth_header(client, admin.email),
+                      json={"filename": "extern.pdf",
+                            "file_url": "https://example.com/extern.pdf",
+                            "file_category": "reference"})
+    file_id = add.json()["id"]
+
+    r = client.delete(f"{ADM}/lesson-files/{file_id}",
+                      headers=auth_header(client, admin.email))
+    assert r.status_code == 204
+    # No sandbox file ever existed; the helper exits early on non-/uploads URLs.
+
+
+def test_lesson_file_delete_path_traversal_blocked(client, db, admin, lesson, tmp_path, monkeypatch):
+    # Defense-in-depth: even if a row's file_url contains "..", we
+    # must not unlink outside UPLOAD_ROOT.
+    from app.api.v1.endpoints.admin import lms as admin_lms
+    monkeypatch.setattr(admin_lms, "_UPLOAD_ROOT", tmp_path)
+
+    # Plant a sentinel OUTSIDE the upload root.
+    outside = tmp_path.parent / "DO_NOT_DELETE.txt"
+    outside.write_text("important")
+    assert outside.exists()
+
+    # Register a malicious file_url.
+    add = client.post(f"{ADM}/lessons/{lesson.id}/files",
+                      headers=auth_header(client, admin.email),
+                      json={"filename": "evil",
+                            "file_url": "/uploads/../DO_NOT_DELETE.txt",
+                            "file_category": "reference"})
+    file_id = add.json()["id"]
+
+    client.delete(f"{ADM}/lesson-files/{file_id}",
+                  headers=auth_header(client, admin.email))
+    # Sentinel must survive — the resolve+relative_to check refused.
+    assert outside.exists(), "path traversal must NOT delete files outside UPLOAD_ROOT"
+
+
+# ============================================================ public course detail: enrollment count
+
+def test_public_course_detail_includes_enrollment_count(
+    client, db, course, enrollment,  # fixture creates one enrollment on `course`
+):
+    # `enrollment` fixture already inserted a row on `course`. We just
+    # verify the public endpoint surfaces that count.
+    r = client.get(f"{PUB}/courses/{course.slug}")
+    assert r.status_code == 200
+    body = r.json()
+    assert "enrollment_count" in body
+    assert body["enrollment_count"] >= 1
+
+
+def test_public_course_detail_zero_enrollment_count_when_empty(client, course):
+    # No enrollment fixture used → count should be 0.
+    r = client.get(f"{PUB}/courses/{course.slug}")
+    assert r.status_code == 200
+    assert r.json()["enrollment_count"] == 0
+
+
+# ============================================================ admin: observability
+
+def test_observability_disk_endpoint_shape(client, admin):
+    r = client.get("/api/v1/admin/observability/disk",
+                   headers=auth_header(client, admin.email))
+    assert r.status_code == 200
+    body = r.json()
+    # Filesystem gauge
+    assert "filesystem" in body
+    for k in ("path", "total_bytes", "free_bytes", "used_bytes", "used_percent"):
+        assert k in body["filesystem"], f"missing filesystem.{k}"
+    # Application breakdown
+    assert "application" in body
+    assert "uploads_volume" in body["application"]
+    assert "logs_dir" in body["application"]
+    # Reclaim hints — present + each item has the documented shape
+    assert "reclaimable" in body
+    assert isinstance(body["reclaimable"], list)
+    assert len(body["reclaimable"]) > 0
+    for item in body["reclaimable"]:
+        for k in ("id", "label", "where", "command", "safety"):
+            assert k in item, f"reclaim item missing {k}"
+        assert item["safety"] in ("safe", "review")
+
+
+def test_observability_disk_requires_admin(client, user):
+    r = client.get("/api/v1/admin/observability/disk",
+                   headers=auth_header(client, user.email))
+    assert r.status_code == 403
+
+
+# ============================================================ admin: uploads config
+
+def test_uploads_config_returns_max_and_mimes(client, admin):
+    r = client.get("/api/v1/admin/uploads/config",
+                   headers=auth_header(client, admin.email))
+    assert r.status_code == 200
+    body = r.json()
+    assert "max_bytes" in body
+    assert "max_mb" in body
+    assert body["max_mb"] >= 100   # at least 100MB — the original floor
+    assert "allowed_mimes" in body
+    assert "image/png" in body["allowed_mimes"]
+    assert "video/mp4" in body["allowed_mimes"]
+
+
 # ============================================================ audit
 
 def test_course_create_audit_logged(client, db, admin, default_tenant):

@@ -55,6 +55,31 @@ export default function CourseCategoriesPage() {
     catch (e) { setErr(errMsg(e)); }
   }
 
+  // Swap display_order between two rows so the public catalog re-renders
+  // them in the new order. We persist via PATCH on both rows in
+  // sequence; on a transient failure mid-swap the second row keeps its
+  // old value (visible inconsistency, user retries). Optimistic local
+  // update so the UI feels instant.
+  async function move(idx: number, direction: -1 | 1) {
+    if (!rows) return;
+    const j = idx + direction;
+    if (j < 0 || j >= rows.length) return;
+    const a = rows[idx];
+    const b = rows[j];
+    const next = [...rows];
+    next[idx] = { ...a, display_order: b.display_order };
+    next[j] = { ...b, display_order: a.display_order };
+    next.sort((x, y) => x.display_order - y.display_order || x.id - y.id);
+    setRows(next);
+    try {
+      await admin.lms.updateCategory(a.id, { display_order: b.display_order });
+      await admin.lms.updateCategory(b.id, { display_order: a.display_order });
+    } catch (e) {
+      setErr(errMsg(e));
+      await reload();   // rollback from server truth
+    }
+  }
+
   return (
     <div className="p-8 max-w-4xl">
       <header className="flex items-center justify-between mb-6">
@@ -132,14 +157,30 @@ export default function CourseCategoriesPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
+              {rows.map((c, idx) => (
                 <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
                   <td className="px-4 py-3">
                     <div className="font-medium text-slate-900">{c.name}</div>
                     {c.description && <div className="text-xs text-slate-500 mt-0.5">{c.description}</div>}
                   </td>
                   <td className="px-4 py-3"><code className="text-xs bg-slate-100 px-1 rounded">{c.slug}</code></td>
-                  <td className="px-4 py-3 text-slate-700 font-mono text-xs">{c.display_order}</td>
+                  <td className="px-4 py-3 text-slate-700 font-mono text-xs">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => move(idx, -1)}
+                        disabled={idx === 0}
+                        aria-label="Move up"
+                        className="w-6 h-6 flex items-center justify-center rounded border border-slate-300 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                      >↑</button>
+                      <button
+                        onClick={() => move(idx, 1)}
+                        disabled={idx === rows.length - 1}
+                        aria-label="Move down"
+                        className="w-6 h-6 flex items-center justify-center rounded border border-slate-300 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                      >↓</button>
+                      <span className="ml-2 text-slate-500">{c.display_order}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => startEdit(c)} className="text-indigo-600 hover:underline text-xs mr-3">
                       Edit

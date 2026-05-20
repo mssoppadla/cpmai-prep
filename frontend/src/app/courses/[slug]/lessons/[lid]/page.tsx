@@ -100,7 +100,15 @@ export default function LessonPlayerPage({
     if (!progress[current.id]) {
       lmsPublic.updateProgress(enrollmentId, current.id, {})
         .then((p) => setProgress((prev) => ({ ...prev, [current.id]: p })))
-        .catch(() => {});
+        .catch((e) => {
+          // Don't surface to UI — this is a background started-marker
+          // ping the user didn't initiate, and most failures (401 token
+          // expiry mid-session, network blip) recover on the next
+          // lesson open. But a CONSISTENT failure in prod means
+          // completion never tracks; console.error gives ops + dev
+          // tools enough to spot a broken /lms/progress endpoint.
+          console.error("[lesson player] progress ping (started)", e);
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrollmentId, current?.id]);
@@ -421,7 +429,14 @@ function VideoLesson({
         if (Math.floor(v.currentTime) % 10 !== 0) return;
         lmsPublic.updateProgress(enrollmentId, lesson.id, {
           last_position_seconds: Math.floor(v.currentTime),
-        }).then(onProgressUpdate).catch(() => {});
+        }).then(onProgressUpdate).catch((e) => {
+          // Background throttle write — every 10s of playback.
+          // Failing silently hides a broken /lms/progress endpoint
+          // (the user thinks resume-position is being saved but it
+          // isn't); console.error gives devtools + Sentry-style log
+          // collectors a hook without nagging the learner mid-video.
+          console.error("[lesson player] progress throttle write", e);
+        });
       }}
     />
   );
@@ -639,7 +654,15 @@ function NoteEditor({ lessonId }: { lessonId: number }) {
     lmsPublic.getMyNote(lessonId).then((n) => {
       setNote(n);
       setBody(n?.body ?? "");
-    }).catch(() => {});
+    }).catch((e) => {
+      // Note GET fails → the editor starts blank (note=null, body="").
+      // If the user types and saves, the save path creates a fresh
+      // row, which is correct UX but loses any pre-existing server
+      // note silently. console.error so a broken /lms/notes GET in
+      // prod surfaces in devtools instead of vanishing the user's
+      // previous notes without a trace.
+      console.error("[lesson player] note load failed", e);
+    });
   }, [lessonId]);
 
   useEffect(() => {

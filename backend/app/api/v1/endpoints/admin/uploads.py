@@ -50,8 +50,16 @@ from app.models.user import User
 router = APIRouter()
 
 
-# 100 MB. Tune via env later if operators upload bigger videos.
-MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+# 1 GB cap. A 1-hour lecture at "good professional quality"
+# (1080p H.264 ~2.5–3 Mbps) lands around 1–1.3 GB before compression;
+# operators are expected to compress with the in-browser MediaRecorder
+# step before upload (see VideoUploadField). The hard server cap
+# protects the disk from accidental "upload my 4K master" mishaps and
+# is still well above the recommended compressed-output budget.
+#
+# Configurable via MAX_UPLOAD_MB env if a tenant needs more headroom
+# (e.g. raw cinematic content stored on R2 later).
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 
 ALLOWED_MIMES = {
     # Images
@@ -103,6 +111,23 @@ def _public_url(rel_path: Path) -> str:
     path and let the frontend prepend NEXT_PUBLIC_API_URL's origin.
     """
     return "/uploads/" + str(rel_path).replace("\\", "/")
+
+
+@router.get("/config")
+def upload_config(
+    admin: User = Depends(get_admin_user),  # noqa: ARG001 — gates response on auth
+):
+    """Surface server upload constraints so the admin UI can show
+    accurate "Max N MB" hints + warn about unsupported types BEFORE
+    the user wastes upload bandwidth. Returning this through an
+    endpoint instead of hardcoding in the frontend keeps both sides
+    in sync if MAX_UPLOAD_MB env is bumped on the VPS.
+    """
+    return {
+        "max_bytes": MAX_UPLOAD_BYTES,
+        "max_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
+        "allowed_mimes": sorted(ALLOWED_MIMES),
+    }
 
 
 @router.post("")

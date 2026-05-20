@@ -22,6 +22,7 @@ import type {
   EnrollmentOut, EnrollmentGrantIn,
   LessonProgressOut, LessonProgressUpdateIn,
   CourseCategoryOut, CourseCategoryCreateIn, CourseCategoryUpdateIn,
+  DiskUsageOut,
   CourseAnnouncementOut, CourseAnnouncementCreateIn,
   LessonNoteOut, CourseReviewOut,
   QuizOut, QuizConfigUpsertIn,
@@ -1060,6 +1061,11 @@ export const admin = {
     async deleteQuizQuestion(qId: number) {
       await request(`/admin/quiz-questions/${qId}`, { method: "DELETE", authed: true });
     },
+    async listQuizOptions(qId: number) {
+      const { data } = await request<QuizOptionOut[]>(
+        `/admin/quiz-questions/${qId}/options`, { authed: true });
+      return data;
+    },
     async addQuizOption(qId: number, p: QuizOptionCreateIn) {
       const { data } = await request<QuizOptionOut>(
         `/admin/quiz-questions/${qId}/options`, { method: "POST", json: p, authed: true });
@@ -1082,6 +1088,11 @@ export const admin = {
    * BlockNote image block that loads from a different origin).
    */
   uploads: {
+    async config() {
+      const { data } = await request<{ max_bytes: number; max_mb: number; allowed_mimes: string[] }>(
+        `/admin/uploads/config`, { authed: true });
+      return data;
+    },
     async file(file: File): Promise<{ url: string; filename: string; mime_type: string; size_bytes: number }> {
       const t = typeof window !== "undefined" ? localStorage.getItem("cpmai.access") : null;
       const fd = new FormData();
@@ -1100,6 +1111,16 @@ export const admin = {
         throw new ApiError(r.status, body.error ?? { code: "upload_failed", message: "Upload failed" });
       }
       return r.json();
+    },
+  },
+  observability: {
+    /** Disk gauge + per-app breakdown + operator-side reclaim hints.
+     *  Backend can't shell out to docker / find, so reclaim items
+     *  return command strings the operator runs via SSH. */
+    async disk() {
+      const { data } = await request<DiskUsageOut>(
+        "/admin/observability/disk", { authed: true });
+      return data;
     },
   },
   cmsAi: {

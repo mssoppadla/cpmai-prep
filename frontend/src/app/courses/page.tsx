@@ -34,9 +34,15 @@ export default function CoursesCatalogPage() {
   const [difficultyFilter, setDifficultyFilter] = useState<CourseDifficulty | "">("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
 
-  // One-time fetch of categories for the filter chips
+  // One-time fetch of categories for the filter chips. Categories are
+  // a nice-to-have for filtering, not load-critical, so a failure here
+  // doesn't block the catalog — but log it so a broken /lms/categories
+  // endpoint in prod isn't completely silent (devtools surfaces the
+  // error; ops monitoring can scrape via the access log).
   useEffect(() => {
-    lmsPublic.listCategories().then(setCategories).catch(() => {});
+    lmsPublic.listCategories().then(setCategories).catch((e) => {
+      console.error("[courses catalog] categories load failed", e);
+    });
   }, []);
 
   useEffect(() => {
