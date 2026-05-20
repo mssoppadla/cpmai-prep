@@ -501,11 +501,14 @@ export interface LessonCreateIn {
   is_mandatory?: boolean;
   video_url?: string | null;
   video_provider?: VideoProvider | null;
+  video_object_key?: string | null;
   duration_seconds?: number | null;
   thumbnail_url?: string | null;
+  captions_url?: string | null;
   body_blocks?: BlockNoteBlock[];
   checklist_items?: Array<{ text: string }>;
   discussion_url?: string | null;
+  instructor_id?: number | null;
   quiz_pass_threshold_percent?: number;
   quiz_attempts_allowed?: number | null;
   is_free_preview?: boolean;
