@@ -30,7 +30,7 @@ from app.core.tenant import get_current_tenant_id
 from app.models.lms import (
     Chapter, Course, CourseAnnouncement, CourseReview,
     Enrollment, Lesson, LessonFile, LessonNote, LessonProgress,
-    LmsQuiz, LmsQuizAttempt, LmsQuizQuestion,
+    LmsQuiz, LmsQuizAttempt, LmsQuizQuestion, LmsQuizQuestionOption,
 )
 from app.models.user import User
 from app.schemas.lms import (
@@ -377,14 +377,21 @@ def upsert_course_review(
 
 # ============================================================ QUIZ ATTEMPTS
 
-@router.get("/quizzes/{lesson_id}/questions", response_model=list[QuizQuestionOut])
+@router.get("/quizzes/{lesson_id}/questions")
 def list_public_quiz_questions(
     lesson_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List quiz questions for a lesson. Requires active enrollment in
-    the lesson's course."""
+    """List quiz questions for a lesson, with options nested inline so
+    the player UI can render choice-question UIs without N+1 fetches.
+
+    ``is_correct`` is REDACTED on options before submit (cheat-prevention).
+    After submit, the player calls list_my_attempts which reveals the
+    correct answers + per-question feedback.
+
+    Requires active enrollment in the lesson's course.
+    """
     lsn = db.get(Lesson, lesson_id)
     if not lsn or lsn.is_deleted:
         raise NotFoundError("Lesson not found")
@@ -394,10 +401,38 @@ def list_public_quiz_questions(
     quiz = db.query(LmsQuiz).filter(LmsQuiz.lesson_id == lsn.id).first()
     if not quiz:
         return []
-    return (db.query(LmsQuizQuestion)
-              .filter(LmsQuizQuestion.quiz_id == quiz.id)
-              .order_by(LmsQuizQuestion.position)
-              .all())
+    questions = list(db.query(LmsQuizQuestion)
+                       .filter(LmsQuizQuestion.quiz_id == quiz.id)
+                       .order_by(LmsQuizQuestion.position).all())
+    if not questions:
+        return []
+    options_by_q: dict[int, list[LmsQuizQuestionOption]] = {}
+    for o in db.query(LmsQuizQuestionOption).filter(
+        LmsQuizQuestionOption.question_id.in_([q.id for q in questions])
+    ).order_by(LmsQuizQuestionOption.position).all():
+        options_by_q.setdefault(o.question_id, []).append(o)
+    return [
+        {
+            "id": q.id,
+            "quiz_id": q.quiz_id,
+            "position": q.position,
+            "question_type": q.question_type,
+            "question_text": q.question_text,
+            "explanation": None,  # withheld until after submit
+            "points": q.points,
+            "accepted_answers": [],  # withheld until after submit
+            "options": [
+                {
+                    "id": o.id,
+                    "position": o.position,
+                    "text": o.text,
+                    # is_correct + reasoning withheld until submission
+                }
+                for o in options_by_q.get(q.id, [])
+            ],
+        }
+        for q in questions
+    ]
 
 
 @router.post("/quizzes/{lesson_id}/attempts", response_model=QuizAttemptOut,

@@ -99,6 +99,94 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
     return c
 
 
+@router.get("/courses/{course_id}/tree")
+def get_course_tree(course_id: int, db: Session = Depends(get_db)):
+    """Admin curriculum tree for a course — chapters + lessons + files,
+    including unpublished/draft rows. Used by /admin/courses/[id] in the
+    UI so editing works before the course is published.
+
+    Returns:
+      { course: {...full admin payload...},
+        chapters: [
+          { id, title, description, position, is_mandatory, is_published,
+            lessons: [
+              { id, title, lesson_type, position, is_mandatory,
+                is_free_preview, is_published, duration_seconds, ...,
+                files: [ {...LessonFileOut...} ] }
+            ] }
+        ] }
+    """
+    c = _course_scope(db).filter(Course.id == course_id).first()
+    if not c:
+        raise NotFoundError("Course not found")
+
+    chapters = list(db.query(Chapter).filter(
+        Chapter.course_id == c.id,
+        Chapter.tenant_id == get_current_tenant_id(),
+        Chapter.is_deleted.is_(False),
+    ).order_by(Chapter.position, Chapter.id).all())
+
+    lessons_by_ch: dict[int, list[Lesson]] = {ch.id: [] for ch in chapters}
+    if chapters:
+        for lsn in db.query(Lesson).filter(
+            Lesson.chapter_id.in_([ch.id for ch in chapters]),
+            Lesson.is_deleted.is_(False),
+        ).order_by(Lesson.chapter_id, Lesson.position).all():
+            lessons_by_ch.setdefault(lsn.chapter_id, []).append(lsn)
+
+    lesson_ids = [l.id for ls in lessons_by_ch.values() for l in ls]
+    files_by_lesson: dict[int, list[LessonFile]] = {}
+    if lesson_ids:
+        for f in db.query(LessonFile).filter(
+            LessonFile.lesson_id.in_(lesson_ids),
+            LessonFile.tenant_id == get_current_tenant_id(),
+        ).order_by(LessonFile.position).all():
+            files_by_lesson.setdefault(f.lesson_id, []).append(f)
+
+    return {
+        "course": CourseOut.model_validate(c).model_dump(mode="json"),
+        "chapters": [
+            {
+                **ChapterOut.model_validate(ch).model_dump(mode="json"),
+                "lessons": [
+                    {
+                        **LessonOut.model_validate(lsn).model_dump(mode="json"),
+                        "files": [
+                            LessonFileOut.model_validate(f).model_dump(mode="json")
+                            for f in files_by_lesson.get(lsn.id, [])
+                        ],
+                    }
+                    for lsn in lessons_by_ch.get(ch.id, [])
+                ],
+            }
+            for ch in chapters
+        ],
+    }
+
+
+@router.get("/lessons/{lesson_id}", response_model=LessonOut)
+def get_lesson(lesson_id: int, db: Session = Depends(get_db)):
+    """Admin single-lesson getter. Replaces the previous PATCH-no-op
+    hack the frontend was using to load a lesson on first open."""
+    lsn = db.query(Lesson).filter(
+        Lesson.id == lesson_id,
+        Lesson.tenant_id == get_current_tenant_id(),
+        Lesson.is_deleted.is_(False),
+    ).first()
+    if not lsn:
+        raise NotFoundError("Lesson not found")
+    return lsn
+
+
+@router.get("/lessons/{lesson_id}/files", response_model=list[LessonFileOut])
+def list_lesson_files(lesson_id: int, db: Session = Depends(get_db)):
+    """Admin lesson-files listing — for the editor's Attached Files panel."""
+    return (db.query(LessonFile).filter(
+        LessonFile.lesson_id == lesson_id,
+        LessonFile.tenant_id == get_current_tenant_id(),
+    ).order_by(LessonFile.position, LessonFile.id).all())
+
+
 @router.post("/courses", response_model=CourseOut, status_code=201)
 def create_course(
     payload: CourseCreateIn,

@@ -877,6 +877,26 @@ export const admin = {
       const { data } = await request<CourseOut>(`/admin/courses/${id}`, { authed: true });
       return data;
     },
+    async getCourseTree(id: number) {
+      // Returns { course, chapters: [{ ..., lessons: [{ ..., files: [...] }] }] }
+      // Admin view — includes drafts.
+      const { data } = await request<{
+        course: CourseOut;
+        chapters: Array<ChapterOut & {
+          lessons: Array<LessonOut & { files: LessonFileOut[] }>;
+        }>;
+      }>(`/admin/courses/${id}/tree`, { authed: true });
+      return data;
+    },
+    async getLesson(id: number) {
+      const { data } = await request<LessonOut>(`/admin/lessons/${id}`, { authed: true });
+      return data;
+    },
+    async listLessonFiles(lessonId: number) {
+      const { data } = await request<LessonFileOut[]>(
+        `/admin/lessons/${lessonId}/files`, { authed: true });
+      return data;
+    },
     async createCourse(p: CourseCreateIn) {
       const { data } = await request<CourseOut>(
         "/admin/courses", { method: "POST", json: p, authed: true });

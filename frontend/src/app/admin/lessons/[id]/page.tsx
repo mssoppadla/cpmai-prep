@@ -53,14 +53,7 @@ export default function LessonEditorPage({
     if (!Number.isFinite(lessonId)) { setErr("Invalid lesson id"); return; }
     (async () => {
       try {
-        // We don't have a single-lesson admin GET endpoint, so we fetch the
-        // public detail via the chapter→course path. Simpler: use the public
-        // lesson endpoint? We added admin chapter endpoints but not single-
-        // lesson getters. Workaround: use lesson update with empty PATCH to
-        // get a snapshot. Cleanest is to add a GET endpoint — for now we
-        // PATCH with no fields. (Backend PATCH /lessons/{id} returns updated
-        // lesson; empty payload = no-op + returns current.)
-        const l = await admin.lms.updateLesson(lessonId, {});
+        const l = await admin.lms.getLesson(lessonId);
         setLesson(l);
         setMeta({
           title: l.title,
@@ -78,10 +71,13 @@ export default function LessonEditorPage({
           checklist_items: l.checklist_items,
         });
         setInitialBlocks(l.body_blocks as PartialBlock[]);
-        // Files
-        // No dedicated endpoint to list files; we rely on the public
-        // course detail OR add later. For Phase 1, files are visible
-        // on the lesson record when re-fetched after add.
+        // Load existing files
+        try {
+          const fs = await admin.lms.listLessonFiles(lessonId);
+          setFiles(fs);
+        } catch (fe) {
+          console.warn("[lesson editor] files", fe);
+        }
       } catch (e) {
         console.error("[lesson editor] load", e);
         setErr(errMsg(e));

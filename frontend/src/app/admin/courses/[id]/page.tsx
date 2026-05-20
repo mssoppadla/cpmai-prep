@@ -51,27 +51,6 @@ export default function CourseEditorPage({
     try {
       const c = await admin.lms.getCourse(courseId);
       setCourse(c);
-      // Loading chapters: there's no direct admin endpoint for "list chapters
-      // of a course" — we go through the PUBLIC course detail (which always
-      // returns the tree). Admin can see drafts via include_unpublished on
-      // the API but the public endpoint exposes the structure we need.
-      const detail = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"}/admin/courses/${courseId}`,
-        { headers: { Authorization: `Bearer ${typeof window !== "undefined"
-            ? localStorage.getItem("cpmai.access") ?? "" : ""}` },
-        }
-      );
-      // For now we just have the course; chapters/lessons come from a
-      // dedicated reload call via the public CMS-like endpoint.
-      // Simpler: fetch the course's public detail for the tree. Admin
-      // is enrolled implicitly (sees everything published).
-      // Since we don't have an admin "list chapters" endpoint, we
-      // reuse the public one (works for admin + non-published rows aren't
-      // shown). To see drafts, the admin will currently need to publish
-      // first OR we can expand the admin API in a follow-up.
-      // For Phase 1 admin builder, we'll show only published chapters/lessons
-      // here. Add a dedicated admin tree endpoint as a follow-up if needed.
-      void detail;
     } catch (e) {
       console.error("[course editor] load", e);
       setErr(errMsg(e));
@@ -126,31 +105,17 @@ export default function CourseEditorPage({
   const reloadTree = useCallback(async () => {
     if (!course) return;
     try {
-      // Use the public detail endpoint; admin sees everything since
-      // they're the source of truth (drafts will still appear after
-      // we extend the admin API; for now we publish to see in tree).
-      const detail = await (await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"}/lms/courses/${course.slug}`,
-        { headers: typeof window !== "undefined" && localStorage.getItem("cpmai.access")
-          ? { Authorization: `Bearer ${localStorage.getItem("cpmai.access")}` }
-          : {},
-        }
-      )).json();
-      const chs = (detail.chapters ?? []).map((ch: { id: number; title: string; description: string | null; position: number; is_mandatory: boolean; lessons: LessonOut[] }) => ({
-        id: ch.id, tenant_id: 1, course_id: course.id,
-        title: ch.title, description: ch.description,
-        position: ch.position, is_mandatory: ch.is_mandatory,
-        is_published: true, is_deleted: false,
-        created_at: "", updated_at: "",
-      })) as ChapterOut[];
-      setChapters(chs);
+      // Dedicated admin endpoint — returns full hierarchy including drafts.
+      const tree = await admin.lms.getCourseTree(course.id);
+      setChapters(tree.chapters);
       const lmap: Record<number, LessonOut[]> = {};
-      for (const ch of detail.chapters ?? []) {
-        lmap[ch.id] = (ch.lessons ?? []) as LessonOut[];
+      for (const ch of tree.chapters) {
+        lmap[ch.id] = ch.lessons;
       }
       setLessonsByCh(lmap);
     } catch (e) {
       console.error("[course editor] tree", e);
+      setErr(errMsg(e));
     }
   }, [course]);
 
@@ -367,8 +332,8 @@ export default function CourseEditorPage({
               <div className="text-slate-500 text-sm">Loading curriculum…</div>
             ) : chapters.length === 0 ? (
               <p className="text-slate-500 text-sm">
-                No chapters yet. Click <strong>+ Chapter</strong> to add the first section.
-                Tip: publish the course before authoring so chapters appear in the curriculum view.
+                No chapters yet. Click <strong>+ Chapter</strong> to add the first section
+                (e.g., &quot;Week 1&quot;).
               </p>
             ) : (
               <div className="space-y-3">

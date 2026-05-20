@@ -440,31 +440,40 @@ function extractYouTubeId(url: string): string | null {
 
 // ====================================================== Quiz lesson
 
+type QuestionWithOptions = QuizQuestionOut & {
+  options: Array<{ id: number; position: number; text: string }>;
+};
+
 function QuizLesson({ lessonId }: { lessonId: number }) {
-  const [questions, setQuestions] = useState<QuizQuestionOut[] | null>(null);
+  const [questions, setQuestions] = useState<QuestionWithOptions[] | null>(null);
   const [answers, setAnswers] = useState<Record<number, QuizAttemptAnswerIn>>({});
   const [result, setResult] = useState<QuizAttemptOut | null>(null);
   const [attempts, setAttempts] = useState<QuizAttemptOut[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [optionsByQ, setOptionsByQ] = useState<Record<number, { id: number; text: string }[]>>({});
 
   useEffect(() => {
     (async () => {
       try {
-        const qs = await lmsPublic.listQuizQuestions(lessonId);
+        // Public endpoint now returns options nested inline.
+        const qs = await lmsPublic.listQuizQuestions(lessonId) as unknown as QuestionWithOptions[];
         setQuestions(qs);
-        // Public endpoint to fetch options isn't separate — we'd need to
-        // add one. For Phase 1, students see options inline by using
-        // ``get the question and pick its options`` if the backend returns
-        // them. The current public endpoint returns just questions; the
-        // admin builder creates options. For local-test usability we'll
-        // skip options-render for now and rely on short_answer + the
-        // admin manually listing options via Swagger. (Follow-up: extend
-        // /lms/quizzes/{lessonId}/questions to include options inline.)
         setAttempts(await lmsPublic.listMyAttempts(lessonId));
       } catch (e) { setErr(errMsg(e)); }
     })();
   }, [lessonId]);
+
+  function toggleOption(q: QuestionWithOptions, optionId: number) {
+    setAnswers((prev) => {
+      const cur = prev[q.id]?.selected_option_ids ?? [];
+      const single = q.question_type === "single_choice" || q.question_type === "true_false";
+      const next = single
+        ? [optionId]
+        : cur.includes(optionId)
+          ? cur.filter((x) => x !== optionId)
+          : [...cur, optionId];
+      return { ...prev, [q.id]: { question_id: q.id, selected_option_ids: next } };
+    });
+  }
 
   async function submit() {
     setErr(null);
@@ -477,8 +486,34 @@ function QuizLesson({ lessonId }: { lessonId: number }) {
     } catch (e) { setErr(errMsg(e)); }
   }
 
+  function reset() {
+    setResult(null);
+    setAnswers({});
+  }
+
   if (err) return <div className="text-rose-700 text-sm">{err}</div>;
   if (!questions) return <div className="text-slate-500 text-sm">Loading quiz…</div>;
+
+  if (result) {
+    return (
+      <div className="space-y-4">
+        <div className={`rounded-lg p-6 ${result.passed
+            ? "bg-emerald-50 border border-emerald-200"
+            : "bg-rose-50 border border-rose-200"}`}>
+          <div className="text-xl font-bold">
+            {result.passed ? "✓ Passed" : "✗ Did not pass"}
+          </div>
+          <div className="text-sm mt-2">
+            Score: {result.score_points} / {result.max_points} ({result.percent}%)
+          </div>
+          <button onClick={reset}
+                  className="mt-4 px-4 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50">
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -489,45 +524,58 @@ function QuizLesson({ lessonId }: { lessonId: number }) {
           {Math.max(...attempts.map((a) => a.percent))}%
         </p>
       )}
-      {questions.map((q, i) => (
-        <div key={q.id} className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="font-medium text-slate-900 mb-2">
-            Q{i + 1}. {q.question_text}
+      {questions.map((q, i) => {
+        const sel = answers[q.id]?.selected_option_ids ?? [];
+        return (
+          <div key={q.id} className="bg-white border border-slate-200 rounded-lg p-4">
+            <div className="font-medium text-slate-900 mb-2">
+              Q{i + 1}. {q.question_text}
+            </div>
+            {q.question_type === "short_answer" ? (
+              <input
+                value={answers[q.id]?.short_answer_text ?? ""}
+                onChange={(e) => setAnswers((prev) => ({
+                  ...prev,
+                  [q.id]: { question_id: q.id, short_answer_text: e.target.value },
+                }))}
+                placeholder="Your answer"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              />
+            ) : (
+              <div className="space-y-2 mt-2">
+                {(q.options ?? []).map((o) => {
+                  const checked = sel.includes(o.id);
+                  const isSingle = q.question_type === "single_choice"
+                                || q.question_type === "true_false";
+                  return (
+                    <label key={o.id}
+                           className={`flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer ${
+                             checked
+                               ? "border-indigo-500 bg-indigo-50"
+                               : "border-slate-300 hover:bg-slate-50"
+                           }`}>
+                      <input type={isSingle ? "radio" : "checkbox"}
+                             name={`q-${q.id}`}
+                             checked={checked}
+                             onChange={() => toggleOption(q, o.id)} />
+                      <span className="text-sm">{o.text}</span>
+                    </label>
+                  );
+                })}
+                {(q.options ?? []).length === 0 && (
+                  <p className="text-xs text-slate-500 italic">
+                    No options configured for this question yet.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
-          {q.explanation && (
-            <p className="text-xs text-slate-500 mb-2">{q.explanation}</p>
-          )}
-          {q.question_type === "short_answer" ? (
-            <input
-              value={answers[q.id]?.short_answer_text ?? ""}
-              onChange={(e) => setAnswers((prev) => ({
-                ...prev,
-                [q.id]: { question_id: q.id, short_answer_text: e.target.value },
-              }))}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-            />
-          ) : (
-            <p className="text-xs text-slate-500 italic">
-              (Options rendering for choice questions is a Phase-2-polish task —
-              backend supports it; UI extension coming next PR.)
-            </p>
-          )}
-        </div>
-      ))}
+        );
+      })}
       <button onClick={submit}
               className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
         Submit
       </button>
-      {result && (
-        <div className={`rounded-lg p-4 ${result.passed ? "bg-emerald-50 border border-emerald-200" : "bg-rose-50 border border-rose-200"}`}>
-          <div className="font-semibold">
-            {result.passed ? "✓ Passed" : "✗ Did not pass"}
-          </div>
-          <div className="text-sm mt-1">
-            Score: {result.score_points} / {result.max_points} ({result.percent}%)
-          </div>
-        </div>
-      )}
     </div>
   );
 }
