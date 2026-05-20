@@ -56,6 +56,19 @@ URL against `UPLOAD_ROOT`, refuses external URLs (Vimeo/S3), enforces
 `test_lesson_file_delete_preserves_external_url`,
 `test_lesson_file_delete_path_traversal_blocked`.
 
+### [DONE] GitHub Actions Node-20 deprecation pre-emptively addressed
+GitHub announced Node 20 actions are deprecated:
+- **June 2, 2026**: runner forces Node 24 default
+- **September 16, 2026**: Node 20 binary removed from runners (hard deadline)
+
+Bumped all 4 workflow files ahead of forced Node 24:
+- `actions/checkout` v4 → v6 (used 6× across deploy/backend-ci/frontend-ci/security-scan)
+- `actions/setup-python` v5 → v6 (used 4×)
+- `actions/setup-node` v4 → v6 (used 3×)
+
+Bumps verified as drop-in compatible — same input names, same outputs.
+YAML parses cleanly. Deploy gate remains intact.
+
 ---
 
 ## Bucket B — small/medium follow-ups bundled into this same push
