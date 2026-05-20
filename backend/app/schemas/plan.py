@@ -27,6 +27,7 @@ class PlanCreate(BaseModel):
     is_active: bool = True
     display_order: int = 100
     exam_set_ids: list[int] = Field(default_factory=list)
+    course_ids: list[int] = Field(default_factory=list)
 
     @field_validator("discount_price_paise")
     @classmethod
@@ -54,6 +55,7 @@ class PlanUpdate(BaseModel):
     is_active: Optional[bool] = None
     display_order: Optional[int] = None
     exam_set_ids: Optional[list[int]] = None
+    course_ids: Optional[list[int]] = None
 
 
 # =========================================================== admin out
@@ -61,6 +63,12 @@ class PlanExamSetRef(BaseModel):
     id: int
     slug: str
     name: str
+
+
+class PlanCourseRef(BaseModel):
+    id: int
+    slug: str
+    title: str
 
 
 class PlanAdminOut(BaseModel):
@@ -77,6 +85,7 @@ class PlanAdminOut(BaseModel):
     is_active: bool
     display_order: int
     exam_sets: list[PlanExamSetRef]
+    courses: list[PlanCourseRef]
     created_at: datetime
     updated_at: datetime
 
@@ -92,6 +101,9 @@ class PlanAdminOut(BaseModel):
             display_order=row.display_order,
             exam_sets=[PlanExamSetRef(id=es.id, slug=es.slug, name=es.name)
                        for es in (row.exam_sets or [])],
+            courses=[PlanCourseRef(id=c.id, slug=c.slug, title=c.title)
+                     for c in (row.courses or [])
+                     if not getattr(c, "is_deleted", False)],
             created_at=row.created_at, updated_at=row.updated_at,
         )
 
@@ -111,6 +123,7 @@ class PlanPublicOut(BaseModel):
     duration_days: int
     perks: dict
     exam_sets: list[PlanExamSetRef]
+    courses: list[PlanCourseRef]
 
     @classmethod
     def from_row(cls, row) -> "PlanPublicOut":
@@ -123,4 +136,7 @@ class PlanPublicOut(BaseModel):
             perks=row.perks or {},
             exam_sets=[PlanExamSetRef(id=es.id, slug=es.slug, name=es.name)
                        for es in (row.exam_sets or [])],
+            courses=[PlanCourseRef(id=c.id, slug=c.slug, title=c.title)
+                     for c in (row.courses or [])
+                     if not getattr(c, "is_deleted", False)],
         )

@@ -7,8 +7,9 @@ from app.core.exceptions import (
 )
 from app.core.audit import audit_log
 from app.models.user import User
-from app.models.plan import Plan, PlanExamSet
+from app.models.plan import Plan, PlanCourse, PlanExamSet
 from app.models.exam_set import ExamSet
+from app.models.lms import Course
 from app.schemas.plan import PlanCreate, PlanUpdate, PlanAdminOut
 from app.services.assistant.rag.ingest import reindex_quietly
 
@@ -29,6 +30,26 @@ def _set_exam_sets(db: Session, plan: Plan, ids: list[int],
     for sid in ids:
         db.add(PlanExamSet(plan_id=plan.id, exam_set_id=sid,
                            added_by=added_by_id))
+    db.flush()
+
+
+def _set_courses(db: Session, plan: Plan, ids: list[int],
+                 added_by_id: int) -> None:
+    """Replace the plan's course links with the given list. Validates
+    every id resolves to a non-deleted course."""
+    if ids:
+        rows = db.query(Course).filter(
+            Course.id.in_(ids),
+            Course.is_deleted.is_(False),
+        ).all()
+        found_ids = {c.id for c in rows}
+        missing = [i for i in ids if i not in found_ids]
+        if missing:
+            raise ValidationError(f"Unknown course_ids: {missing}")
+    db.query(PlanCourse).filter_by(plan_id=plan.id).delete()
+    for cid in ids:
+        db.add(PlanCourse(plan_id=plan.id, course_id=cid,
+                          added_by=added_by_id))
     db.flush()
 
 
@@ -59,10 +80,13 @@ def create_plan(payload: PlanCreate,
     )
     db.add(plan); db.flush()
     _set_exam_sets(db, plan, payload.exam_set_ids or [], admin.id)
+    _set_courses(db, plan, payload.course_ids or [], admin.id)
     db.commit(); db.refresh(plan)
     audit_log(db, admin.id, "plan.created",
               {"id": plan.id, "slug": plan.slug,
-               "bundle_type": plan.bundle_type})
+               "bundle_type": plan.bundle_type,
+               "exam_set_count": len(payload.exam_set_ids or []),
+               "course_count": len(payload.course_ids or [])})
     reindex_quietly(db, "plan", plan.id)
     return PlanAdminOut.from_row(plan)
 
@@ -95,10 +119,13 @@ def update_plan(plan_id: int, payload: PlanUpdate,
             "discount_price_paise must be less than base_price_paise.")
 
     exam_set_ids = data.pop("exam_set_ids", None)
+    course_ids = data.pop("course_ids", None)
     for k, v in data.items():
         setattr(plan, k, v)
     if exam_set_ids is not None:
         _set_exam_sets(db, plan, exam_set_ids, admin.id)
+    if course_ids is not None:
+        _set_courses(db, plan, course_ids, admin.id)
     db.commit(); db.refresh(plan)
     audit_log(db, admin.id, "plan.updated",
               {"id": plan.id, "fields": list(data.keys())})

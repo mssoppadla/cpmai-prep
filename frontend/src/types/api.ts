@@ -362,6 +362,382 @@ export interface CmsFillBlockOut { text: string }
 export interface CmsImproveBlockIn { text: string; tone: CmsImproveTone }
 export interface CmsImproveBlockOut { text: string }
 
+// ---------- LMS -----------------------------------------------------------
+// Mirrors backend/app/schemas/lms.py
+export type EnrollmentType   = "free" | "paid" | "subscription_bundle";
+export type CourseDifficulty = "beginner" | "intermediate" | "advanced";
+export type LessonType       = "video" | "text" | "quiz" | "checklist" | "live" | "assignment";
+export type VideoProvider    = "r2" | "youtube" | "vimeo" | "stream";
+export type FileCategory     = "assignment" | "reference" | "starter_code" | "solution";
+export type EnrollmentSource = "purchased" | "admin_grant" | "subscription" | "free";
+export type QuizQuestionType = "single_choice" | "multi_choice" | "true_false" | "short_answer";
+
+export interface CourseOut {
+  id: number;
+  tenant_id: number;
+  slug: string;
+  title: string;
+  subtitle: string | null;
+  description: string | null;
+  cover_image_url: string | null;
+  base_price_paise: number;
+  currency: string;
+  plan_id: number | null;
+  enrollment_type: EnrollmentType;
+  difficulty: CourseDifficulty;
+  language: string;
+  estimated_hours: number | null;
+  learning_outcomes: string[];
+  prerequisites_text: string | null;
+  target_audience: string | null;
+  completion_threshold_percent: number;
+  lead_instructor_id: number | null;
+  discussion_url: string | null;
+  display_order: number;
+  is_published: boolean;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by: number | null;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface CoursePublicOut {
+  id: number;
+  slug: string;
+  title: string;
+  subtitle: string | null;
+  description: string | null;
+  cover_image_url: string | null;
+  base_price_paise: number;
+  currency: string;
+  enrollment_type: EnrollmentType;
+  difficulty: CourseDifficulty;
+  language: string;
+  estimated_hours: number | null;
+  learning_outcomes: string[];
+  prerequisites_text: string | null;
+  target_audience: string | null;
+  completion_threshold_percent: number;
+  lead_instructor_id: number | null;
+  discussion_url: string | null;
+  display_order: number;
+}
+export interface CourseCreateIn {
+  slug: string;
+  title: string;
+  subtitle?: string | null;
+  description?: string | null;
+  cover_image_url?: string | null;
+  base_price_paise?: number;
+  currency?: string;
+  plan_id?: number | null;
+  enrollment_type?: EnrollmentType;
+  difficulty?: CourseDifficulty;
+  language?: string;
+  estimated_hours?: number | null;
+  learning_outcomes?: string[];
+  prerequisites_text?: string | null;
+  target_audience?: string | null;
+  completion_threshold_percent?: number;
+  lead_instructor_id?: number | null;
+  discussion_url?: string | null;
+  display_order?: number;
+  is_published?: boolean;
+}
+export type CourseUpdateIn = Partial<CourseCreateIn>;
+
+export interface ChapterOut {
+  id: number;
+  tenant_id: number;
+  course_id: number;
+  title: string;
+  description: string | null;
+  position: number;
+  is_mandatory: boolean;
+  is_published: boolean;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface ChapterCreateIn {
+  title: string;
+  description?: string | null;
+  position?: number;
+  is_mandatory?: boolean;
+  is_published?: boolean;
+}
+export type ChapterUpdateIn = Partial<ChapterCreateIn>;
+
+export interface LessonOut {
+  id: number;
+  tenant_id: number;
+  chapter_id: number;
+  lesson_type: LessonType;
+  title: string;
+  subtitle: string | null;
+  position: number;
+  is_mandatory: boolean;
+  video_url: string | null;
+  video_provider: VideoProvider | null;
+  video_object_key: string | null;
+  duration_seconds: number | null;
+  thumbnail_url: string | null;
+  captions_url: string | null;
+  body_blocks: BlockNoteBlock[];
+  checklist_items: Array<{ text: string; position?: number }>;
+  discussion_url: string | null;
+  instructor_id: number | null;
+  quiz_pass_threshold_percent: number;
+  quiz_attempts_allowed: number | null;
+  is_free_preview: boolean;
+  is_published: boolean;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface LessonCreateIn {
+  lesson_type: LessonType;
+  title: string;
+  subtitle?: string | null;
+  position?: number;
+  is_mandatory?: boolean;
+  video_url?: string | null;
+  video_provider?: VideoProvider | null;
+  video_object_key?: string | null;
+  duration_seconds?: number | null;
+  thumbnail_url?: string | null;
+  captions_url?: string | null;
+  body_blocks?: BlockNoteBlock[];
+  checklist_items?: Array<{ text: string }>;
+  discussion_url?: string | null;
+  instructor_id?: number | null;
+  quiz_pass_threshold_percent?: number;
+  quiz_attempts_allowed?: number | null;
+  is_free_preview?: boolean;
+  is_published?: boolean;
+}
+export type LessonUpdateIn = Partial<LessonCreateIn>;
+
+export interface LessonFileOut {
+  id: number;
+  tenant_id: number;
+  lesson_id: number;
+  filename: string;
+  file_url: string;
+  file_object_key: string | null;
+  file_size_bytes: number | null;
+  mime_type: string | null;
+  description: string | null;
+  file_category: FileCategory;
+  is_required: boolean;
+  position: number;
+  uploaded_by_id: number | null;
+  created_at: string;
+}
+export interface LessonFileCreateIn {
+  filename: string;
+  file_url: string;
+  file_object_key?: string | null;
+  file_size_bytes?: number | null;
+  mime_type?: string | null;
+  description?: string | null;
+  file_category?: FileCategory;
+  is_required?: boolean;
+  position?: number;
+}
+
+export interface EnrollmentOut {
+  id: number;
+  tenant_id: number;
+  user_id: number;
+  course_id: number;
+  source: EnrollmentSource;
+  enrolled_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  completed_at: string | null;
+  last_accessed_at: string | null;
+  granted_by_id: number | null;
+  grant_reason: string | null;
+  payment_id: number | null;
+  offer_code_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface EnrollmentGrantIn {
+  user_id: number;
+  expires_at?: string | null;
+  grant_reason: string;
+}
+
+export interface LessonProgressOut {
+  id: number;
+  enrollment_id: number;
+  lesson_id: number;
+  started_at: string | null;
+  first_completed_at: string | null;
+  completed_at: string | null;
+  last_position_seconds: number;
+  watch_time_seconds: number;
+  checklist_state: Record<string, unknown>;
+}
+export interface LessonProgressUpdateIn {
+  last_position_seconds?: number;
+  watch_time_seconds?: number;
+  checklist_state?: Record<string, unknown>;
+  mark_completed?: boolean;
+}
+
+export interface CourseCategoryOut {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  display_order: number;
+}
+export interface CourseCategoryCreateIn {
+  slug: string;
+  name: string;
+  description?: string | null;
+  display_order?: number;
+}
+export type CourseCategoryUpdateIn = Partial<CourseCategoryCreateIn>;
+
+export interface CourseAnnouncementOut {
+  id: number;
+  course_id: number;
+  title: string;
+  body: string;
+  posted_by: number | null;
+  posted_at: string;
+  is_pinned: boolean;
+}
+export interface CourseAnnouncementCreateIn {
+  title: string;
+  body: string;
+  is_pinned?: boolean;
+}
+
+export interface LessonNoteOut {
+  id: number;
+  lesson_id: number;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface CourseReviewOut {
+  id: number;
+  course_id: number;
+  user_id: number;
+  stars: number;
+  body: string | null;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuizOut {
+  id: number;
+  lesson_id: number;
+  pass_threshold_percent: number;
+  attempts_allowed: number | null;
+  time_limit_seconds: number | null;
+  shuffle_questions: boolean;
+  show_correct_answers: boolean;
+}
+export interface QuizConfigUpsertIn {
+  pass_threshold_percent?: number;
+  attempts_allowed?: number | null;
+  time_limit_seconds?: number | null;
+  shuffle_questions?: boolean;
+  show_correct_answers?: boolean;
+}
+export interface QuizQuestionOut {
+  id: number;
+  quiz_id: number;
+  position: number;
+  question_type: QuizQuestionType;
+  question_text: string;
+  explanation: string | null;
+  points: number;
+  accepted_answers: string[];
+}
+export interface QuizQuestionCreateIn {
+  question_type: QuizQuestionType;
+  question_text: string;
+  explanation?: string | null;
+  points?: number;
+  position?: number;
+  accepted_answers?: string[];
+}
+export type QuizQuestionUpdateIn = Partial<QuizQuestionCreateIn>;
+export interface QuizOptionOut {
+  id: number;
+  position: number;
+  text: string;
+  is_correct: boolean;
+  reasoning: string | null;
+}
+export interface QuizOptionCreateIn {
+  text: string;
+  is_correct?: boolean;
+  reasoning?: string | null;
+  position?: number;
+}
+export type QuizOptionUpdateIn = Partial<QuizOptionCreateIn>;
+export interface QuizAttemptOut {
+  id: number;
+  enrollment_id: number;
+  quiz_id: number;
+  attempt_number: number;
+  started_at: string;
+  submitted_at: string | null;
+  score_points: number;
+  max_points: number;
+  percent: number;
+  passed: boolean;
+}
+export interface QuizAttemptAnswerIn {
+  question_id: number;
+  selected_option_ids?: number[];
+  short_answer_text?: string | null;
+}
+export interface QuizAttemptSubmitIn {
+  answers: QuizAttemptAnswerIn[];
+}
+
+/** Nested course-detail public response.
+ *  Endpoint returns { course, is_enrolled, chapters[{...lessons[{...files[]}]}] } */
+export interface CourseDetailPublicOut {
+  course: CoursePublicOut;
+  is_enrolled: boolean;
+  chapters: Array<{
+    id: number;
+    title: string;
+    description: string | null;
+    position: number;
+    is_mandatory: boolean;
+    lessons: Array<LessonPublicOut & { files: LessonFileOut[] }>;
+  }>;
+}
+export interface LessonPublicOut {
+  id: number;
+  chapter_id: number;
+  lesson_type: LessonType;
+  title: string;
+  subtitle: string | null;
+  position: number;
+  is_mandatory: boolean;
+  duration_seconds: number | null;
+  thumbnail_url: string | null;
+  discussion_url: string | null;
+  instructor_id: number | null;
+  is_free_preview: boolean;
+  video_url: string | null;
+  body_blocks: BlockNoteBlock[];
+}
+
 // ---------- Landing copy --------------------------------------------------
 export interface LandingCopy {
   lead_section_heading: string;
@@ -600,6 +976,7 @@ export interface VerifyPaymentOut {
 export type BundleType = "exam_bundle" | "course_bundle" | "custom";
 
 export interface PlanExamSetRef { id: number; slug: string; name: string }
+export interface PlanCourseRef  { id: number; slug: string; title: string }
 
 export interface PlanPublicOut {
   id: number;
@@ -613,6 +990,7 @@ export interface PlanPublicOut {
   duration_days: number;
   perks: Record<string, unknown>;
   exam_sets: PlanExamSetRef[];
+  courses: PlanCourseRef[];
 }
 
 export interface PlanAdminOut extends PlanPublicOut {
@@ -635,6 +1013,7 @@ export interface PlanCreate {
   is_active?: boolean;
   display_order?: number;
   exam_set_ids?: number[];
+  course_ids?: number[];
 }
 
 export interface PlanUpdate {
@@ -648,6 +1027,7 @@ export interface PlanUpdate {
   is_active?: boolean;
   display_order?: number;
   exam_set_ids?: number[];
+  course_ids?: number[];
 }
 
 export type DiscountType = "percent" | "flat";

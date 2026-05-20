@@ -76,7 +76,27 @@ gunzip -c "$FILE" | $DC exec -T postgres psql -U cpmai -d cpmai_prep -v ON_ERROR
 ok "data restored"
 
 # ------------------------------------------------------------------------------
-# 4. Bring backend up to head (in case the backup is from an older schema)
+# 4. Restore uploads (CMS / LMS file attachments) — sidecar tarball
+# ------------------------------------------------------------------------------
+# backup.sh writes the matching uploads archive next to the SQL dump with
+# the suffix .uploads.tar.gz instead of .sql.gz. If it exists, replace the
+# /app/uploads volume contents with the snapshot. Wiping first prevents
+# stray orphan files from a newer state hanging around after a rollback.
+# Older backups (pre-PR-7) won't have this sidecar — skip silently.
+UPLOADS_TAR="${FILE%.sql.gz}.uploads.tar.gz"
+if [ -f "$UPLOADS_TAR" ]; then
+  say "Restoring uploads from $(basename "$UPLOADS_TAR")..."
+  $DC exec -T backend sh -c 'mkdir -p /app/uploads && find /app/uploads -mindepth 1 -delete' \
+    || warn "could not clear /app/uploads before restore (may have stale files)"
+  gunzip -c "$UPLOADS_TAR" | $DC exec -T backend tar -xzf - -C /app/uploads \
+    || warn "uploads restore failed — file attachments may be missing"
+  ok "uploads restored"
+else
+  warn "no uploads sidecar at $UPLOADS_TAR (skipped — backup may predate uploads support)"
+fi
+
+# ------------------------------------------------------------------------------
+# 5. Bring backend up to head (in case the backup is from an older schema)
 # ------------------------------------------------------------------------------
 say "Running alembic upgrade head against restored DB..."
 $DC exec -T backend bash -c 'cd /app && alembic upgrade head' \

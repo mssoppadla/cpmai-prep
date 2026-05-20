@@ -6,7 +6,7 @@ from app.models.question import Question, QuestionOption, Difficulty, QuestionTy
 from app.models.exam_set import ExamSet, ExamSetQuestion              # noqa
 from app.models.exam_session import ExamSession, ExamAttemptAnswer    # noqa
 from app.models.quiz_attempt import QuizAttempt                       # noqa
-from app.models.plan import Plan, PlanExamSet                          # noqa
+from app.models.plan import Plan, PlanExamSet, PlanCourse              # noqa
 from app.models.subscription import Subscription                     # noqa
 from app.models.offer import OfferCode, OfferRedemption                # noqa
 from app.models.payment import Payment, WebhookEvent                 # noqa
@@ -22,3 +22,11 @@ from app.models.rag_document import RagDocument                      # noqa
 from app.models.payment_provider import PaymentProviderConfig    # noqa
 from app.models.faq import FaqItem                                # noqa
 from app.models.content_page import ContentPage                   # noqa
+from app.models.lms import (                                       # noqa
+    Course, Chapter, Lesson, LessonFile,
+    Enrollment, LessonProgress,
+    CourseCategory, CourseCategoryLink, CourseAnnouncement,
+    LessonNote, CourseReview,
+    LmsQuiz, LmsQuizQuestion, LmsQuizQuestionOption,
+    LmsQuizAttempt, LmsQuizAttemptAnswer,
+)

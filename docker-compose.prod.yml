@@ -37,6 +37,12 @@ services:
       # See: app/services/geoip/lookup.py:DEFAULT_DB_PATH and
       # scripts/vps/install_geoip.sh / geoip_refresh.sh.
       - /srv/cpmai/geoip:/srv/cpmai/geoip
+      # Admin file uploads (CMS + LMS attachments). Re-declared here
+      # because Compose's list-merge for service.volumes is short-syntax
+      # ambiguous — we want to be SURE the named volume mounts in prod
+      # rather than rely on merge semantics. Defined in the base
+      # docker-compose.yml top-level `volumes:` block.
+      - cpmai-uploads:/app/uploads
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     # Bind to loopback only — Caddy proxies internally. Host port is
     # configurable via BACKEND_HOST_PORT (in .deploy.conf) for VPS

@@ -56,8 +56,10 @@ const GROUPS: NavGroupDef[] = [
     icon: "🎓",
     defaultExpanded: true,
     items: [
-      { href: "/admin/exam-sets", label: "Exam Sets" },
-      { href: "/admin/questions", label: "Questions" },
+      { href: "/admin/courses",        label: "Courses", badge: "NEW" },
+      { href: "/admin/course-categories", label: "Course Categories" },
+      { href: "/admin/exam-sets",      label: "Exam Sets" },
+      { href: "/admin/questions",      label: "Questions" },
     ],
   },
   {
