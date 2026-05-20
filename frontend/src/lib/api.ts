@@ -43,6 +43,20 @@ import type {
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
+/**
+ * Convert a relative ``/uploads/...`` URL (returned by the upload
+ * endpoint) into an absolute URL that loads cross-origin from the
+ * backend. Pure /uploads/foo paths point at the backend's StaticFiles
+ * mount, not the frontend's host.
+ */
+export function absoluteUploadUrl(relativeUrl: string): string {
+  if (!relativeUrl) return relativeUrl;
+  if (/^https?:\/\//i.test(relativeUrl)) return relativeUrl;
+  // Strip the trailing "/api/v1" from BASE to get the backend origin.
+  const origin = BASE.replace(/\/api\/v1\/?$/, "");
+  return origin + relativeUrl;
+}
+
 const TOKEN_KEY = "cpmai.access";
 const REFRESH_KEY = "cpmai.refresh";
 const ANON_KEY = "cpmai.anon_token";
@@ -545,13 +559,19 @@ export const content = {
  * required for enrollment, progress, notes, reviews, quiz attempts.
  */
 export const lmsPublic = {
-  async listCourses(params: { difficulty?: string; limit?: number; offset?: number } = {}): Promise<CoursePublicOut[]> {
+  async listCategories(): Promise<CourseCategoryOut[]> {
+    const { data } = await request<CourseCategoryOut[]>("/lms/categories", { authed: true });
+    return data;
+  },
+  async listCourses(params: { difficulty?: string; category?: string; limit?: number; offset?: number } = {}): Promise<Array<CoursePublicOut & { categories: { id: number; slug: string; name: string }[] }>> {
     const qs: string[] = [];
     if (params.difficulty) qs.push(`difficulty=${encodeURIComponent(params.difficulty)}`);
+    if (params.category)   qs.push(`category=${encodeURIComponent(params.category)}`);
     if (params.limit !== undefined) qs.push(`limit=${params.limit}`);
     if (params.offset !== undefined) qs.push(`offset=${params.offset}`);
     const suffix = qs.length ? `?${qs.join("&")}` : "";
-    const { data } = await request<CoursePublicOut[]>(`/lms/courses${suffix}`, { authed: true });
+    const { data } = await request<Array<CoursePublicOut & { categories: { id: number; slug: string; name: string }[] }>>(
+      `/lms/courses${suffix}`, { authed: true });
     return data;
   },
   async getCourse(slug: string): Promise<CourseDetailPublicOut> {
@@ -889,7 +909,11 @@ export const admin = {
       return data;
     },
     async getLesson(id: number) {
-      const { data } = await request<LessonOut>(`/admin/lessons/${id}`, { authed: true });
+      // Backend nests course_id alongside the standard lesson fields so
+      // the editor can render a correct "← Back to course" link without
+      // an extra round-trip.
+      const { data } = await request<LessonOut & { course_id: number | null }>(
+        `/admin/lessons/${id}`, { authed: true });
       return data;
     },
     async listLessonFiles(lessonId: number) {
@@ -980,6 +1004,11 @@ export const admin = {
     async deleteCategory(id: number) {
       await request(`/admin/course-categories/${id}`, { method: "DELETE", authed: true });
     },
+    async listCourseCategories(courseId: number) {
+      const { data } = await request<CourseCategoryOut[]>(
+        `/admin/courses/${courseId}/categories`, { authed: true });
+      return data;
+    },
     async linkCategory(courseId: number, catId: number) {
       await request(`/admin/courses/${courseId}/categories/${catId}`,
                     { method: "POST", authed: true });
@@ -1043,6 +1072,34 @@ export const admin = {
     },
     async deleteQuizOption(oId: number) {
       await request(`/admin/quiz-options/${oId}`, { method: "DELETE", authed: true });
+    },
+  },
+  /**
+   * File upload — POSTs multipart/form-data to /admin/uploads. Returns
+   * { url, filename, mime_type, size_bytes }. The ``url`` is relative
+   * (``/uploads/...``); callers prepend NEXT_PUBLIC_API_URL's origin
+   * to get an absolute URL when needed (e.g. when storing in a
+   * BlockNote image block that loads from a different origin).
+   */
+  uploads: {
+    async file(file: File): Promise<{ url: string; filename: string; mime_type: string; size_bytes: number }> {
+      const t = typeof window !== "undefined" ? localStorage.getItem("cpmai.access") : null;
+      const fd = new FormData();
+      fd.append("file", file);
+      const headers: Record<string, string> = {};
+      if (t) headers["Authorization"] = `Bearer ${t}`;
+      // Don't set Content-Type — browser fills in the multipart boundary.
+      const r = await fetch(`${BASE}/admin/uploads`, {
+        method: "POST",
+        headers,
+        body: fd,
+        credentials: "same-origin",
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new ApiError(r.status, body.error ?? { code: "upload_failed", message: "Upload failed" });
+      }
+      return r.json();
     },
   },
   cmsAi: {

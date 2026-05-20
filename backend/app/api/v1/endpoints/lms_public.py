@@ -28,7 +28,8 @@ from app.core.exceptions import (
 )
 from app.core.tenant import get_current_tenant_id
 from app.models.lms import (
-    Chapter, Course, CourseAnnouncement, CourseReview,
+    Chapter, Course, CourseAnnouncement, CourseCategory,
+    CourseCategoryLink, CourseReview,
     Enrollment, Lesson, LessonFile, LessonNote, LessonProgress,
     LmsQuiz, LmsQuizAttempt, LmsQuizQuestion, LmsQuizQuestionOption,
 )
@@ -126,32 +127,96 @@ def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enroll
     return enrollment
 
 
-def _redact_lesson(lsn: Lesson, is_enrolled: bool) -> LessonPublicOut:
+def _redact_lesson(
+    lsn: Lesson, is_enrolled: bool,
+    course_discussion_url: str | None = None,
+) -> LessonPublicOut:
     """Build a public lesson payload. For non-enrolled users, lesson
-    body / video_url are nulled unless the lesson is free_preview."""
+    body / video_url are nulled unless the lesson is free_preview.
+
+    Computes the effective discussion_url cascade:
+      lesson.discussion_url OR course.discussion_url OR None
+    so the player's "Ask Questions" tab works from a single course-
+    level default unless the operator specifically overrode the URL
+    on this lesson.
+    """
     show_body = is_enrolled or lsn.is_free_preview
     out = LessonPublicOut.model_validate(lsn)
     if not show_body:
         out.video_url = None
         out.body_blocks = []
+    if not out.discussion_url and course_discussion_url:
+        out.discussion_url = course_discussion_url
     return out
 
 
 # ============================================================ CATALOG
 
-@router.get("/courses", response_model=list[CoursePublicOut])
+@router.get("/categories")
+def list_public_categories(db: Session = Depends(get_db)):
+    """Public categories — shown as filter pills on the /courses catalog."""
+    return [
+        {
+            "id": c.id, "slug": c.slug, "name": c.name,
+            "description": c.description, "display_order": c.display_order,
+        }
+        for c in db.query(CourseCategory).filter(
+            CourseCategory.tenant_id == get_current_tenant_id()
+        ).order_by(CourseCategory.display_order, CourseCategory.id).all()
+    ]
+
+
+@router.get("/courses")
 def list_public_courses(
     db: Session = Depends(get_db),
     difficulty: str | None = Query(default=None),
+    category: str | None = Query(default=None,
+        description="Category slug — filters to courses tagged with this category"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """Public catalog. Filters: difficulty. Ordered by display_order."""
+    """Public catalog. Filters: difficulty, category. Each course's
+    response includes its linked category slugs so cards can render
+    badges without an extra round-trip per course."""
     q = _live_course_scope(db)
     if difficulty:
         q = q.filter(Course.difficulty == difficulty)
-    return (q.order_by(Course.display_order, Course.id)
-            .offset(offset).limit(limit).all())
+    if category:
+        # Join through course_category_links + course_categories
+        cat = db.query(CourseCategory).filter(
+            CourseCategory.tenant_id == get_current_tenant_id(),
+            CourseCategory.slug == category,
+        ).first()
+        if cat is None:
+            return []
+        q = q.join(
+            CourseCategoryLink, CourseCategoryLink.course_id == Course.id,
+        ).filter(CourseCategoryLink.category_id == cat.id)
+    courses = (q.order_by(Course.display_order, Course.id)
+                .offset(offset).limit(limit).all())
+
+    # Load category links for all courses in one query (avoid N+1)
+    course_ids = [c.id for c in courses]
+    cat_map: dict[int, list[CourseCategory]] = {}
+    if course_ids:
+        rows = (db.query(CourseCategoryLink, CourseCategory)
+                  .join(CourseCategory,
+                        CourseCategory.id == CourseCategoryLink.category_id)
+                  .filter(CourseCategoryLink.course_id.in_(course_ids))
+                  .all())
+        for link, cat in rows:
+            cat_map.setdefault(link.course_id, []).append(cat)
+
+    return [
+        {
+            **CoursePublicOut.model_validate(c).model_dump(mode="json"),
+            "categories": [
+                {"id": cc.id, "slug": cc.slug, "name": cc.name}
+                for cc in cat_map.get(c.id, [])
+            ],
+        }
+        for c in courses
+    ]
 
 
 @router.get("/courses/{slug}")
@@ -200,7 +265,7 @@ def get_public_course(
                 "is_mandatory": ch.is_mandatory,
                 "lessons": [
                     {
-                        **_redact_lesson(lsn, enrolled).model_dump(),
+                        **_redact_lesson(lsn, enrolled, c.discussion_url).model_dump(),
                         "files": [
                             LessonFileOut.model_validate(f).model_dump()
                             for f in sorted(files_by_lesson.get(lsn.id, []),

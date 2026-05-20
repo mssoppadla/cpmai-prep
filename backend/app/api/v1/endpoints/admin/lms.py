@@ -164,10 +164,15 @@ def get_course_tree(course_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/lessons/{lesson_id}", response_model=LessonOut)
+@router.get("/lessons/{lesson_id}")
 def get_lesson(lesson_id: int, db: Session = Depends(get_db)):
     """Admin single-lesson getter. Replaces the previous PATCH-no-op
-    hack the frontend was using to load a lesson on first open."""
+    hack the frontend was using to load a lesson on first open.
+
+    Adds ``course_id`` to the response (sourced via chapter→course join)
+    so the lesson editor can render a correct "← Back to course" link
+    without an additional round-trip.
+    """
     lsn = db.query(Lesson).filter(
         Lesson.id == lesson_id,
         Lesson.tenant_id == get_current_tenant_id(),
@@ -175,7 +180,11 @@ def get_lesson(lesson_id: int, db: Session = Depends(get_db)):
     ).first()
     if not lsn:
         raise NotFoundError("Lesson not found")
-    return lsn
+    ch = db.get(Chapter, lsn.chapter_id)
+    return {
+        **LessonOut.model_validate(lsn).model_dump(mode="json"),
+        "course_id": ch.course_id if ch else None,
+    }
 
 
 @router.get("/lessons/{lesson_id}/files", response_model=list[LessonFileOut])
@@ -660,6 +669,24 @@ def delete_category(
 
 
 # ============================================================ COURSE→CATEGORY LINKS
+
+@router.get("/courses/{course_id}/categories", response_model=list[CourseCategoryOut])
+def list_course_categories(course_id: int, db: Session = Depends(get_db)):
+    """Categories currently linked to this course — used by the course
+    editor's chip-style multi-select to show which categories are
+    already tagged."""
+    c = _course_scope(db).filter(Course.id == course_id).first()
+    if not c:
+        raise NotFoundError("Course not found")
+    rows = (db.query(CourseCategory)
+              .join(CourseCategoryLink,
+                    CourseCategoryLink.category_id == CourseCategory.id)
+              .filter(CourseCategoryLink.course_id == c.id,
+                      CourseCategory.tenant_id == get_current_tenant_id())
+              .order_by(CourseCategory.display_order, CourseCategory.id)
+              .all())
+    return rows
+
 
 @router.post("/courses/{course_id}/categories/{cat_id}", status_code=204)
 def link_course_category(

@@ -13,6 +13,7 @@ from app.api.v1.endpoints.admin import (
     content_pages,
     cms_ai,
     lms as lms_admin,
+    uploads,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -24,6 +25,7 @@ admin_router.include_router(faqs.router,         prefix="/faqs",          tags=[
 admin_router.include_router(content_pages.router, prefix="/content-pages", tags=["admin"])
 admin_router.include_router(cms_ai.router,        prefix="/cms-ai",        tags=["admin"])
 admin_router.include_router(lms_admin.router,     prefix="",                tags=["admin", "lms"])
+admin_router.include_router(uploads.router,       prefix="/uploads",       tags=["admin", "uploads"])
 admin_router.include_router(settings_ep.router,  prefix="/settings",      tags=["admin"])
 admin_router.include_router(llm_providers.router,    prefix="/llm-providers",     tags=["admin"])
 admin_router.include_router(payment_providers.router,prefix="/payment-providers", tags=["admin"])

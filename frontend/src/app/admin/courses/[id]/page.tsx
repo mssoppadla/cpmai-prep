@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { admin, errMsg } from "@/lib/api";
 import type {
   ChapterOut, CourseOut, CourseUpdateIn, LessonOut, LessonType,
-  EnrollmentOut, CourseAnnouncementOut,
+  EnrollmentOut, CourseAnnouncementOut, CourseCategoryOut,
 } from "@/types/api";
 
 
@@ -40,6 +40,8 @@ export default function CourseEditorPage({
   const [lessonsByCh, setLessonsByCh] = useState<Record<number, LessonOut[]>>({});
   const [enrollments, setEnrollments] = useState<EnrollmentOut[] | null>(null);
   const [announcements, setAnnouncements] = useState<CourseAnnouncementOut[] | null>(null);
+  const [allCategories, setAllCategories] = useState<CourseCategoryOut[]>([]);
+  const [linkedCategoryIds, setLinkedCategoryIds] = useState<Set<number>>(new Set());
 
   const [meta, setMeta] = useState<CourseUpdateIn | null>(null);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -75,6 +77,7 @@ export default function CourseEditorPage({
         currency: course.currency,
         estimated_hours: course.estimated_hours,
         completion_threshold_percent: course.completion_threshold_percent,
+        discussion_url: course.discussion_url,
         is_published: course.is_published,
       });
     }
@@ -179,6 +182,46 @@ export default function CourseEditorPage({
   }, [course]);
 
   useEffect(() => { void reloadSidebar(); }, [reloadSidebar]);
+
+  // Categories — load the global list once + this course's current
+  // links, so the chip selector can render the toggled state.
+  const reloadCategories = useCallback(async () => {
+    if (!course) return;
+    try {
+      const [all, linked] = await Promise.all([
+        admin.lms.listCategories(),
+        admin.lms.listCourseCategories(course.id),
+      ]);
+      setAllCategories(all);
+      setLinkedCategoryIds(new Set(linked.map((c) => c.id)));
+    } catch (e) { console.error("[course editor] categories", e); }
+  }, [course]);
+  useEffect(() => { void reloadCategories(); }, [reloadCategories]);
+
+  async function toggleCategory(catId: number) {
+    if (!course) return;
+    const wasLinked = linkedCategoryIds.has(catId);
+    // Optimistic UI flip
+    setLinkedCategoryIds((prev) => {
+      const next = new Set(prev);
+      if (wasLinked) next.delete(catId);
+      else next.add(catId);
+      return next;
+    });
+    try {
+      if (wasLinked) await admin.lms.unlinkCategory(course.id, catId);
+      else           await admin.lms.linkCategory(course.id, catId);
+    } catch (e) {
+      // Revert on error
+      setLinkedCategoryIds((prev) => {
+        const next = new Set(prev);
+        if (wasLinked) next.add(catId);
+        else next.delete(catId);
+        return next;
+      });
+      setErr(errMsg(e));
+    }
+  }
 
   async function postAnnouncement() {
     if (!course) return;
@@ -311,12 +354,68 @@ export default function CourseEditorPage({
                        onChange={(e) => onMeta({ completion_threshold_percent: Number(e.target.value) })}
                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
               </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Discussion URL (default for all lessons)
+                </label>
+                <input value={meta.discussion_url ?? ""}
+                       onChange={(e) => onMeta({ discussion_url: e.target.value || null })}
+                       placeholder="https://discord.com/channels/…"
+                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono" />
+                <p className="text-xs text-slate-500 mt-1">
+                  Each lesson&apos;s &quot;Ask Questions&quot; tab uses this URL by default.
+                  Individual lessons can override their own URL if needed.
+                </p>
+              </div>
               <label className="sm:col-span-2 flex items-center gap-2 mt-2">
                 <input type="checkbox" checked={meta.is_published ?? false}
                        onChange={(e) => onMeta({ is_published: e.target.checked })} />
                 <span className="text-sm font-medium">Published (visible in public catalog)</span>
               </label>
             </div>
+          </section>
+
+          {/* Categories — chip selector */}
+          <section className="bg-white border border-slate-200 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-slate-900">Categories</h2>
+              <Link href="/admin/course-categories"
+                    className="text-xs text-indigo-600 hover:underline">
+                Manage categories →
+              </Link>
+            </div>
+            {allCategories.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No categories defined yet. Create some in{" "}
+                <Link href="/admin/course-categories" className="text-indigo-600 hover:underline">
+                  /admin/course-categories
+                </Link>{" "}
+                to tag this course with topics like &quot;Python&quot;, &quot;AI Engineering&quot;, etc.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {allCategories.map((cat) => {
+                    const linked = linkedCategoryIds.has(cat.id);
+                    return (
+                      <button key={cat.id}
+                              onClick={() => toggleCategory(cat.id)}
+                              className={`px-3 py-1 text-xs rounded-full font-medium transition ${
+                                linked
+                                  ? "bg-purple-600 text-white"
+                                  : "bg-white border border-slate-300 text-slate-700 hover:bg-purple-50 hover:border-purple-300"
+                              }`}>
+                        {linked && "✓ "}{cat.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 mt-3">
+                  Categories drive catalog filtering at <code className="px-1 bg-slate-100 rounded">/courses?category=…</code>.
+                  Students browse by topic; cards show category badges.
+                </p>
+              </>
+            )}
           </section>
 
           {/* Chapter + lesson tree */}

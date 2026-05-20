@@ -66,6 +66,11 @@ class Course(Base):
     completion_threshold_percent = Column(Integer, nullable=False, default=100)
 
     lead_instructor_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    # Course-level default discussion URL (Discord channel, forum,
+    # etc.). Inherited by every lesson UNLESS the lesson sets its own
+    # discussion_url. Computed cascade lives at the API edge in
+    # ``lms_public.get_public_course``.
+    discussion_url     = Column(Text, nullable=True)
     display_order      = Column(Integer, nullable=False, default=100)
 
     is_published = Column(Boolean, nullable=False, default=False)

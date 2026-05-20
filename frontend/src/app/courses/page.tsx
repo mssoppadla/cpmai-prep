@@ -10,7 +10,7 @@ import Link from "next/link";
 import { lmsPublic, errMsg } from "@/lib/api";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
-import type { CoursePublicOut, CourseDifficulty } from "@/types/api";
+import type { CoursePublicOut, CourseDifficulty, CourseCategoryOut } from "@/types/api";
 
 
 function difficultyBadge(d: CourseDifficulty): string {
@@ -22,24 +22,37 @@ function difficultyBadge(d: CourseDifficulty): string {
 }
 
 
+type CourseWithCategories = CoursePublicOut & {
+  categories: Array<{ id: number; slug: string; name: string }>;
+};
+
+
 export default function CoursesCatalogPage() {
-  const [rows, setRows] = useState<CoursePublicOut[] | null>(null);
+  const [rows, setRows] = useState<CourseWithCategories[] | null>(null);
+  const [categories, setCategories] = useState<CourseCategoryOut[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [filter, setFilter] = useState<CourseDifficulty | "">("");
+  const [difficultyFilter, setDifficultyFilter] = useState<CourseDifficulty | "">("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
+
+  // One-time fetch of categories for the filter chips
+  useEffect(() => {
+    lmsPublic.listCategories().then(setCategories).catch(() => {});
+  }, []);
 
   useEffect(() => {
     (async () => {
       try {
-        const courses = await lmsPublic.listCourses(
-          filter ? { difficulty: filter } : {},
-        );
+        const courses = await lmsPublic.listCourses({
+          ...(difficultyFilter ? { difficulty: difficultyFilter } : {}),
+          ...(categoryFilter ? { category: categoryFilter } : {}),
+        });
         setRows(courses);
       } catch (e) {
         console.error("[courses catalog]", e);
         setErr(errMsg(e));
       }
     })();
-  }, [filter]);
+  }, [difficultyFilter, categoryFilter]);
 
   return (
     <>
@@ -52,19 +65,45 @@ export default function CoursesCatalogPage() {
           </p>
         </header>
 
-        <div className="flex items-center gap-2 mb-6">
-          <span className="text-sm text-slate-700">Difficulty:</span>
-          {(["", "beginner", "intermediate", "advanced"] as const).map((d) => (
-            <button key={d || "all"}
-                    onClick={() => setFilter(d as CourseDifficulty | "")}
-                    className={`px-3 py-1 text-xs rounded-full font-medium ${
-                      filter === d
-                        ? "bg-indigo-600 text-white"
-                        : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
-                    }`}>
-              {d || "All"}
-            </button>
-          ))}
+        <div className="space-y-3 mb-6">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm text-slate-700 w-20">Difficulty:</span>
+            {(["", "beginner", "intermediate", "advanced"] as const).map((d) => (
+              <button key={d || "all"}
+                      onClick={() => setDifficultyFilter(d as CourseDifficulty | "")}
+                      className={`px-3 py-1 text-xs rounded-full font-medium ${
+                        difficultyFilter === d
+                          ? "bg-indigo-600 text-white"
+                          : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                      }`}>
+                {d || "All"}
+              </button>
+            ))}
+          </div>
+          {categories.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-slate-700 w-20">Topic:</span>
+              <button onClick={() => setCategoryFilter("")}
+                      className={`px-3 py-1 text-xs rounded-full font-medium ${
+                        categoryFilter === ""
+                          ? "bg-purple-600 text-white"
+                          : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                      }`}>
+                All topics
+              </button>
+              {categories.map((c) => (
+                <button key={c.id}
+                        onClick={() => setCategoryFilter(c.slug)}
+                        className={`px-3 py-1 text-xs rounded-full font-medium ${
+                          categoryFilter === c.slug
+                            ? "bg-purple-600 text-white"
+                            : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                        }`}>
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {err && (
@@ -91,7 +130,7 @@ export default function CoursesCatalogPage() {
                   </div>
                 )}
                 <div className="p-4">
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${difficultyBadge(c.difficulty)}`}>
                       {c.difficulty}
                     </span>
@@ -101,6 +140,16 @@ export default function CoursesCatalogPage() {
                   </div>
                   <h3 className="font-semibold text-slate-900">{c.title}</h3>
                   {c.subtitle && <p className="text-sm text-slate-600 mt-1">{c.subtitle}</p>}
+                  {c.categories && c.categories.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {c.categories.map((cat) => (
+                        <span key={cat.id}
+                              className="px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-purple-100 text-purple-700 rounded">
+                          {cat.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="mt-3 text-sm font-mono text-slate-700">
                     {c.enrollment_type === "free"
                       ? "Free"

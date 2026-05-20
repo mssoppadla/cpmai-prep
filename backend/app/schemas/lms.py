@@ -51,6 +51,7 @@ class CourseOut(BaseModel):
     target_audience: Optional[str]
     completion_threshold_percent: int
     lead_instructor_id: Optional[int]
+    discussion_url: Optional[str] = None
     display_order: int
     is_published: bool
     is_deleted: bool
@@ -81,6 +82,7 @@ class CoursePublicOut(BaseModel):
     target_audience: Optional[str]
     completion_threshold_percent: int
     lead_instructor_id: Optional[int]
+    discussion_url: Optional[str] = None
     display_order: int
 
 
@@ -102,6 +104,7 @@ class CourseCreateIn(BaseModel):
     target_audience: Optional[str] = None
     completion_threshold_percent: int = Field(default=100, ge=0, le=100)
     lead_instructor_id: Optional[int] = None
+    discussion_url: Optional[str] = None
     display_order: int = Field(default=100, ge=0, le=10000)
     is_published: bool = False
 
@@ -124,6 +127,7 @@ class CourseUpdateIn(BaseModel):
     target_audience: Optional[str] = None
     completion_threshold_percent: Optional[int] = Field(default=None, ge=0, le=100)
     lead_instructor_id: Optional[int] = None
+    discussion_url: Optional[str] = None
     display_order: Optional[int] = Field(default=None, ge=0, le=10000)
     is_published: Optional[bool] = None
 

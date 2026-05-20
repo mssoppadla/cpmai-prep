@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { admin, errMsg } from "@/lib/api";
+import { admin, errMsg, absoluteUploadUrl } from "@/lib/api";
 import type {
   LessonOut, LessonUpdateIn, LessonFileOut, LessonFileCreateIn,
   QuizOut, QuizQuestionOut, QuizOptionOut, QuizQuestionType,
@@ -41,6 +41,7 @@ export default function LessonEditorPage({
   const lessonId = Number(params.id);
 
   const [lesson, setLesson] = useState<LessonOut | null>(null);
+  const [courseId, setCourseId] = useState<number | null>(null);
   const [files, setFiles] = useState<LessonFileOut[]>([]);
   const [meta, setMeta] = useState<LessonUpdateIn | null>(null);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -55,6 +56,7 @@ export default function LessonEditorPage({
       try {
         const l = await admin.lms.getLesson(lessonId);
         setLesson(l);
+        setCourseId(l.course_id ?? null);
         setMeta({
           title: l.title,
           subtitle: l.subtitle,
@@ -117,19 +119,24 @@ export default function LessonEditorPage({
 
   // ----------------------------------------------------- files
 
-  async function addFile() {
-    const filename = prompt("Filename (e.g., assignment.pdf):")?.trim();
-    if (!filename) return;
-    const file_url = prompt("File URL (paste a hosted link):")?.trim();
-    if (!file_url) return;
-    const cat = prompt("Category (assignment / reference / starter_code / solution):", "reference")?.trim() as FileCategory | undefined;
+  const [uploading, setUploading] = useState(false);
+
+  async function addFile(picked: File, category: FileCategory) {
+    setUploading(true); setErr(null);
     try {
+      // 1. Upload to backend → get hosted URL
+      const uploaded = await admin.uploads.file(picked);
+      // 2. Create the LessonFile row pointing at that URL
       const f = await admin.lms.addFile(lessonId, {
-        filename, file_url,
-        file_category: (cat ?? "reference") as FileCategory,
+        filename: uploaded.filename,
+        file_url: uploaded.url,
+        file_size_bytes: uploaded.size_bytes,
+        mime_type: uploaded.mime_type,
+        file_category: category,
       });
       setFiles((prev) => [...prev, f]);
     } catch (e) { setErr(errMsg(e)); }
+    finally { setUploading(false); }
   }
 
   async function deleteFile(id: number) {
@@ -157,8 +164,13 @@ export default function LessonEditorPage({
     <div className="p-8 max-w-7xl">
       <header className="flex items-center justify-between mb-6">
         <div>
-          <Link href={`/admin/courses`} className="text-xs text-slate-500 hover:underline">
-            ← Courses
+          {/* Back to THE course this lesson belongs to (not the courses
+           *  index) — preserves the operator's place when navigating
+           *  between lessons. Falls back to /admin/courses if for some
+           *  reason course_id wasn't resolved (shouldn't happen). */}
+          <Link href={courseId !== null ? `/admin/courses/${courseId}` : "/admin/courses"}
+                className="text-xs text-slate-500 hover:underline">
+            ← Back to course
           </Link>
           <h1 className="text-xl font-bold text-slate-900 mt-1">{lesson.title || "(untitled lesson)"}</h1>
           <p className="text-xs text-slate-500 mt-1">
@@ -190,8 +202,16 @@ export default function LessonEditorPage({
           {lesson.lesson_type === "video" && (
             <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <h2 className="font-semibold text-slate-900">Video</h2>
+              <VideoUploadField
+                videoUrl={meta.video_url ?? null}
+                videoProvider={meta.video_provider ?? null}
+                onUploaded={(url) => onMeta({ video_url: url, video_provider: "r2" })}
+                onClear={() => onMeta({ video_url: null })}
+              />
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Video URL</label>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Or paste a video URL (YouTube, Vimeo, etc.)
+                </label>
                 <input value={meta.video_url ?? ""} onChange={(e) => onMeta({ video_url: e.target.value || null })}
                        placeholder="https://youtube.com/watch?v=… or https://example.com/video.mp4"
                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono" />
@@ -236,33 +256,10 @@ export default function LessonEditorPage({
           )}
 
           {/* Attached files (all lesson types can have downloadable files) */}
-          <section className="bg-white border border-slate-200 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-slate-900">Attached files</h2>
-              <button onClick={addFile}
-                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700">
-                + Add file
-              </button>
-            </div>
-            {files.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                No files attached. Add downloadable resources (PDFs, datasets, starter code) for students.
-              </p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {files.map((f) => (
-                  <li key={f.id} className="flex items-center justify-between py-2 text-sm">
-                    <div>
-                      <a href={f.file_url} className="text-indigo-700 hover:underline">{f.filename}</a>
-                      <span className="ml-2 text-xs text-slate-500">[{f.file_category}]</span>
-                    </div>
-                    <button onClick={() => deleteFile(f.id)}
-                            className="text-rose-600 hover:underline text-xs">Remove</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <FileAttachmentsSection files={files}
+                                  uploading={uploading}
+                                  onUpload={addFile}
+                                  onDelete={deleteFile} />
         </main>
 
         {/* ============ Right: metadata panel ============ */}
@@ -279,11 +276,18 @@ export default function LessonEditorPage({
                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Discussion URL (Q&A tab)</label>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Discussion URL (overrides course default)
+            </label>
             <input value={meta.discussion_url ?? ""}
                    onChange={(e) => onMeta({ discussion_url: e.target.value || null })}
-                   placeholder="https://discord.com/channels/…"
+                   placeholder="(leave blank to inherit from course)"
                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono" />
+            <p className="text-xs text-slate-500 mt-1">
+              Blank = the course&apos;s default Discord/forum URL is used.
+              Set this only if this specific lesson needs a different
+              discussion link.
+            </p>
           </div>
           <label className="flex items-center gap-2 pt-2 border-t border-slate-100">
             <input type="checkbox" checked={meta.is_mandatory ?? true}
@@ -303,6 +307,176 @@ export default function LessonEditorPage({
         </aside>
       </div>
     </div>
+  );
+}
+
+
+// ============================================================ Video upload field
+
+function VideoUploadField({
+  videoUrl, videoProvider, onUploaded, onClear,
+}: {
+  videoUrl: string | null;
+  videoProvider: string | null;
+  onUploaded: (url: string) => void;
+  onClear: () => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const isR2 = videoProvider === "r2" && videoUrl?.startsWith("/uploads/");
+
+  async function handleFile(file: File) {
+    if (!file.type.startsWith("video/")) {
+      setErr("Please select a video file (.mp4, .webm, .mov)");
+      return;
+    }
+    setErr(null); setUploading(true);
+    try {
+      const uploaded = await admin.uploads.file(file);
+      onUploaded(uploaded.url);
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally { setUploading(false); }
+  }
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-700 mb-1">
+        Upload video file (stored on server)
+      </label>
+      {isR2 && videoUrl && (
+        <div className="mb-2 bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between text-sm">
+          <span className="text-emerald-900">
+            ✓ Uploaded: <code className="font-mono text-xs">{videoUrl.split("/").pop()}</code>
+          </span>
+          <button onClick={onClear}
+                  className="text-rose-600 hover:underline text-xs">
+            Remove
+          </button>
+        </div>
+      )}
+      <label
+        className={`block border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition ${
+          uploading
+            ? "border-amber-400 bg-amber-50 cursor-wait"
+            : "border-slate-300 hover:border-indigo-300 hover:bg-slate-50"
+        }`}>
+        <input type="file" accept="video/*"
+               disabled={uploading}
+               onChange={(e) => {
+                 const f = e.target.files?.[0];
+                 if (f) void handleFile(f);
+               }}
+               className="hidden" />
+        <div className="text-sm text-slate-700">
+          {uploading ? (
+            "Uploading… (may take a minute for large videos)"
+          ) : (
+            <>
+              <strong>Click to upload</strong> a video file
+              <div className="text-xs text-slate-500 mt-1">MP4, WebM, MOV — up to 100MB.</div>
+            </>
+          )}
+        </div>
+      </label>
+      {err && <p className="text-xs text-rose-600 mt-2">{err}</p>}
+    </div>
+  );
+}
+
+
+// ============================================================ File attachments section
+
+function FileAttachmentsSection({
+  files, uploading, onUpload, onDelete,
+}: {
+  files: LessonFileOut[];
+  uploading: boolean;
+  onUpload: (file: File, category: FileCategory) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}) {
+  const [category, setCategory] = useState<FileCategory>("reference");
+  const [dragging, setDragging] = useState(false);
+
+  async function handleFiles(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    // Upload each file in sequence so progress feels deterministic
+    for (let i = 0; i < list.length; i++) {
+      await onUpload(list[i], category);
+    }
+  }
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <h2 className="font-semibold text-slate-900">Attached files</h2>
+        <div className="flex items-center gap-2 text-xs">
+          <label className="text-slate-600">Category:</label>
+          <select value={category}
+                  onChange={(e) => setCategory(e.target.value as FileCategory)}
+                  className="px-2 py-1 border border-slate-300 rounded">
+            <option value="assignment">Assignment</option>
+            <option value="reference">Reference</option>
+            <option value="starter_code">Starter code</option>
+            <option value="solution">Solution</option>
+          </select>
+        </div>
+      </div>
+
+      <label
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          void handleFiles(e.dataTransfer.files);
+        }}
+        className={`block border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition ${
+          dragging ? "border-indigo-500 bg-indigo-50"
+                   : "border-slate-300 hover:border-indigo-300 hover:bg-slate-50"
+        } ${uploading ? "opacity-60 cursor-wait" : ""}`}>
+        <input type="file" multiple
+               disabled={uploading}
+               onChange={(e) => void handleFiles(e.target.files)}
+               className="hidden" />
+        <div className="text-sm text-slate-700">
+          {uploading ? "Uploading…" : (
+            <>
+              <strong>Drop files here</strong> or click to select
+              <div className="text-xs text-slate-500 mt-1">
+                PDFs, datasets, starter code, slides. Up to 100MB each.
+              </div>
+            </>
+          )}
+        </div>
+      </label>
+
+      {files.length > 0 && (
+        <ul className="divide-y divide-slate-100 mt-3">
+          {files.map((f) => (
+            <li key={f.id} className="flex items-center justify-between py-2 text-sm">
+              <div>
+                <a href={absoluteUploadUrl(f.file_url)}
+                   target="_blank" rel="noopener noreferrer"
+                   className="text-indigo-700 hover:underline">
+                  {f.filename}
+                </a>
+                <span className="ml-2 text-xs text-slate-500">[{f.file_category}]</span>
+                {f.file_size_bytes && (
+                  <span className="ml-2 text-xs text-slate-400">
+                    {(f.file_size_bytes / 1024).toFixed(0)} KB
+                  </span>
+                )}
+              </div>
+              <button onClick={() => onDelete(f.id)}
+                      className="text-rose-600 hover:underline text-xs">
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

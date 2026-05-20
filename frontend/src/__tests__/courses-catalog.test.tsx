@@ -33,7 +33,9 @@ const sample = {
   difficulty: "beginner" as const, language: "en", estimated_hours: 4,
   learning_outcomes: [], prerequisites_text: null, target_audience: null,
   completion_threshold_percent: 100, lead_instructor_id: null,
+  discussion_url: null,
   display_order: 100,
+  categories: [],
 };
 
 

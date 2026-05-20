@@ -42,6 +42,7 @@ import type {
 } from "@blocknote/core";
 
 import { youtubeGallerySpec } from "./blocks/YouTubeGalleryBlock";
+import { admin, absoluteUploadUrl } from "@/lib/api";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
@@ -145,6 +146,19 @@ export default function BlockNoteEditor({
       // eslint-disable-next-line react-hooks/exhaustive-deps
       []
     ),
+    // Image paste / drag-drop pipeline. BlockNote calls this for every
+    // image dropped into the canvas or pasted from the clipboard. We
+    // pipe the file through our admin upload endpoint and return the
+    // hosted URL — the image block stores that URL directly. Same path
+    // serves uploads + non-CMS clients (no CORS issue because static
+    // files are served from the same origin as the API).
+    uploadFile: async (file: File) => {
+      const { url } = await admin.uploads.file(file);
+      // BlockNote stores whatever string we return as the image's URL.
+      // Make it absolute so the public page renderer can fetch it
+      // cross-origin (page hosted at /pages/foo, image at /uploads/…).
+      return absoluteUploadUrl(url);
+    },
   });
 
   // Expose the editor instance to the parent (for AI insert/replace).

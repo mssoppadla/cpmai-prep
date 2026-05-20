@@ -132,6 +132,21 @@ def startup():
 app.include_router(api_router, prefix="/api/v1")
 
 
+# Static files for admin uploads (images, videos, attached PDFs etc.).
+# UPLOAD_ROOT env var lets the VPS deploy point at a docker volume
+# (/var/cpmai-uploads → /app/uploads inside the container). Locally
+# the path defaults to /app/uploads which is bind-mounted from the
+# host's backend/uploads/ directory.
+import os as _os
+from pathlib import Path as _Path
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+_UPLOAD_ROOT = _Path(_os.environ.get("UPLOAD_ROOT", "/app/uploads"))
+_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+# ``name="uploads"`` lets us reverse the URL via app.url_path_for; the
+# admin upload endpoint returns paths relative to this mount.
+app.mount("/uploads", _StaticFiles(directory=str(_UPLOAD_ROOT)), name="uploads")
+
+
 @app.get("/health")
 def health():
     """Liveness + a thin slice of operational state.

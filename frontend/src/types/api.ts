@@ -392,6 +392,7 @@ export interface CourseOut {
   target_audience: string | null;
   completion_threshold_percent: number;
   lead_instructor_id: number | null;
+  discussion_url: string | null;
   display_order: number;
   is_published: boolean;
   is_deleted: boolean;
@@ -419,6 +420,7 @@ export interface CoursePublicOut {
   target_audience: string | null;
   completion_threshold_percent: number;
   lead_instructor_id: number | null;
+  discussion_url: string | null;
   display_order: number;
 }
 export interface CourseCreateIn {
@@ -439,6 +441,7 @@ export interface CourseCreateIn {
   target_audience?: string | null;
   completion_threshold_percent?: number;
   lead_instructor_id?: number | null;
+  discussion_url?: string | null;
   display_order?: number;
   is_published?: boolean;
 }

@@ -37,6 +37,7 @@ const sample = {
   language: "en", estimated_hours: null, learning_outcomes: [],
   prerequisites_text: null, target_audience: null,
   completion_threshold_percent: 100, lead_instructor_id: null,
+  discussion_url: null,
   display_order: 100, is_published: true, is_deleted: false,
   deleted_at: null, deleted_by: null, created_by: 1,
   created_at: "", updated_at: "",
