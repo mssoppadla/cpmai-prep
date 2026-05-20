@@ -973,6 +973,7 @@ export interface VerifyPaymentOut {
 export type BundleType = "exam_bundle" | "course_bundle" | "custom";
 
 export interface PlanExamSetRef { id: number; slug: string; name: string }
+export interface PlanCourseRef  { id: number; slug: string; title: string }
 
 export interface PlanPublicOut {
   id: number;
@@ -986,6 +987,7 @@ export interface PlanPublicOut {
   duration_days: number;
   perks: Record<string, unknown>;
   exam_sets: PlanExamSetRef[];
+  courses: PlanCourseRef[];
 }
 
 export interface PlanAdminOut extends PlanPublicOut {
@@ -1008,6 +1010,7 @@ export interface PlanCreate {
   is_active?: boolean;
   display_order?: number;
   exam_set_ids?: number[];
+  course_ids?: number[];
 }
 
 export interface PlanUpdate {
@@ -1021,6 +1024,7 @@ export interface PlanUpdate {
   is_active?: boolean;
   display_order?: number;
   exam_set_ids?: number[];
+  course_ids?: number[];
 }
 
 export type DiscountType = "percent" | "flat";

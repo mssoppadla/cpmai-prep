@@ -32,6 +32,8 @@ from app.models.lms import (
     Enrollment, Lesson, LessonFile, LessonNote, LessonProgress,
     LmsQuiz, LmsQuizAttempt, LmsQuizQuestion, LmsQuizQuestionOption,
 )
+from app.models.plan import PlanCourse
+from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.lms import (
     CourseAnnouncementOut, CoursePublicOut, CourseReviewOut,
@@ -57,15 +59,71 @@ def _live_course_scope(db: Session):
     )
 
 
+def _has_active_subscription_bundle(
+    db: Session, user_id: int, course_id: int,
+) -> Subscription | None:
+    """Returns the user's active Subscription whose plan bundles this
+    course via plan_courses, if any. None if no such bundle exists.
+
+    Used to grant 'implicit enrollment' for subscription customers
+    without forcing the admin to manually enroll each user.
+    """
+    now = datetime.now(timezone.utc)
+    return db.query(Subscription).join(
+        PlanCourse, PlanCourse.plan_id == Subscription.plan_id,
+    ).filter(
+        Subscription.user_id == user_id,
+        Subscription.revoked_at.is_(None),
+        (Subscription.expires_at.is_(None)) | (Subscription.expires_at > now),
+        Subscription.status == "active",
+        PlanCourse.course_id == course_id,
+        PlanCourse.tenant_id == get_current_tenant_id(),
+    ).order_by(Subscription.id.desc()).first()
+
+
 def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enrollment | None:
+    """Return the user's active enrollment for the course, creating one
+    implicitly if they have a subscription whose plan bundles the course.
+
+    "Implicit" enrollment = an Enrollment row with source='subscription',
+    linked to their Subscription. This lets all the normal LMS flows
+    (progress, notes, quiz attempts, completion calc) work without
+    special-casing subscription users elsewhere in the codebase.
+    """
     if user is None:
         return None
-    return db.query(Enrollment).filter(
+    enrollment = db.query(Enrollment).filter(
         Enrollment.user_id == user.id,
         Enrollment.course_id == course_id,
         Enrollment.revoked_at.is_(None),
         Enrollment.tenant_id == get_current_tenant_id(),
     ).first()
+    if enrollment is not None:
+        return enrollment
+
+    # No explicit enrollment — check if a subscription bundle covers this course
+    sub = _has_active_subscription_bundle(db, user.id, course_id)
+    if sub is None:
+        return None
+
+    # Implicit enrollment auto-create. Expires at the subscription's expiry
+    # so it disappears cleanly when the sub lapses.
+    enrollment = Enrollment(
+        tenant_id=get_current_tenant_id(),
+        user_id=user.id,
+        course_id=course_id,
+        source="subscription",
+        expires_at=sub.expires_at,
+        granted_by_id=None,
+        grant_reason=f"Auto-enrolled via subscription #{sub.id} (plan {sub.plan_id})",
+    )
+    db.add(enrollment)
+    db.commit()
+    db.refresh(enrollment)
+    audit_log(db, user.id, "enrollment.auto_subscription",
+              {"id": enrollment.id, "course_id": course_id,
+               "subscription_id": sub.id, "plan_id": sub.plan_id})
+    return enrollment
 
 
 def _redact_lesson(lsn: Lesson, is_enrolled: bool) -> LessonPublicOut:
@@ -165,6 +223,57 @@ def list_my_enrollments(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """List the user's active enrollments — explicit + subscription-derived.
+
+    For any course bundled in the user's active subscription that doesn't
+    yet have an Enrollment row, auto-create one with source='subscription'
+    so it appears immediately in the user's "My courses" list. This makes
+    the bundle purchase experience feel one-click — the user doesn't have
+    to discover each bundled course before it shows up.
+    """
+    now = datetime.now(timezone.utc)
+    # 1. Find courses linked to the user's active subscription(s)
+    subs = list(db.query(Subscription).filter(
+        Subscription.user_id == user.id,
+        Subscription.revoked_at.is_(None),
+        (Subscription.expires_at.is_(None)) | (Subscription.expires_at > now),
+        Subscription.status == "active",
+    ).all())
+    if subs:
+        bundled = db.query(PlanCourse).filter(
+            PlanCourse.plan_id.in_([s.plan_id for s in subs if s.plan_id]),
+            PlanCourse.tenant_id == get_current_tenant_id(),
+        ).all()
+        already_enrolled = {
+            e.course_id for e in db.query(Enrollment).filter(
+                Enrollment.user_id == user.id,
+                Enrollment.tenant_id == get_current_tenant_id(),
+                Enrollment.revoked_at.is_(None),
+            ).all()
+        }
+        # Pick the latest-expiring sub per course for the implicit enrollment.
+        plan_to_sub = {s.plan_id: s for s in subs}
+        for link in bundled:
+            if link.course_id in already_enrolled:
+                continue
+            sub = plan_to_sub.get(link.plan_id)
+            if not sub:
+                continue
+            # Course must still be live + non-deleted
+            course = db.get(Course, link.course_id)
+            if not course or course.is_deleted:
+                continue
+            db.add(Enrollment(
+                tenant_id=get_current_tenant_id(),
+                user_id=user.id,
+                course_id=link.course_id,
+                source="subscription",
+                expires_at=sub.expires_at,
+                grant_reason=f"Auto-enrolled via subscription #{sub.id} "
+                             f"(plan {sub.plan_id})",
+            ))
+        db.commit()
+
     return (db.query(Enrollment)
               .filter(Enrollment.user_id == user.id,
                       Enrollment.revoked_at.is_(None),

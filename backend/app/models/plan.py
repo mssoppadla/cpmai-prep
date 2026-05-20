@@ -52,6 +52,29 @@ class Plan(Base):
     exam_sets = relationship(
         "ExamSet", secondary="plan_exam_sets", lazy="selectin",
     )
+    courses = relationship(
+        "Course", secondary="plan_courses", lazy="selectin",
+    )
+
+
+class PlanCourse(Base):
+    """M:N bundle link between Plan and Course. Mirrors PlanExamSet —
+    same semantics but for LMS courses. Lets a single Plan unlock both
+    exam sets AND courses in one purchase.
+
+    Migration 0028 creates the table; this model exposes it to SQLAlchemy
+    so the Plan.courses relationship is queryable."""
+    __tablename__ = "plan_courses"
+
+    id        = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"),
+                       nullable=False, default=1)
+    plan_id   = Column(Integer, ForeignKey("plans.id",   ondelete="CASCADE"),
+                       nullable=False, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    added_at  = Column(DateTime(timezone=True), server_default=func.now())
+    added_by  = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
 
 class PlanExamSet(Base):

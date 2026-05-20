@@ -6,7 +6,7 @@ from app.models.question import Question, QuestionOption, Difficulty, QuestionTy
 from app.models.exam_set import ExamSet, ExamSetQuestion              # noqa
 from app.models.exam_session import ExamSession, ExamAttemptAnswer    # noqa
 from app.models.quiz_attempt import QuizAttempt                       # noqa
-from app.models.plan import Plan, PlanExamSet                          # noqa
+from app.models.plan import Plan, PlanExamSet, PlanCourse              # noqa
 from app.models.subscription import Subscription                     # noqa
 from app.models.offer import OfferCode, OfferRedemption                # noqa
 from app.models.payment import Payment, WebhookEvent                 # noqa
