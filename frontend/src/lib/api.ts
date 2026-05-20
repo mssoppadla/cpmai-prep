@@ -14,6 +14,20 @@ import type {
   CmsGeneratePageIn, CmsGeneratePageOut,
   CmsFillBlockIn, CmsFillBlockOut,
   CmsImproveBlockIn, CmsImproveBlockOut,
+  CourseOut, CourseCreateIn, CourseUpdateIn, CoursePublicOut,
+  CourseDetailPublicOut,
+  ChapterOut, ChapterCreateIn, ChapterUpdateIn,
+  LessonOut, LessonCreateIn, LessonUpdateIn,
+  LessonFileOut, LessonFileCreateIn,
+  EnrollmentOut, EnrollmentGrantIn,
+  LessonProgressOut, LessonProgressUpdateIn,
+  CourseCategoryOut, CourseCategoryCreateIn, CourseCategoryUpdateIn,
+  CourseAnnouncementOut, CourseAnnouncementCreateIn,
+  LessonNoteOut, CourseReviewOut,
+  QuizOut, QuizConfigUpsertIn,
+  QuizQuestionOut, QuizQuestionCreateIn, QuizQuestionUpdateIn,
+  QuizOptionOut, QuizOptionCreateIn, QuizOptionUpdateIn,
+  QuizAttemptOut, QuizAttemptSubmitIn,
   QuestionAdminIn, QuestionAdminOut, ExamSetLinkedQuestion,
   SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
@@ -527,6 +541,92 @@ export const content = {
 };
 
 /**
+ * Public LMS endpoints — most are anon-friendly catalog reads; auth
+ * required for enrollment, progress, notes, reviews, quiz attempts.
+ */
+export const lmsPublic = {
+  async listCourses(params: { difficulty?: string; limit?: number; offset?: number } = {}): Promise<CoursePublicOut[]> {
+    const qs: string[] = [];
+    if (params.difficulty) qs.push(`difficulty=${encodeURIComponent(params.difficulty)}`);
+    if (params.limit !== undefined) qs.push(`limit=${params.limit}`);
+    if (params.offset !== undefined) qs.push(`offset=${params.offset}`);
+    const suffix = qs.length ? `?${qs.join("&")}` : "";
+    const { data } = await request<CoursePublicOut[]>(`/lms/courses${suffix}`, { authed: true });
+    return data;
+  },
+  async getCourse(slug: string): Promise<CourseDetailPublicOut> {
+    const { data } = await request<CourseDetailPublicOut>(
+      `/lms/courses/${encodeURIComponent(slug)}`, { authed: true });
+    return data;
+  },
+  async myEnrollments(): Promise<EnrollmentOut[]> {
+    const { data } = await request<EnrollmentOut[]>("/lms/me/enrollments", { authed: true });
+    return data;
+  },
+  async selfEnrollFree(slug: string): Promise<EnrollmentOut> {
+    const { data } = await request<EnrollmentOut>(
+      `/lms/courses/${encodeURIComponent(slug)}/enroll`,
+      { method: "POST", authed: true });
+    return data;
+  },
+  async listProgress(enrollmentId: number): Promise<LessonProgressOut[]> {
+    const { data } = await request<LessonProgressOut[]>(
+      `/lms/enrollments/${enrollmentId}/progress`, { authed: true });
+    return data;
+  },
+  async updateProgress(enrollmentId: number, lessonId: number, p: LessonProgressUpdateIn): Promise<LessonProgressOut> {
+    const { data } = await request<LessonProgressOut>(
+      `/lms/enrollments/${enrollmentId}/progress/${lessonId}`,
+      { method: "PUT", json: p, authed: true });
+    return data;
+  },
+  async listAnnouncements(slug: string): Promise<CourseAnnouncementOut[]> {
+    const { data } = await request<CourseAnnouncementOut[]>(
+      `/lms/courses/${encodeURIComponent(slug)}/announcements`, { authed: true });
+    return data;
+  },
+  async getMyNote(lessonId: number): Promise<LessonNoteOut | null> {
+    const { data } = await request<LessonNoteOut | null>(
+      `/lms/lessons/${lessonId}/note`, { authed: true });
+    return data;
+  },
+  async upsertMyNote(lessonId: number, body: string): Promise<LessonNoteOut | null> {
+    const { data } = await request<LessonNoteOut | null>(
+      `/lms/lessons/${lessonId}/note`,
+      { method: "PUT", json: { body }, authed: true });
+    return data;
+  },
+  async listReviews(slug: string): Promise<CourseReviewOut[]> {
+    const { data } = await request<CourseReviewOut[]>(
+      `/lms/courses/${encodeURIComponent(slug)}/reviews`, { authed: true });
+    return data;
+  },
+  async upsertReview(enrollmentId: number, stars: number, body: string | null): Promise<CourseReviewOut> {
+    const { data } = await request<CourseReviewOut>(
+      `/lms/enrollments/${enrollmentId}/review`,
+      { method: "PUT", json: { stars, body }, authed: true });
+    return data;
+  },
+  async listQuizQuestions(lessonId: number): Promise<QuizQuestionOut[]> {
+    const { data } = await request<QuizQuestionOut[]>(
+      `/lms/quizzes/${lessonId}/questions`, { authed: true });
+    return data;
+  },
+  async submitQuizAttempt(lessonId: number, p: QuizAttemptSubmitIn): Promise<QuizAttemptOut> {
+    const { data } = await request<QuizAttemptOut>(
+      `/lms/quizzes/${lessonId}/attempts`,
+      { method: "POST", json: p, authed: true });
+    return data;
+  },
+  async listMyAttempts(lessonId: number): Promise<QuizAttemptOut[]> {
+    const { data } = await request<QuizAttemptOut[]>(
+      `/lms/quizzes/${lessonId}/attempts`, { authed: true });
+    return data;
+  },
+};
+
+
+/**
  * Public CMS endpoints — no auth required (anon-friendly). Auth headers
  * are still attached if a token exists so the visibility filter widens
  * for signed-in users (authenticated tier) and subscribers (subscribed
@@ -764,6 +864,165 @@ export const admin = {
         `/admin/content-pages/${id}/clear-landing`,
         { method: "POST", authed: true });
       return data;
+    },
+  },
+  lms: {
+    // ------------- Courses
+    async listCourses(includeUnpublished = true) {
+      const qs = includeUnpublished ? "" : "?include_unpublished=false";
+      const { data } = await request<CourseOut[]>(`/admin/courses${qs}`, { authed: true });
+      return data;
+    },
+    async getCourse(id: number) {
+      const { data } = await request<CourseOut>(`/admin/courses/${id}`, { authed: true });
+      return data;
+    },
+    async createCourse(p: CourseCreateIn) {
+      const { data } = await request<CourseOut>(
+        "/admin/courses", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async updateCourse(id: number, p: CourseUpdateIn) {
+      const { data } = await request<CourseOut>(
+        `/admin/courses/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async deleteCourse(id: number) {
+      await request(`/admin/courses/${id}`, { method: "DELETE", authed: true });
+    },
+    // ------------- Chapters
+    async createChapter(courseId: number, p: ChapterCreateIn) {
+      const { data } = await request<ChapterOut>(
+        `/admin/courses/${courseId}/chapters`, { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async updateChapter(id: number, p: ChapterUpdateIn) {
+      const { data } = await request<ChapterOut>(
+        `/admin/chapters/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async deleteChapter(id: number) {
+      await request(`/admin/chapters/${id}`, { method: "DELETE", authed: true });
+    },
+    // ------------- Lessons
+    async createLesson(chapterId: number, p: LessonCreateIn) {
+      const { data } = await request<LessonOut>(
+        `/admin/chapters/${chapterId}/lessons`, { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async updateLesson(id: number, p: LessonUpdateIn) {
+      const { data } = await request<LessonOut>(
+        `/admin/lessons/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async deleteLesson(id: number) {
+      await request(`/admin/lessons/${id}`, { method: "DELETE", authed: true });
+    },
+    // ------------- Files
+    async addFile(lessonId: number, p: LessonFileCreateIn) {
+      const { data } = await request<LessonFileOut>(
+        `/admin/lessons/${lessonId}/files`, { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async deleteFile(fileId: number) {
+      await request(`/admin/lesson-files/${fileId}`, { method: "DELETE", authed: true });
+    },
+    // ------------- Enrollments
+    async listEnrollments(courseId: number, includeRevoked = false) {
+      const qs = includeRevoked ? "?include_revoked=true" : "";
+      const { data } = await request<EnrollmentOut[]>(
+        `/admin/courses/${courseId}/enrollments${qs}`, { authed: true });
+      return data;
+    },
+    async grantEnrollment(courseId: number, p: EnrollmentGrantIn) {
+      const { data } = await request<EnrollmentOut>(
+        `/admin/courses/${courseId}/enrollments`, { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async revokeEnrollment(id: number) {
+      await request(`/admin/enrollments/${id}`, { method: "DELETE", authed: true });
+    },
+    // ------------- Categories
+    async listCategories() {
+      const { data } = await request<CourseCategoryOut[]>("/admin/course-categories", { authed: true });
+      return data;
+    },
+    async createCategory(p: CourseCategoryCreateIn) {
+      const { data } = await request<CourseCategoryOut>(
+        "/admin/course-categories", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async updateCategory(id: number, p: CourseCategoryUpdateIn) {
+      const { data } = await request<CourseCategoryOut>(
+        `/admin/course-categories/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async deleteCategory(id: number) {
+      await request(`/admin/course-categories/${id}`, { method: "DELETE", authed: true });
+    },
+    async linkCategory(courseId: number, catId: number) {
+      await request(`/admin/courses/${courseId}/categories/${catId}`,
+                    { method: "POST", authed: true });
+    },
+    async unlinkCategory(courseId: number, catId: number) {
+      await request(`/admin/courses/${courseId}/categories/${catId}`,
+                    { method: "DELETE", authed: true });
+    },
+    // ------------- Announcements
+    async listAnnouncements(courseId: number) {
+      const { data } = await request<CourseAnnouncementOut[]>(
+        `/admin/courses/${courseId}/announcements`, { authed: true });
+      return data;
+    },
+    async createAnnouncement(courseId: number, p: CourseAnnouncementCreateIn) {
+      const { data } = await request<CourseAnnouncementOut>(
+        `/admin/courses/${courseId}/announcements`, { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async deleteAnnouncement(id: number) {
+      await request(`/admin/announcements/${id}`, { method: "DELETE", authed: true });
+    },
+    // ------------- Quizzes
+    async upsertQuizConfig(lessonId: number, p: QuizConfigUpsertIn) {
+      const { data } = await request<QuizOut>(
+        `/admin/quizzes/${lessonId}`, { method: "PUT", json: p, authed: true });
+      return data;
+    },
+    async getQuizConfig(lessonId: number) {
+      const { data } = await request<QuizOut>(
+        `/admin/quizzes/${lessonId}`, { authed: true });
+      return data;
+    },
+    async listQuizQuestions(lessonId: number) {
+      const { data } = await request<QuizQuestionOut[]>(
+        `/admin/quizzes/${lessonId}/questions`, { authed: true });
+      return data;
+    },
+    async addQuizQuestion(lessonId: number, p: QuizQuestionCreateIn) {
+      const { data } = await request<QuizQuestionOut>(
+        `/admin/quizzes/${lessonId}/questions`, { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async updateQuizQuestion(qId: number, p: QuizQuestionUpdateIn) {
+      const { data } = await request<QuizQuestionOut>(
+        `/admin/quiz-questions/${qId}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async deleteQuizQuestion(qId: number) {
+      await request(`/admin/quiz-questions/${qId}`, { method: "DELETE", authed: true });
+    },
+    async addQuizOption(qId: number, p: QuizOptionCreateIn) {
+      const { data } = await request<QuizOptionOut>(
+        `/admin/quiz-questions/${qId}/options`, { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async updateQuizOption(oId: number, p: QuizOptionUpdateIn) {
+      const { data } = await request<QuizOptionOut>(
+        `/admin/quiz-options/${oId}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async deleteQuizOption(oId: number) {
+      await request(`/admin/quiz-options/${oId}`, { method: "DELETE", authed: true });
     },
   },
   cmsAi: {
