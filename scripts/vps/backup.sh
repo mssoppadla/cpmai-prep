@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# backup.sh — Postgres + .env snapshot
+# backup.sh — Postgres + .env + uploads snapshot
 # ==============================================================================
 # Ways this runs:
 #   • Daily cron (installed by install_app.sh) at 02:30 server time
@@ -10,6 +10,7 @@
 #
 # Output:  /var/backups/cpmai-prep/<timestamp>__<tag>.sql.gz
 #          + a .env tar in the same dir, same timestamp
+#          + an uploads tar (CMS/LMS file attachments) in the same dir
 #
 # Retention: keeps last 30 daily backups + ALL pre-deploy backups for 14 days.
 # Pre-deploy backups stay even past 30 days because they protect the rollback
@@ -24,6 +25,7 @@ TAG="${1:-daily}"
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 SQL_FILE="${BACKUP_DIR}/${TS}__${TAG}.sql.gz"
 ENV_FILE="${BACKUP_DIR}/${TS}__${TAG}.env.tar.gz"
+UPLOADS_FILE="${BACKUP_DIR}/${TS}__${TAG}.uploads.tar.gz"
 
 say()  { printf '==> %s\n' "$*"; }
 ok()   { printf '  ✓ %s\n' "$*"; }
@@ -62,7 +64,29 @@ chmod 0600 "$ENV_FILE"
 ok "env snapshot stored"
 
 # ------------------------------------------------------------------------------
-# 3. Retention
+# 3. Uploads snapshot (CMS / LMS file attachments)
+# ------------------------------------------------------------------------------
+# Uploads live in the `cpmai-uploads` named docker volume mounted at
+# /app/uploads inside the backend container (see docker-compose.yml).
+# Stream a tarball straight out of the running container so we don't
+# need to know the host-side volume mountpoint. If the directory is
+# empty (fresh install, no uploads yet), tar still produces a valid
+# empty archive — restore.sh handles that case as a no-op.
+say "Archiving uploads volume → ${UPLOADS_FILE}"
+if $DC exec -T backend sh -c 'test -d /app/uploads' 2>/dev/null; then
+  $DC exec -T backend tar -czf - -C /app/uploads . > "${UPLOADS_FILE}.partial" \
+    && mv "${UPLOADS_FILE}.partial" "$UPLOADS_FILE" \
+    || { rm -f "${UPLOADS_FILE}.partial"; warn "uploads tar failed (continuing)"; }
+  if [ -f "$UPLOADS_FILE" ]; then
+    USIZE=$(du -h "$UPLOADS_FILE" | cut -f1)
+    ok "uploads snapshot ${USIZE}"
+  fi
+else
+  warn "backend has no /app/uploads dir (skipped) — is the cpmai-uploads volume mounted?"
+fi
+
+# ------------------------------------------------------------------------------
+# 4. Retention
 # ------------------------------------------------------------------------------
 # Daily backups: keep 30 most recent
 # Pre-deploy:   keep all from last 14 days, prune older than 14
@@ -77,6 +101,8 @@ say "Pruning old backups..."
   ls -1t "$BACKUP_DIR"/*__daily.sql.gz 2>/dev/null \
     | tail -n +31 | xargs -r rm -f
   ls -1t "$BACKUP_DIR"/*__daily.env.tar.gz 2>/dev/null \
+    | tail -n +31 | xargs -r rm -f
+  ls -1t "$BACKUP_DIR"/*__daily.uploads.tar.gz 2>/dev/null \
     | tail -n +31 | xargs -r rm -f
   # Pre-deploy older than 14 days
   find "$BACKUP_DIR" -maxdepth 1 -name '*__pre-deploy-*' -mtime +14 -print -delete 2>/dev/null \

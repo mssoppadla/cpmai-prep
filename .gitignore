@@ -44,3 +44,8 @@ logs/
 # python -m tests.unit.geoip.fixtures.build_fixture — don't commit
 # the binary. See tests/unit/geoip/fixtures/README.md.
 backend/tests/unit/geoip/fixtures/test-City.mmdb
+
+# Admin file uploads (images, videos, attached PDFs etc.) — runtime
+# data only, never source-controlled. Prod stores them in a docker
+# volume; local dev creates the dir on first upload.
+backend/uploads/
