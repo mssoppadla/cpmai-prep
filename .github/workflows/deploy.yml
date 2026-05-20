@@ -83,10 +83,10 @@ jobs:
       - name: Generate test ENCRYPTION_KEY (per-job, ephemeral)
         run: |
           python3 -c "import secrets, base64; print('ENCRYPTION_KEY=' + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ---------- Backend ----------
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"
@@ -129,7 +129,7 @@ jobs:
         run: cd backend && pytest -q
 
       # ---------- Frontend ----------
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: "npm"
@@ -195,8 +195,8 @@ jobs:
       - name: Generate test ENCRYPTION_KEY (per-job, ephemeral)
         run: |
           python3 -c "import secrets, base64; print('ENCRYPTION_KEY=' + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"
