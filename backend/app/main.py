@@ -133,18 +133,38 @@ app.include_router(api_router, prefix="/api/v1")
 
 
 # Static files for admin uploads (images, videos, attached PDFs etc.).
+#
 # UPLOAD_ROOT env var lets the VPS deploy point at a docker volume
-# (/var/cpmai-uploads → /app/uploads inside the container). Locally
-# the path defaults to /app/uploads which is bind-mounted from the
-# host's backend/uploads/ directory.
+# (cpmai-uploads → /app/uploads inside the container). Locally the
+# path defaults to /app/uploads which is bind-mounted from the host's
+# backend/uploads/ directory.
+#
+# IMPORTANT: this runs at module IMPORT time, not just FastAPI startup.
+# In CI (GitHub Actions runner) and on contributor machines without a
+# /app dir, the default mkdir would crash with PermissionError before
+# any test could run — pytest imports main.py purely to register routes.
+# We catch that and skip the mount: endpoints that don't touch uploads
+# stay green; uploads-specific tests (which always run in docker) get
+# the real mount. Re-mounting at runtime if the path appears later is
+# not supported by Starlette, so this is mount-at-import or nothing.
 import os as _os
+import logging as _logging
 from pathlib import Path as _Path
 from fastapi.staticfiles import StaticFiles as _StaticFiles
 _UPLOAD_ROOT = _Path(_os.environ.get("UPLOAD_ROOT", "/app/uploads"))
-_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
-# ``name="uploads"`` lets us reverse the URL via app.url_path_for; the
-# admin upload endpoint returns paths relative to this mount.
-app.mount("/uploads", _StaticFiles(directory=str(_UPLOAD_ROOT)), name="uploads")
+try:
+    _UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    # ``name="uploads"`` lets us reverse the URL via app.url_path_for;
+    # the admin upload endpoint returns paths relative to this mount.
+    app.mount("/uploads", _StaticFiles(directory=str(_UPLOAD_ROOT)), name="uploads")
+except (OSError, PermissionError) as _e:
+    # Common in CI test runners where /app doesn't exist and the
+    # runner user can't create top-level directories. Not fatal —
+    # only the /uploads file-serving endpoint is affected, and
+    # nothing else in the test surface depends on it.
+    _logging.getLogger(__name__).warning(
+        "uploads disabled: could not initialize %s (%s)", _UPLOAD_ROOT, _e,
+    )
 
 
 @app.get("/health")
