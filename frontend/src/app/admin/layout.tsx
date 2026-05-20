@@ -105,6 +105,7 @@ const GROUPS: NavGroupDef[] = [
       { href: "/admin/llm-providers",     label: "LLM Providers" },
       { href: "/admin/payment-providers", label: "Payment Providers" },
       { href: "/admin/geoip",             label: "GeoIP" },
+      { href: "/admin/observability",     label: "Observability", badge: "NEW" },
     ],
   },
 ];

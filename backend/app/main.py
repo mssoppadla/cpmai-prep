@@ -143,10 +143,16 @@ app.include_router(api_router, prefix="/api/v1")
 # In CI (GitHub Actions runner) and on contributor machines without a
 # /app dir, the default mkdir would crash with PermissionError before
 # any test could run — pytest imports main.py purely to register routes.
-# We catch that and skip the mount: endpoints that don't touch uploads
-# stay green; uploads-specific tests (which always run in docker) get
-# the real mount. Re-mounting at runtime if the path appears later is
-# not supported by Starlette, so this is mount-at-import or nothing.
+#
+# Policy by environment (no deploy-bypassing fallback):
+#   • APP_ENV=test  → tolerate filesystem failures here, log a warning
+#                     and skip the /uploads mount. Tests that exercise
+#                     uploads run in docker against a real /app/uploads.
+#   • anywhere else → RE-RAISE. Production must not start with uploads
+#                     silently disabled, because the admin UI assumes
+#                     /uploads/* is reachable. A re-raise crashes the
+#                     uvicorn boot, which fails deploy.sh's health
+#                     probe within 60s and trips the auto-rollback.
 import os as _os
 import logging as _logging
 from pathlib import Path as _Path
@@ -158,13 +164,26 @@ try:
     # the admin upload endpoint returns paths relative to this mount.
     app.mount("/uploads", _StaticFiles(directory=str(_UPLOAD_ROOT)), name="uploads")
 except (OSError, PermissionError) as _e:
-    # Common in CI test runners where /app doesn't exist and the
-    # runner user can't create top-level directories. Not fatal —
-    # only the /uploads file-serving endpoint is affected, and
-    # nothing else in the test surface depends on it.
-    _logging.getLogger(__name__).warning(
-        "uploads disabled: could not initialize %s (%s)", _UPLOAD_ROOT, _e,
-    )
+    if settings.APP_ENV == "test":
+        # CI runner / contributor sandbox: no /app, no write access at
+        # /. The application-level surface that depends on this mount
+        # is exercised by docker-based integration tests, not the
+        # in-process pytest run that imports main here.
+        _logging.getLogger(__name__).warning(
+            "uploads disabled (APP_ENV=test): could not initialize %s (%s)",
+            _UPLOAD_ROOT, _e,
+        )
+    else:
+        # Loud failure in dev / staging / production. The deploy script
+        # waits on /health for 60s and bails on timeout — that path
+        # then triggers auto-rollback via the `on_failure` trap.
+        _logging.getLogger(__name__).error(
+            "uploads dir init failed at %s — refusing to start with the "
+            "feature half-broken; check the cpmai-uploads volume mount + "
+            "/app/uploads ownership (Dockerfile pre-creates it as app:app)",
+            _UPLOAD_ROOT,
+        )
+        raise
 
 
 @app.get("/health")

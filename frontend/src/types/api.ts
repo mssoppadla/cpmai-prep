@@ -708,10 +708,13 @@ export interface QuizAttemptSubmitIn {
 }
 
 /** Nested course-detail public response.
- *  Endpoint returns { course, is_enrolled, chapters[{...lessons[{...files[]}]}] } */
+ *  Endpoint returns { course, is_enrolled, enrollment_count, chapters[{...lessons[{...files[]}]}] } */
 export interface CourseDetailPublicOut {
   course: CoursePublicOut;
   is_enrolled: boolean;
+  /** Live count of active+historical enrollments on this course.
+   *  Used by the public course detail page as social proof. */
+  enrollment_count: number;
   chapters: Array<{
     id: number;
     title: string;
@@ -1279,4 +1282,37 @@ export interface PaymentProviderUpdate {
 export interface ExamSetLinkedQuestion {
   position: number;
   question: QuestionAdminOut;
+}
+
+
+// ---------- Admin observability: disk gauge + reclaim hints --------------
+/** Returned by GET /admin/observability/disk. Backend can only see paths
+ *  it owns directly (uploads volume, logs dir); the "reclaimable" list
+ *  is operator-side commands (SSH + run) because docker / system paths
+ *  aren't reachable from inside the backend container. */
+export interface DiskUsageOut {
+  filesystem: {
+    path: string;
+    total_bytes: number;
+    free_bytes: number;
+    used_bytes: number;
+    used_percent: number;
+  };
+  application: {
+    uploads_volume: { path: string; size_bytes: number };
+    logs_dir:       { path: string; size_bytes: number };
+    total_bytes:    number;
+  };
+  reclaimable: Array<{
+    id: string;
+    label: string;
+    where: string;
+    command: string;
+    /** "safe" = backend believes this is operator-safe to run unattended.
+     *  "review" = check the notes first; may remove things you want to keep. */
+    safety: "safe" | "review";
+    notes?: string;
+    bytes?: number;   // backend may populate in a future revision
+    count?: number;
+  }>;
 }

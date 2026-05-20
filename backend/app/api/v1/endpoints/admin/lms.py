@@ -20,7 +20,10 @@ Endpoint groups (router suffixes documented at the bottom):
 """
 from __future__ import annotations
 
+import logging
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -52,6 +55,53 @@ from app.schemas.lms import (
 
 
 router = APIRouter()
+log = logging.getLogger(__name__)
+
+
+# Local-disk uploads root — kept in sync with admin/uploads.py + main.py.
+# Re-derived here from the env so a future R2 swap (file_object_key path)
+# only has to change admin/uploads.py + this constant. The lesson-file
+# delete endpoint uses this to unlink the underlying file when the row
+# is removed; without that, /app/uploads grows unboundedly across the
+# course's lifetime.
+_UPLOAD_ROOT = Path(os.environ.get("UPLOAD_ROOT", "/app/uploads"))
+
+
+def _unlink_local_upload(file_url: str | None) -> None:
+    """Best-effort delete of the on-disk file backing a LessonFile row.
+
+    Quiet on missing files (already deleted, or never existed) — the DB
+    row delete is the authoritative action and we don't want a stray
+    filesystem hiccup to fail the API request.
+
+    External URLs (anything that doesn't start with /uploads/) are
+    skipped: the admin may have pasted a Vimeo / S3 / YouTube URL into
+    file_url for an externally-hosted asset, and we have no business
+    touching that.
+    """
+    if not file_url or not file_url.startswith("/uploads/"):
+        return
+    # /uploads/1/2026/05/abc-file.pdf → 1/2026/05/abc-file.pdf
+    rel = file_url[len("/uploads/"):].lstrip("/")
+    # Resolve + verify the result is INSIDE UPLOAD_ROOT before unlinking,
+    # to defeat any "../" path-traversal that slipped past the upload
+    # sanitiser. Defense-in-depth; the upload endpoint already prevents
+    # this, but a row could have been created via a future bulk-import.
+    try:
+        abs_path = (_UPLOAD_ROOT / rel).resolve()
+        upload_root_resolved = _UPLOAD_ROOT.resolve()
+    except OSError:
+        log.warning("could not resolve upload path for %s", file_url)
+        return
+    try:
+        abs_path.relative_to(upload_root_resolved)
+    except ValueError:
+        log.warning("refusing to unlink file outside UPLOAD_ROOT: %s", file_url)
+        return
+    try:
+        abs_path.unlink(missing_ok=True)
+    except OSError as e:
+        log.warning("unlink %s failed: %s (row still deleted)", abs_path, e)
 
 
 # ============================================================ helpers
@@ -455,8 +505,12 @@ def delete_lesson_file(
     ).first()
     if not f:
         raise NotFoundError("File not found")
+    # Capture the URL BEFORE the row is gone — the unlink helper needs
+    # it to resolve the on-disk path.
+    file_url = f.file_url
     db.delete(f); db.commit()
-    audit_log(db, admin.id, "lesson_file.deleted", {"id": file_id})
+    _unlink_local_upload(file_url)
+    audit_log(db, admin.id, "lesson_file.deleted", {"id": file_id, "url": file_url})
 
 
 # ============================================================ ENROLLMENTS
@@ -858,6 +912,28 @@ def delete_quiz_question(
         raise NotFoundError("Question not found")
     db.delete(q); db.commit()
     audit_log(db, admin.id, "quiz.question_deleted", {"id": q_id})
+
+
+@router.get("/quiz-questions/{q_id}/options", response_model=list[QuizOptionOut])
+def list_quiz_options(
+    q_id: int,
+    db: Session = Depends(get_db),
+):
+    """Admin: list options for a single quiz question, in position order.
+    The admin quiz builder uses this on load so existing options surface
+    in the UI — without it the builder could only ADD options and never
+    show ones already stored."""
+    # Existence check first to disambiguate 404 (question) from empty list (no options yet).
+    q = db.query(LmsQuizQuestion).filter(
+        LmsQuizQuestion.id == q_id,
+        LmsQuizQuestion.tenant_id == get_current_tenant_id(),
+    ).first()
+    if not q:
+        raise NotFoundError("Question not found")
+    return (db.query(LmsQuizQuestionOption).filter(
+        LmsQuizQuestionOption.question_id == q.id,
+        LmsQuizQuestionOption.tenant_id == get_current_tenant_id(),
+    ).order_by(LmsQuizQuestionOption.position, LmsQuizQuestionOption.id).all())
 
 
 @router.post("/quiz-questions/{q_id}/options", response_model=QuizOptionOut, status_code=201)

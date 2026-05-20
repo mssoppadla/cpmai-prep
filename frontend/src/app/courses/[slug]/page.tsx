@@ -132,6 +132,17 @@ export default function CourseDetailPage({
                 ? "Free"
                 : `${c.currency} ${(c.base_price_paise / 100).toFixed(2)}`}
             </div>
+            {/* Social-proof signal: only render once we have a count
+                (avoid showing "0 enrolled" pre-load — looks worse than
+                no signal at all). The count comes from the public
+                course detail payload (computed server-side as a single
+                COUNT against enrollments). */}
+            {typeof detail.enrollment_count === "number" && detail.enrollment_count > 0 && (
+              <div className="text-xs text-slate-500 mb-3" aria-live="polite">
+                <strong className="text-slate-700">{detail.enrollment_count.toLocaleString()}</strong>{" "}
+                {detail.enrollment_count === 1 ? "learner" : "learners"} enrolled
+              </div>
+            )}
             {detail.is_enrolled ? (
               <Link href={firstLessonId ? `/courses/${c.slug}/lessons/${firstLessonId}` : `/courses/${c.slug}`}
                     className="block w-full text-center px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">

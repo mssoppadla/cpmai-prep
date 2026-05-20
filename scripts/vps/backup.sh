@@ -78,6 +78,10 @@ if $DC exec -T backend sh -c 'test -d /app/uploads' 2>/dev/null; then
     && mv "${UPLOADS_FILE}.partial" "$UPLOADS_FILE" \
     || { rm -f "${UPLOADS_FILE}.partial"; warn "uploads tar failed (continuing)"; }
   if [ -f "$UPLOADS_FILE" ]; then
+    # Uploads can include signed PDFs / screenshots with personal data —
+    # match the env tar's 0600 so /var/backups is read-protected even
+    # if a different system user can browse the dir.
+    chmod 0600 "$UPLOADS_FILE"
     USIZE=$(du -h "$UPLOADS_FILE" | cut -f1)
     ok "uploads snapshot ${USIZE}"
   fi
