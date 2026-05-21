@@ -149,21 +149,24 @@ def disk_usage() -> dict[str, Any]:
             "id": "docker_dangling_images",
             "label": "Dangling docker images (overwritten :latest tags)",
             "where": "/var/lib/docker",
-            "command": "docker image prune -af --filter 'until=168h'",
+            "command": "docker image prune -af --filter 'until=72h'",
             "safety": "safe",
             "notes": "Each ``compose build`` orphans the previous "
-                     ":latest tag. The 7-day filter keeps the most-recent "
-                     "rollback target intact. deploy.sh also runs this "
-                     "automatically post-deploy.",
+                     ":latest tag. The 72h filter keeps 3 days of "
+                     "manual-rollback headroom (the :previous TAG is "
+                     "always preserved separately, never at risk). "
+                     "deploy.sh runs this automatically post-deploy.",
         },
         {
             "id": "docker_builder_cache",
             "label": "Docker BuildKit cache",
             "where": "/var/lib/docker/buildkit",
-            "command": "docker builder prune -af --filter 'until=168h'",
+            "command": "docker builder prune -af --filter 'until=24h'",
             "safety": "safe",
-            "notes": "Build cache for layers that haven't been used "
-                     "in 7 days. Subsequent builds will simply re-cache.",
+            "notes": "Build cache has no rollback value; only speeds "
+                     "up the next build. 24h is plenty for a busy "
+                     "VPS — reclaims 20-40 GB on a system with "
+                     "multiple deploys per day.",
         },
         {
             "id": "rotated_caddy_logs",

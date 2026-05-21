@@ -86,8 +86,19 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
 
   // Poll notifications on mount + every time the panel opens. No
   // long-polling; opening the widget is the natural read trigger.
+  //
+  // Extra guard: the `user` prop can be non-null (set from a /auth/me
+  // cookie path) while the localStorage access token has been cleared
+  // or expired in the background. Calling the endpoint in that state
+  // returns a legitimate 401, which the browser logs to the devtools
+  // console even though our `.catch` swallows it. To keep the console
+  // clean for end-users, only fire the request when we have BOTH a
+  // user AND a usable token.
   useEffect(() => {
     if (!user) return;
+    if (typeof window === "undefined") return;
+    const tok = window.localStorage.getItem("cpmai.access");
+    if (!tok) return;
     let cancelled = false;
     assistant.notifications()
       .then((n) => { if (!cancelled) setNotifications(n); })

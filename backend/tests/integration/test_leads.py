@@ -34,3 +34,24 @@ def test_lead_persists_anon_id_when_cookie_sent(client, db):
     from app.models.lead import Lead
     lead = db.query(Lead).filter_by(email="anon@example.com").first()
     assert lead.anon_id == "11111111-1111-1111-1111-111111111111"
+
+
+def test_contact_request_alias_creates_lead(client, db):
+    """The frontend submits leads to /contact-request because /leads is
+    blocked client-side by EasyList tracking filters (uBlock, Brave,
+    Firefox strict-mode). Pin that the alias creates an identical
+    Lead row so a future deploy doesn't accidentally divorce the two.
+    """
+    r = client.post("/api/v1/contact-request", json={
+        "email": "via-alias@example.com",
+        "name": "Adblocked Visitor",
+        "source": "chat_callback",
+        "consent_marketing": False,
+    })
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["id"] > 0
+    from app.models.lead import Lead
+    lead = db.query(Lead).filter_by(email="via-alias@example.com").first()
+    assert lead is not None
+    assert lead.source.value == "chat_callback"
