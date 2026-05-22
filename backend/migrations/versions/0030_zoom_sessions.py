@@ -59,6 +59,11 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
+# Use JSONB on prod (Postgres) — better indexing + operators. The model
+# declares the column as generic JSON so SQLite (used by some unit
+# tests) can still bootstrap via Base.metadata.create_all(). The
+# concrete column TYPE in prod is JSONB because this migration runs
+# against Postgres only.
 revision = "0030_zoom_sessions"
 down_revision = "0029_course_discussion"
 branch_labels = None

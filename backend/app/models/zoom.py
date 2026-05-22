@@ -19,10 +19,9 @@ because:
     has a real-world start time, a lesson is on-demand
 """
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Integer, String, Text,
-    BigInteger,
+    BigInteger, Boolean, Column, DateTime, ForeignKey, Integer,
+    JSON, String, Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -69,7 +68,10 @@ class ZoomSession(Base):
     # Admin's per-session control choices. Schema documented in the
     # migration file. Defaults to {} so a session created via API
     # without explicit host_config still validates.
-    host_config = Column(JSONB, nullable=False, default=dict)
+    # Generic JSON (renders as JSONB on Postgres, JSON1 on SQLite for
+    # the test harness) — keeps both prod migrations and unit-test
+    # SQLite metadata.create_all() happy.
+    host_config = Column(JSON, nullable=False, default=dict)
 
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True),
