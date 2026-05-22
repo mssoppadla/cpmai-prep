@@ -513,9 +513,18 @@ export const payments = {
 };
 
 // ---------- Leads ----------------------------------------------------------
+//
+// `/leads` is on EasyList tracking filters (uBlock Origin, Brave shields,
+// Firefox strict-mode) and gets blocked client-side before the request
+// even leaves the browser, surfacing as `TypeError: Failed to fetch`
+// with no server trace. To make sure prospect callback requests don't
+// silently fail for ~20% of users with ad-blockers, this submit call
+// uses the `/contact-request` alias the backend exposes; the lead row
+// is created identically. Admin-side reads (`/admin/leads`) keep the
+// original path — admins typically don't browse with content blockers.
 export const leads = {
   async submit(payload: LeadCreateIn): Promise<LeadCreateOut> {
-    const { data } = await request<LeadCreateOut>("/leads",
+    const { data } = await request<LeadCreateOut>("/contact-request",
       { method: "POST", json: payload });
     return data;
   },

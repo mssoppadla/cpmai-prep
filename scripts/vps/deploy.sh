@@ -393,6 +393,46 @@ say "Building images..."
 $DC build --pull
 ok "images built"
 
+# ------------------------------------------------------------------------------
+# 4b. Image size telemetry — surface backend + frontend image sizes after
+# build alongside the size delta vs the :previous tag (the just-replaced
+# image). Lets an operator spot bloat trends per deploy without having
+# to SSH and remember the docker incantation.
+#
+# Failures here are non-fatal: we never want a docker-format quirk to
+# tank an otherwise-healthy deploy. The block is wrapped in `|| true`.
+# ------------------------------------------------------------------------------
+print_image_size_report() {
+  local svc img_size_now img_size_prev
+  printf '  %-32s %-12s %-12s %s\n' \
+         "image" "size" "previous" "delta"
+  for svc in backend frontend; do
+    img_size_now=$(docker image inspect "cpmai-prep-${svc}:latest" \
+                     --format '{{.Size}}' 2>/dev/null || echo "")
+    img_size_prev=$(docker image inspect "cpmai-prep-${svc}:previous" \
+                      --format '{{.Size}}' 2>/dev/null || echo "")
+    if [ -z "$img_size_now" ]; then continue; fi
+    # bytes → human readable. Keep small dep footprint — pure awk.
+    local now_h prev_h delta_h
+    now_h=$(awk -v b="$img_size_now" 'BEGIN{printf "%.1f MB", b/1024/1024}')
+    if [ -n "$img_size_prev" ]; then
+      prev_h=$(awk -v b="$img_size_prev" 'BEGIN{printf "%.1f MB", b/1024/1024}')
+      delta_h=$(awk -v a="$img_size_now" -v b="$img_size_prev" \
+        'BEGIN{
+          d=(a-b)/1024/1024;
+          if (d>0) printf "+%.1f MB", d; else printf "%.1f MB", d
+        }')
+    else
+      prev_h="(first deploy)"
+      delta_h="—"
+    fi
+    printf '  %-32s %-12s %-12s %s\n' \
+           "cpmai-prep-${svc}:latest" "$now_h" "$prev_h" "$delta_h"
+  done
+}
+say "Image size report:"
+print_image_size_report || true
+
 # Arm auto-rollback. Any failure from here through the smoke test triggers
 # `on_failure` (defined near the top) which reverts images + restores DB.
 arm_rollback
@@ -517,16 +557,28 @@ BASE_URL="$SMOKE_BASE_URL" python3 scripts/smoke_admin_crud.py || {
 #     the previous tag; left unchecked these accumulate at ~500MB/each
 #     and eventually fill the VPS disk.
 #
-# Retention: 168h (7 days) — long enough to manually `docker tag` an
-# older image back to :latest and `compose up -d` if a regression ships.
-# `-a` removes any unused image (not just dangling), but currently-running
-# containers' images are NEVER removed by `image prune`. Same for builder
-# cache — only inactive cache mounts get reclaimed.
+# Retention is asymmetric on purpose:
+#
+#   * Images: 72h (3 days). The auto-rollback uses the `:previous` TAG,
+#     which is always preserved regardless of the time filter — that's
+#     never at risk. The image filter only governs the MANUAL rollback
+#     window ("regression I noticed yesterday, give me yesterday's
+#     image"). At multiple deploys per day, 3 days = 15+ versions of
+#     headroom; 7 days was overkill and filled the disk too fast.
+#
+#   * Builder cache: 24h. Build cache has zero rollback value — it
+#     only speeds up the NEXT build. Today's cache is plenty; older
+#     cache reclaims around 30+ GB on a busy VPS (per the disk audit
+#     done on 2026-05-21 after PR #7 shipped).
+#
+# `-a` removes any unused tagged image (not just dangling); currently-
+# running containers' images are NEVER removed by `image prune`. Same
+# for builder cache — only inactive cache mounts get reclaimed.
 # ------------------------------------------------------------------------------
-say "Reclaiming disk: pruning images + builder cache older than 7d..."
-PRUNED_IMG=$(docker image prune -af --filter "until=168h" 2>&1 \
+say "Reclaiming disk: images >72h, builder cache >24h..."
+PRUNED_IMG=$(docker image prune -af --filter "until=72h" 2>&1 \
               | awk '/Total reclaimed/ {print $NF}' || echo "0B")
-PRUNED_BLD=$(docker builder prune -af --filter "until=168h" 2>&1 \
+PRUNED_BLD=$(docker builder prune -af --filter "until=24h" 2>&1 \
               | awk '/Total reclaimed/ {print $NF}' || echo "0B")
 ok "reclaimed: images=${PRUNED_IMG:-0B}  builder=${PRUNED_BLD:-0B}"
 

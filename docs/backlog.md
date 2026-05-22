@@ -94,7 +94,15 @@ template + widget UI. ~3-4 hours.
 
 ---
 
-### [FEATURE] GDPR endpoints (data export + delete)
+### [DONE] GDPR endpoints (data export + delete) — already shipped
+
+Verified 2026-05-21: both the backend (`GET /users/me/export`,
+`DELETE /users/me` via `app.services.user_deletion.soft_delete_user`)
+and the frontend UI (in `/dashboard` with typed-`DELETE` confirmation
+modal) are live. PII redaction follows the documented contract;
+financial records retained 7 years per Indian tax law.
+
+Original ask (kept for reference):
 
 **Ask**: EU compliance baseline. User can export their data and delete
 their account through self-serve UI.
@@ -176,27 +184,38 @@ behavior. Today there's no way to measure that besides manual smoke.
 
 ## Infra / DX gaps
 
-### [INFRA] CI: run `alembic upgrade head` from an empty DB
+### [DONE-WONT-DO] CI: run `alembic upgrade head` from an empty DB
 
-**Why**: Today's prod outage (twice) came from the same class of bug —
-the model is correct, the migration is correct, but `Base.metadata.
-create_all() + alembic stamp head` (used in tests + CI bootstrap) skips
-the actual migration DDL, so model-vs-migration drift sails through CI
-and only breaks at prod alembic time.
+**Status**: explored, structurally incompatible with the codebase, closed
+on 2026-05-21.
 
-Mitigations shipped today (`scripts/vps/deploy.sh` postgres convergence
-+ auto-rollback) catch the failure during deploy. But CI catching it
-before merge is the proper fix.
+**Why we tried**: prod outages from model-vs-migration drift that
+`Base.metadata.create_all() + alembic stamp head` (used in tests + CI
+bootstrap) wouldn't catch.
 
-**Implementation**:
-- New job in `.github/workflows/deploy.yml`: `migration-from-scratch`
-- Spin postgres (pgvector image, since we use the extension)
-- `alembic upgrade head` from empty DB — must succeed end-to-end
-- Then `alembic downgrade base` and `upgrade head` again — must be
-  idempotent
-- This adds ~30s to CI but closes the drift gap permanently
+**Why we can't do it**: `0001_baseline.py` is intentionally a no-op
+marker (per `vps-deployment-lessons.md` row #23). The original schema
+was built via `Base.metadata.create_all()` then stamped. Running
+`alembic upgrade head` from an EMPTY DB fails at
+`0003_payment_providers` with `relation "users" does not exist`
+because the users table is only created by `create_all()`, not by any
+early migration. Restructuring 0001 to actually create the early
+schema would be a multi-PR migration refactor with non-trivial risk
+to existing prod state.
 
-**Estimate**: ~50 LOC of workflow YAML. ~1 hour.
+Round-trip-the-latest-migration (downgrade -1 then upgrade head) is
+also not viable: per contract M-2, all our recent migrations
+intentionally `raise NotImplementedError` on downgrade to protect
+prod data from automated rollbacks.
+
+**What we have instead** (already shipped in `deploy.yml`):
+- `alembic check` — model-vs-migration drift detection via autogen
+- `alembic upgrade head` on bootstrapped schema — idempotency check
+- The `transaction_per_migration=True` invariant pinned by
+  `test_alembic_env_config.py`
+
+Together these catch the drift class the backlog item worried about.
+The empty-DB gate stays a "known limitation" of the architecture.
 
 ### [INFRA] One-time VPS image cleanup
 
