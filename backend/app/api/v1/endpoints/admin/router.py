@@ -15,6 +15,7 @@ from app.api.v1.endpoints.admin import (
     lms as lms_admin,
     observability,
     uploads,
+    zoom as zoom_admin,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -28,6 +29,7 @@ admin_router.include_router(cms_ai.router,        prefix="/cms-ai",        tags=
 admin_router.include_router(lms_admin.router,     prefix="",                tags=["admin", "lms"])
 admin_router.include_router(uploads.router,       prefix="/uploads",       tags=["admin", "uploads"])
 admin_router.include_router(observability.router, prefix="/observability", tags=["admin", "observability"])
+admin_router.include_router(zoom_admin.router,    prefix="",               tags=["admin", "zoom"])
 admin_router.include_router(settings_ep.router,  prefix="/settings",      tags=["admin"])
 admin_router.include_router(llm_providers.router,    prefix="/llm-providers",     tags=["admin"])
 admin_router.include_router(payment_providers.router,prefix="/payment-providers", tags=["admin"])
