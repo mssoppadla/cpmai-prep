@@ -58,6 +58,7 @@ const GROUPS: NavGroupDef[] = [
     items: [
       { href: "/admin/courses",        label: "Courses", badge: "NEW" },
       { href: "/admin/course-categories", label: "Course Categories" },
+      { href: "/admin/sessions",       label: "Live Sessions", badge: "NEW" },
       { href: "/admin/exam-sets",      label: "Exam Sets" },
       { href: "/admin/questions",      label: "Questions" },
     ],

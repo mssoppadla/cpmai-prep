@@ -1316,3 +1316,107 @@ export interface DiskUsageOut {
     count?: number;
   }>;
 }
+
+
+// ==========================================================================
+// Zoom sessions (PR Z-A/B)
+// ==========================================================================
+/** Per-session control choices the admin makes. Defaults are PERMISSIVE
+ *  for learners — admin flips what they want to restrict. */
+export interface HostConfig {
+  mute_on_entry: boolean;
+  allow_self_unmute: boolean;
+  allow_video_toggle: boolean;
+  chat_mode: "open" | "admin_only" | "off";
+  screen_share_mode: "approval" | "all_users" | "host_only";
+  waiting_room: boolean;
+  lock_after_start: boolean;
+  auto_record: boolean;
+}
+
+export const DEFAULT_HOST_CONFIG: HostConfig = {
+  mute_on_entry: true,
+  allow_self_unmute: true,
+  allow_video_toggle: true,
+  chat_mode: "open",
+  screen_share_mode: "approval",
+  waiting_room: true,
+  lock_after_start: false,
+  auto_record: true,
+};
+
+export interface ZoomSessionCreateIn {
+  title: string;
+  description?: string | null;
+  scheduled_at: string;        // ISO datetime
+  duration_minutes: number;
+  course_id?: number | null;
+  host_config?: HostConfig;
+}
+
+export interface ZoomSessionUpdateIn {
+  title?: string;
+  description?: string | null;
+  scheduled_at?: string;
+  duration_minutes?: number;
+  course_id?: number | null;
+  host_config?: HostConfig;
+  status?: "draft" | "scheduled" | "live" | "ended" | "cancelled";
+}
+
+export interface ZoomSessionAdminOut {
+  id: number;
+  tenant_id: number;
+  course_id: number | null;
+  title: string;
+  description: string | null;
+  scheduled_at: string;
+  duration_minutes: number;
+  zoom_meeting_id: string | null;
+  zoom_join_url: string | null;
+  zoom_start_url: string | null;
+  status: "draft" | "scheduled" | "live" | "ended" | "cancelled";
+  host_config: HostConfig;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Public-facing slim view — no join URLs (URL-share defence). */
+export interface ZoomSessionPublicOut {
+  id: number;
+  course_id: number | null;
+  title: string;
+  description: string | null;
+  scheduled_at: string;
+  duration_minutes: number;
+  status: "scheduled" | "live" | "ended" | "cancelled";
+  host_config: HostConfig;
+}
+
+/** Returned by POST /lms/sessions/{id}/sdk-token. Feed straight into
+ *  the Zoom Web SDK's `client.join()` constructor. */
+export interface ZoomSDKTokenOut {
+  signature: string;
+  sdk_key: string;
+  meeting_number: string;
+  user_name: string;
+  role: number;          // 0 = participant
+  expires_at: string;
+}
+
+/** Archived recording metadata. The actual playback URL is issued
+ *  per-request by a separate endpoint (audit-logged). */
+export interface RecordingOut {
+  id: number;
+  zoom_session_id: number;
+  duration_seconds: number | null;
+  ready_at: string | null;
+  created_at: string;
+}
+
+export interface SignedRecordingPlaybackOut {
+  url: string;
+  expires_at: string;
+  duration_seconds: number | null;
+}
