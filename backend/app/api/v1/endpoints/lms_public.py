@@ -13,7 +13,7 @@ admin uploads is returned as-is.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -44,7 +44,7 @@ from app.schemas.lms import (
     LessonPublicOut, QuizAttemptOut, QuizAttemptSubmitIn, QuizQuestionOut,
 )
 from app.schemas.zoom import (
-    ZoomSDKTokenOut, ZoomSessionPublicOut,
+    SignedRecordingPlaybackOut, ZoomSDKTokenOut, ZoomSessionPublicOut,
 )
 from app.services.lms.scoring import (
     next_attempt_number, recalculate_completion, score_attempt,
@@ -857,3 +857,50 @@ def get_session_sdk_token(
               {"session_id": s.id, "meeting_id": s.zoom_meeting_id,
                "expires_at": signed.expires_at.isoformat()})
     return signed
+
+
+@router.get("/sessions/{session_id}/recording",
+            response_model=SignedRecordingPlaybackOut)
+def get_session_recording(
+    session_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mint a 1-hour signed playback URL for the latest recording of
+    this session. Each call is audit-logged so anomalous playback
+    patterns surface to ops.
+
+    The current implementation returns the relative `/uploads/...`
+    path directly because we're using local-disk storage; the frontend
+    `absoluteUploadUrl` helper turns it into a cross-origin URL.
+    When R2 lands (PR #9 follow-up), this swaps to a signed-URL flow
+    and the `expires_at` field becomes a hard limit.
+    """
+    s = db.query(ZoomSession).filter(
+        ZoomSession.id == session_id,
+        ZoomSession.tenant_id == get_current_tenant_id(),
+        ZoomSession.is_deleted.is_(False),
+    ).first()
+    if not s:
+        raise NotFoundError("Session not found")
+    if not _user_can_view_session(db, user, s):
+        raise NotFoundError("Session not found")
+
+    rec = (db.query(Recording)
+             .filter(Recording.zoom_session_id == s.id,
+                     Recording.tenant_id == get_current_tenant_id())
+             .order_by(Recording.created_at.desc())
+             .first())
+    if not rec:
+        raise NotFoundError("No recording available for this session yet")
+
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    audit_log(db, user.id, "zoom_session.recording_playback_issued",
+              {"session_id": s.id, "recording_id": rec.id,
+               "expires_at": expires_at.isoformat()})
+
+    return {
+        "url": rec.file_url,
+        "expires_at": expires_at,
+        "duration_seconds": rec.duration_seconds,
+    }
