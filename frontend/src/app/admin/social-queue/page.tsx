@@ -14,8 +14,28 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { admin, errMsg } from "@/lib/api";
-import type { CampaignRunOut } from "@/types/api";
+import { admin, content as contentApi, errMsg } from "@/lib/api";
+import type { CampaignRunOut, SiteChrome } from "@/types/api";
+
+
+/** Map of platform_key → configured profile URL (or null), driven by
+ *  /content/site. The mark-posted modal uses ONLY the platforms with
+ *  a non-empty URL — admin sees nothing they haven't configured.
+ *  Adding a new platform here means adding one settings field
+ *  (`site.<platform>_url`) on the backend AND one entry here. */
+function platformsFromChrome(chrome: Partial<SiteChrome> | null) {
+  if (!chrome) return [] as Array<{ key: string; label: string; profileUrl: string }>;
+  return [
+    chrome.linkedin_url   && { key: "linkedin",  label: "LinkedIn",   profileUrl: chrome.linkedin_url  },
+    chrome.twitter_url    && { key: "twitter",   label: "X / Twitter", profileUrl: chrome.twitter_url   },
+    chrome.youtube_url    && { key: "youtube",   label: "YouTube",    profileUrl: chrome.youtube_url   },
+    chrome.instagram_url  && { key: "instagram", label: "Instagram",  profileUrl: chrome.instagram_url },
+    chrome.facebook_url   && { key: "facebook",  label: "Facebook",   profileUrl: chrome.facebook_url  },
+    chrome.threads_url    && { key: "threads",   label: "Threads",    profileUrl: chrome.threads_url   },
+    chrome.tiktok_url     && { key: "tiktok",    label: "TikTok",     profileUrl: chrome.tiktok_url    },
+    chrome.github_url     && { key: "github",    label: "GitHub",     profileUrl: chrome.github_url    },
+  ].filter(Boolean) as Array<{ key: string; label: string; profileUrl: string }>;
+}
 
 
 function fmtDateTime(iso: string): string {
@@ -48,6 +68,17 @@ export default function SocialQueuePage() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [markPostedRun, setMarkPostedRun] = useState<CampaignRunOut | null>(null);
   const [expandError, setExpandError] = useState<number | null>(null);
+  // Configured platforms — fetched once on mount. The mark-posted modal
+  // uses ONLY these so the admin doesn't see "post to LinkedIn" if they
+  // haven't set their LinkedIn URL.
+  const [platforms, setPlatforms] = useState<
+    Array<{ key: string; label: string; profileUrl: string }>
+  >([]);
+  useEffect(() => {
+    contentApi.site()
+      .then((s) => setPlatforms(platformsFromChrome(s)))
+      .catch((e) => console.error("[social-queue] chrome load", e));
+  }, []);
 
   const reload = useCallback(async () => {
     setErr(null);
@@ -181,6 +212,7 @@ export default function SocialQueuePage() {
       {markPostedRun && (
         <MarkPostedModal
           run={markPostedRun}
+          platforms={platforms}
           onCancel={() => setMarkPostedRun(null)}
           onSaved={async () => { setMarkPostedRun(null); await reload(); }}
         />
@@ -190,8 +222,9 @@ export default function SocialQueuePage() {
 }
 
 
-function MarkPostedModal({ run, onCancel, onSaved }: {
+function MarkPostedModal({ run, platforms, onCancel, onSaved }: {
   run: CampaignRunOut;
+  platforms: Array<{ key: string; label: string; profileUrl: string }>;
   onCancel: () => void;
   onSaved: () => Promise<void> | void;
 }) {
@@ -199,6 +232,15 @@ function MarkPostedModal({ run, onCancel, onSaved }: {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // When platform changes, suggest the profile URL as a starting point
+  // for the post URL (admin overwrites with the actual post permalink
+  // after posting). Saves a copy-paste roundtrip.
+  function onPlatformChange(key: string) {
+    setPlatform(key);
+    const p = platforms.find((x) => x.key === key);
+    if (p && !url) setUrl(p.profileUrl);
+  }
 
   async function submit() {
     if (!platform.trim()) { setErr("Platform is required."); return; }
@@ -227,22 +269,33 @@ function MarkPostedModal({ run, onCancel, onSaved }: {
             {err}
           </div>
         )}
-        <label className="block text-xs font-medium text-slate-700 mb-1">Platform *</label>
-        <select value={platform} onChange={(e) => setPlatform(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white mb-3">
-          <option value="">— Select —</option>
-          <option value="linkedin">LinkedIn</option>
-          <option value="twitter">X / Twitter</option>
-          <option value="instagram">Instagram</option>
-          <option value="youtube">YouTube</option>
-          <option value="facebook">Facebook</option>
-          <option value="threads">Threads</option>
-          <option value="other">Other</option>
-        </select>
-        <label className="block text-xs font-medium text-slate-700 mb-1">URL (optional)</label>
-        <input value={url} onChange={(e) => setUrl(e.target.value)}
-               placeholder="https://linkedin.com/posts/..."
-               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-4" />
+
+        {platforms.length === 0 ? (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-lg text-sm mb-4">
+            No social platforms configured yet. Add your handles in{" "}
+            <Link href="/admin/settings" className="text-indigo-600 hover:underline">
+              /admin/settings
+            </Link>{" "}
+            (the <code className="text-xs">site.*_url</code> keys) and they&apos;ll appear here.
+          </div>
+        ) : (
+          <>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Platform *</label>
+            <select value={platform} onChange={(e) => onPlatformChange(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white mb-3">
+              <option value="">— Select —</option>
+              {platforms.map((p) => (
+                <option key={p.key} value={p.key}>{p.label}</option>
+              ))}
+              <option value="other">Other (manual)</option>
+            </select>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Post URL (optional)</label>
+            <input value={url} onChange={(e) => setUrl(e.target.value)}
+                   placeholder="https://linkedin.com/posts/..."
+                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-4" />
+          </>
+        )}
+
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} disabled={busy}
                   className="px-3 py-2 text-sm border border-slate-300 rounded hover:bg-slate-50">

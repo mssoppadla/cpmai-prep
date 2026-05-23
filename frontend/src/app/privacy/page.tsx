@@ -12,6 +12,7 @@
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import type { SiteChrome } from "@/types/api";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -21,7 +22,25 @@ export const metadata: Metadata = {
 
 const LAST_UPDATED = "2026-05-21";
 
-export default function PrivacyPage() {
+async function getChrome(): Promise<Partial<SiteChrome>> {
+  try {
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+    const r = await fetch(`${base}/content/site`, { next: { revalidate: 300 } });
+    if (!r.ok) return {};
+    return await r.json();
+  } catch {
+    return {};
+  }
+}
+
+
+export default async function PrivacyPage() {
+  const chrome = await getChrome();
+  // privacy_email falls back to support_email server-side. Final
+  // frontend fallback to a placeholder so the page renders even if
+  // both are unconfigured.
+  const privacyEmail = chrome.privacy_email || chrome.support_email
+    || "privacy@cpmaiexamprep.com";
   return (
     <>
       <SiteHeader />
@@ -146,8 +165,8 @@ export default function PrivacyPage() {
           <p>
             Exercise these rights through your account settings, or by
             emailing us at{" "}
-            <a href="mailto:privacy@cpmaiexamprep.com" className="text-indigo-600 hover:underline">
-              privacy@cpmaiexamprep.com
+            <a href={`mailto:${privacyEmail}`} className="text-indigo-600 hover:underline">
+              {privacyEmail}
             </a>
             . We respond within 30 days.
           </p>
@@ -184,8 +203,8 @@ export default function PrivacyPage() {
           <p>
             For privacy questions, data-rights requests, or breach
             notifications, reach us at{" "}
-            <a href="mailto:privacy@cpmaiexamprep.com" className="text-indigo-600 hover:underline">
-              privacy@cpmaiexamprep.com
+            <a href={`mailto:${privacyEmail}`} className="text-indigo-600 hover:underline">
+              {privacyEmail}
             </a>
             .
           </p>

@@ -19,6 +19,7 @@
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import type { SiteChrome } from "@/types/api";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
@@ -28,7 +29,24 @@ export const metadata: Metadata = {
 
 const LAST_UPDATED = "2026-05-21";
 
-export default function TermsPage() {
+/** Server-side fetch of the chrome so contact emails reflect what the
+ *  admin configured in /admin/settings. Falls back to the hardcoded
+ *  defaults so this page can never crash on a chrome-endpoint outage. */
+async function getChrome(): Promise<Partial<SiteChrome>> {
+  try {
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+    const r = await fetch(`${base}/content/site`, { next: { revalidate: 300 } });
+    if (!r.ok) return {};
+    return await r.json();
+  } catch {
+    return {};
+  }
+}
+
+
+export default async function TermsPage() {
+  const chrome = await getChrome();
+  const supportEmail = chrome.support_email || "support@cpmaiexamprep.com";
   return (
     <>
       <SiteHeader />
@@ -207,8 +225,8 @@ export default function TermsPage() {
         <Section title="15. Contact">
           <p>
             Questions about these Terms? Reach us at{" "}
-            <a href="mailto:support@cpmaiexamprep.com" className="text-indigo-600 hover:underline">
-              support@cpmaiexamprep.com
+            <a href={`mailto:${supportEmail}`} className="text-indigo-600 hover:underline">
+              {supportEmail}
             </a>
             .
           </p>

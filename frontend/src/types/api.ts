@@ -760,9 +760,23 @@ export interface SiteChrome {
   brand_name: string;
   tagline: string;
   support_email: string;
+  /** Dedicated privacy contact. Falls back to support_email server-side
+   *  if not configured separately. Privacy Policy page links here. */
+  privacy_email: string;
+  /** Public contact phone (optional). Empty = hide phone link. */
+  contact_phone: string;
+  /** Social handles — empty string = platform hidden across the site.
+   *  Each MUST be the FULL profile URL (https://...) when set; the
+   *  footer link, JSON-LD sameAs SEO array, and social-queue UI all
+   *  consume the value as-is. */
   linkedin_url: string;
   youtube_url: string;
   twitter_url: string;
+  instagram_url: string;
+  facebook_url: string;
+  threads_url: string;
+  tiktok_url: string;
+  github_url: string;
   copyright_text: string;
   show_pricing_link: boolean;
   /** Subtitle shown under "CPMAI Assistant" in the chat-widget header. */
