@@ -31,3 +31,4 @@ from app.models.lms import (                                       # noqa
     LmsQuizAttempt, LmsQuizAttemptAnswer,
 )
 from app.models.zoom import ZoomSession, Recording                  # noqa
+from app.models.social import Campaign, CampaignRun                  # noqa
