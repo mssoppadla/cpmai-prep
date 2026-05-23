@@ -128,10 +128,12 @@ def create_session(
         status="draft",
         created_by=admin.id,
     )
-    db.add(s); db.flush()
+    db.add(s)
 
     # Best-effort: if Zoom is configured, publish immediately. If not,
     # leave as draft — admin can click "Publish" later after configuring.
+    # Mutates `s` in place (sets zoom_meeting_id, status='scheduled');
+    # commits below pick up the modifications regardless of the path.
     try:
         _publish_to_zoom(s)
     except ZoomNotConfigured:
@@ -145,7 +147,8 @@ def create_session(
             f"Zoom rejected the meeting: {e.body!r}"
         ) from e
 
-    db.commit(); db.refresh(s)
+    db.commit()
+    db.refresh(s)
     audit_log(db, admin.id, "zoom_session.created",
               {"id": s.id, "status": s.status,
                "zoom_meeting_id": s.zoom_meeting_id})

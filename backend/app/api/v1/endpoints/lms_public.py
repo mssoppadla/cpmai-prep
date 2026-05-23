@@ -747,14 +747,19 @@ def _user_can_view_session(
     if s.course_id is not None:
         # Course-linked → require enrollment on that course
         return _active_enrollment(db, user, s.course_id) is not None
-    # Standalone session → require ANY active subscription
+    # Standalone session → require ANY active subscription.
+    # NOTE: Subscription is a pre-multitenancy model and doesn't have a
+    # `tenant_id` column (per `app/models/subscription.py`). Tenancy
+    # scope is enforced upstream by the auth layer (user.tenant_id) plus
+    # the surrounding zoom_session query (which is tenant-scoped). When
+    # Subscription gains tenant_id in a future migration, add the filter
+    # here for defense-in-depth.
     now = datetime.now(timezone.utc)
     return db.query(Subscription.id).filter(
         Subscription.user_id == user.id,
         Subscription.revoked_at.is_(None),
         (Subscription.expires_at.is_(None)) | (Subscription.expires_at > now),
         Subscription.status == "active",
-        Subscription.tenant_id == get_current_tenant_id(),
     ).first() is not None
 
 
