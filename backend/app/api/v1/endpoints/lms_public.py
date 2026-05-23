@@ -13,7 +13,7 @@ admin uploads is returned as-is.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -36,14 +36,21 @@ from app.models.lms import (
 from app.models.plan import PlanCourse
 from app.models.subscription import Subscription
 from app.models.user import User
+from app.models.zoom import Recording, ZoomSession
 from app.schemas.lms import (
     CourseAnnouncementOut, CoursePublicOut, CourseReviewOut,
     CourseReviewUpsertIn, EnrollmentOut, LessonFileOut, LessonNoteOut,
     LessonNoteUpsertIn, LessonProgressOut, LessonProgressUpdateIn,
     LessonPublicOut, QuizAttemptOut, QuizAttemptSubmitIn, QuizQuestionOut,
 )
+from app.schemas.zoom import (
+    SignedRecordingPlaybackOut, ZoomSDKTokenOut, ZoomSessionPublicOut,
+)
 from app.services.lms.scoring import (
     next_attempt_number, recalculate_completion, score_attempt,
+)
+from app.services.zoom_integration import (
+    ZoomNotConfigured, zoom_client,
 )
 
 
@@ -716,3 +723,189 @@ def list_my_attempts(
                       LmsQuizAttempt.quiz_id == quiz.id)
               .order_by(LmsQuizAttempt.attempt_number.desc())
               .all())
+
+
+# ==========================================================================
+# ZOOM SESSIONS — public access (subscription-gated)
+# ==========================================================================
+# A learner sees only sessions that:
+#   1. Are NOT in draft state (admin hasn't published yet)
+#   2. Are NOT soft-deleted
+#   3. If course_id is set → they have an active enrollment on that course
+#   4. If course_id is NULL (standalone) → they have ANY active subscription
+#
+# Joining a live session goes through /lms/sessions/{id}/sdk-token,
+# which mints a 30-minute JWT bound to user + meeting_id. The session's
+# raw zoom_join_url is NEVER returned to the frontend — that's what
+# prevents URL-sharing with non-subscribers (a learner can't copy a
+# join link out of the page, because there is no join link in the page).
+
+def _user_can_view_session(
+    db: Session, user: User, s: ZoomSession,
+) -> bool:
+    """Subscription gate for a single session."""
+    if s.course_id is not None:
+        # Course-linked → require enrollment on that course
+        return _active_enrollment(db, user, s.course_id) is not None
+    # Standalone session → require ANY active subscription.
+    # NOTE: Subscription is a pre-multitenancy model and doesn't have a
+    # `tenant_id` column (per `app/models/subscription.py`). Tenancy
+    # scope is enforced upstream by the auth layer (user.tenant_id) plus
+    # the surrounding zoom_session query (which is tenant-scoped). When
+    # Subscription gains tenant_id in a future migration, add the filter
+    # here for defense-in-depth.
+    now = datetime.now(timezone.utc)
+    return db.query(Subscription.id).filter(
+        Subscription.user_id == user.id,
+        Subscription.revoked_at.is_(None),
+        (Subscription.expires_at.is_(None)) | (Subscription.expires_at > now),
+        Subscription.status == "active",
+    ).first() is not None
+
+
+@router.get("/sessions", response_model=list[ZoomSessionPublicOut])
+def list_my_sessions(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    course_id: int | None = Query(None,
+        description="Optional: filter to a single course's sessions"),
+    include_past: bool = Query(False,
+        description="Default false = only upcoming + currently live"),
+):
+    """List sessions the user can see — published, non-deleted, and
+    either course-enrolled or covered by an active subscription.
+
+    Returns lightweight payload (no zoom_join_url). Frontend uses
+    `id` + `status` to decide whether to render a 'Join live' button
+    (status='live'), a 'Starts in N minutes' countdown (status='scheduled',
+    scheduled_at in the future), or a 'Past' marker.
+    """
+    q = db.query(ZoomSession).filter(
+        ZoomSession.tenant_id == get_current_tenant_id(),
+        ZoomSession.is_deleted.is_(False),
+        ZoomSession.status.in_(["scheduled", "live", "ended"]),
+    )
+    if course_id is not None:
+        q = q.filter(ZoomSession.course_id == course_id)
+    if not include_past:
+        q = q.filter(ZoomSession.status.in_(["scheduled", "live"]))
+
+    sessions = q.order_by(ZoomSession.scheduled_at.asc()).all()
+    # Filter to ones this user can actually see — done in Python because
+    # the access rule depends on course enrollment (a join) AND optional
+    # subscription bundle (another join). Keeping it simple beats a
+    # complex SQL OR.
+    return [s for s in sessions if _user_can_view_session(db, user, s)]
+
+
+@router.get("/sessions/{session_id}", response_model=ZoomSessionPublicOut)
+def get_my_session(
+    session_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    s = db.query(ZoomSession).filter(
+        ZoomSession.id == session_id,
+        ZoomSession.tenant_id == get_current_tenant_id(),
+        ZoomSession.is_deleted.is_(False),
+    ).first()
+    if not s or s.status == "draft":
+        raise NotFoundError("Session not found")
+    if not _user_can_view_session(db, user, s):
+        raise NotFoundError("Session not found")  # 404, not 403 — opaque
+    return s
+
+
+@router.post("/sessions/{session_id}/sdk-token",
+             response_model=ZoomSDKTokenOut)
+def get_session_sdk_token(
+    session_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mint a Zoom Meeting SDK JWT for this user + session.
+
+    Each token is bound to the user + meeting_id + 30-minute TTL.
+    Forwarded URLs (sharing this token with a non-subscriber) fail
+    because the receiver's frontend doesn't have a valid CPMAI auth
+    token to even reach this endpoint.
+
+    Audit-logged so admin can review any "weird join pattern" later.
+    """
+    s = db.query(ZoomSession).filter(
+        ZoomSession.id == session_id,
+        ZoomSession.tenant_id == get_current_tenant_id(),
+        ZoomSession.is_deleted.is_(False),
+    ).first()
+    if not s:
+        raise NotFoundError("Session not found")
+    if not s.zoom_meeting_id:
+        raise ValidationError(
+            "This session hasn't been published to Zoom yet. "
+            "Try again later — the admin is still setting it up."
+        )
+    if s.status not in ("scheduled", "live"):
+        raise ValidationError(
+            f"Session is not joinable in '{s.status}' state."
+        )
+    if not _user_can_view_session(db, user, s):
+        raise NotFoundError("Session not found")
+    try:
+        signed = zoom_client.sign_sdk_token(
+            meeting_number=s.zoom_meeting_id,
+            user_name=user.name or user.email.split("@")[0],
+            role=0,  # always participant; admin host gets a separate path
+        )
+    except ZoomNotConfigured as e:
+        raise ValidationError(str(e)) from e
+    audit_log(db, user.id, "zoom_session.sdk_token_issued",
+              {"session_id": s.id, "meeting_id": s.zoom_meeting_id,
+               "expires_at": signed.expires_at.isoformat()})
+    return signed
+
+
+@router.get("/sessions/{session_id}/recording",
+            response_model=SignedRecordingPlaybackOut)
+def get_session_recording(
+    session_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mint a 1-hour signed playback URL for the latest recording of
+    this session. Each call is audit-logged so anomalous playback
+    patterns surface to ops.
+
+    The current implementation returns the relative `/uploads/...`
+    path directly because we're using local-disk storage; the frontend
+    `absoluteUploadUrl` helper turns it into a cross-origin URL.
+    When R2 lands (PR #9 follow-up), this swaps to a signed-URL flow
+    and the `expires_at` field becomes a hard limit.
+    """
+    s = db.query(ZoomSession).filter(
+        ZoomSession.id == session_id,
+        ZoomSession.tenant_id == get_current_tenant_id(),
+        ZoomSession.is_deleted.is_(False),
+    ).first()
+    if not s:
+        raise NotFoundError("Session not found")
+    if not _user_can_view_session(db, user, s):
+        raise NotFoundError("Session not found")
+
+    rec = (db.query(Recording)
+             .filter(Recording.zoom_session_id == s.id,
+                     Recording.tenant_id == get_current_tenant_id())
+             .order_by(Recording.created_at.desc())
+             .first())
+    if not rec:
+        raise NotFoundError("No recording available for this session yet")
+
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    audit_log(db, user.id, "zoom_session.recording_playback_issued",
+              {"session_id": s.id, "recording_id": rec.id,
+               "expires_at": expires_at.isoformat()})
+
+    return {
+        "url": rec.file_url,
+        "expires_at": expires_at,
+        "duration_seconds": rec.duration_seconds,
+    }

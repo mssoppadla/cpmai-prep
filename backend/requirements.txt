@@ -62,3 +62,10 @@ maxminddb==2.6.2
 # against the current minute. Pure-Python, no native deps. Same library
 # that Apache Airflow + many other schedulers use; well-tested.
 croniter==2.0.5
+
+# APScheduler — drives the social-automation Campaign workflow runs.
+# AsyncIOScheduler is started in the FastAPI lifespan; jobs are loaded
+# from the campaigns table on boot + re-loaded on edit. Pure-Python.
+# We pin <4.0 because 4.0 changed the API surface significantly and
+# we haven't re-validated the lifespan integration against it.
+apscheduler>=3.10,<4.0

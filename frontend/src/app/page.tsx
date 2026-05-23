@@ -18,7 +18,7 @@
  * preview a CMS landing in admin without it going live. Flipping the
  * setting in /admin/settings is the "publish landing" action.
  */
-import type { ContentPagePublicOut } from "@/types/api";
+import type { ContentPagePublicOut, SiteChrome } from "@/types/api";
 import { JsonLd, organizationSchema, courseSchema, faqSchema } from "@/components/seo/JsonLd";
 import { LeadCaptureForm } from "@/components/lead/LeadCaptureForm";
 import { SiteHeader } from "@/components/layout/SiteHeader";
@@ -117,16 +117,19 @@ export default async function Landing() {
   }
 
   // 2. Default — render the existing marketing landing.
-  const [faqs, landing] = await Promise.all([
+  // Pull site chrome in parallel so JSON-LD's organization/sameAs etc.
+  // reflect whatever the admin has configured in /admin/settings.
+  const [faqs, landing, chrome] = await Promise.all([
     fetchJson<typeof FALLBACK_FAQS>("/content/faqs", FALLBACK_FAQS),
     fetchJson<typeof FALLBACK_LANDING>("/content/landing", FALLBACK_LANDING),
+    fetchJson<Partial<SiteChrome>>("/content/site", {}),
   ]);
   const faqPairs = faqs.map(f => ({ q: f.question, a: f.answer }));
 
   return (
     <>
-      <JsonLd data={organizationSchema} />
-      <JsonLd data={courseSchema} />
+      <JsonLd data={organizationSchema({ chrome })} />
+      <JsonLd data={courseSchema({ chrome })} />
       <JsonLd data={faqSchema(faqPairs)} />
 
       <SiteHeader active="home" />

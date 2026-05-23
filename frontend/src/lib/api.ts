@@ -40,6 +40,11 @@ import type {
   GeoIPStatusOut, GeoIPRefreshOut, GeoIPTestKeyOut, GeoIPLookupOut,
   GeoIPSchedulePreviewOut,
   FXStatusOut, FXRefreshOut,
+  ZoomSessionCreateIn, ZoomSessionUpdateIn,
+  ZoomSessionAdminOut, ZoomSessionPublicOut,
+  ZoomSDKTokenOut, RecordingOut, SignedRecordingPlaybackOut,
+  CampaignCreateIn, CampaignUpdateIn, CampaignOut,
+  CampaignRunOut, MarkPostedIn, WorkflowMetaOut,
 } from "@/types/api";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -653,6 +658,40 @@ export const lmsPublic = {
       `/lms/quizzes/${lessonId}/attempts`, { authed: true });
     return data;
   },
+  // ─────── Zoom sessions (subscription-gated public reads) ───────
+  /** Sessions the current user can see — drafts hidden, gated by
+   *  course enrollment (for course-linked sessions) or any active
+   *  subscription (for standalone sessions). */
+  async listSessions(p?: { course_id?: number; include_past?: boolean }) {
+    const params: Record<string, string | number | boolean> = {};
+    if (p?.course_id !== undefined) params.course_id = p.course_id;
+    if (p?.include_past) params.include_past = true;
+    const { data } = await request<ZoomSessionPublicOut[]>(
+      `/lms/sessions${qs(params)}`, { authed: true });
+    return data;
+  },
+  async getSession(id: number) {
+    const { data } = await request<ZoomSessionPublicOut>(
+      `/lms/sessions/${id}`, { authed: true });
+    return data;
+  },
+  /** Mint a Zoom Web SDK JWT for this user + session. The frontend
+   *  feeds the returned signature + sdk_key into the Meeting SDK's
+   *  client.join() call. 30-minute TTL. */
+  async getSessionSDKToken(id: number) {
+    const { data } = await request<ZoomSDKTokenOut>(
+      `/lms/sessions/${id}/sdk-token`,
+      { method: "POST", authed: true });
+    return data;
+  },
+  /** Get a 1-hour playback URL for the latest recording of this
+   *  session. Each call is audit-logged; calling again issues a
+   *  fresh URL. */
+  async getSessionRecording(id: number) {
+    const { data } = await request<SignedRecordingPlaybackOut>(
+      `/lms/sessions/${id}/recording`, { authed: true });
+    return data;
+  },
 };
 
 
@@ -1120,6 +1159,115 @@ export const admin = {
         throw new ApiError(r.status, body.error ?? { code: "upload_failed", message: "Upload failed" });
       }
       return r.json();
+    },
+  },
+  zoom: {
+    /** Admin Zoom session management. Mounted at /api/v1/admin/sessions
+     *  (the prefix is empty in admin/router.py because /admin is already
+     *  added by the umbrella admin_router). */
+    async listSessions(p?: {
+      course_id?: number; status?: string;
+      limit?: number; offset?: number;
+    }) {
+      const { data } = await request<ZoomSessionAdminOut[]>(
+        `/admin/sessions${qs(p)}`, { authed: true });
+      return data;
+    },
+    async getSession(id: number) {
+      const { data } = await request<ZoomSessionAdminOut>(
+        `/admin/sessions/${id}`, { authed: true });
+      return data;
+    },
+    async createSession(payload: ZoomSessionCreateIn) {
+      const { data } = await request<ZoomSessionAdminOut>(
+        `/admin/sessions`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    async publishSession(id: number) {
+      const { data } = await request<ZoomSessionAdminOut>(
+        `/admin/sessions/${id}/publish`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    async updateSession(id: number, payload: ZoomSessionUpdateIn) {
+      const { data } = await request<ZoomSessionAdminOut>(
+        `/admin/sessions/${id}`,
+        { method: "PATCH", json: payload, authed: true });
+      return data;
+    },
+    async deleteSession(id: number) {
+      await request(`/admin/sessions/${id}`,
+        { method: "DELETE", authed: true });
+    },
+    async listRecordings(sessionId: number) {
+      const { data } = await request<RecordingOut[]>(
+        `/admin/sessions/${sessionId}/recordings`, { authed: true });
+      return data;
+    },
+  },
+  social: {
+    /** Admin social-automation campaigns + queue. */
+    async listCampaigns(p?: { active?: boolean; workflow_type?: string }) {
+      const { data } = await request<CampaignOut[]>(
+        `/admin/campaigns${qs(p)}`, { authed: true });
+      return data;
+    },
+    async getCampaign(id: number) {
+      const { data } = await request<CampaignOut>(
+        `/admin/campaigns/${id}`, { authed: true });
+      return data;
+    },
+    async createCampaign(payload: CampaignCreateIn) {
+      const { data } = await request<CampaignOut>(
+        `/admin/campaigns`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    async updateCampaign(id: number, payload: CampaignUpdateIn) {
+      const { data } = await request<CampaignOut>(
+        `/admin/campaigns/${id}`,
+        { method: "PATCH", json: payload, authed: true });
+      return data;
+    },
+    async deleteCampaign(id: number) {
+      await request(`/admin/campaigns/${id}`,
+        { method: "DELETE", authed: true });
+    },
+    async runCampaignNow(id: number) {
+      const { data } = await request<CampaignRunOut>(
+        `/admin/campaigns/${id}/run-now`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    async listCampaignRuns(id: number, limit = 50) {
+      const { data } = await request<CampaignRunOut[]>(
+        `/admin/campaigns/${id}/runs?limit=${limit}`, { authed: true });
+      return data;
+    },
+    async listWorkflows() {
+      const { data } = await request<WorkflowMetaOut[]>(
+        `/admin/campaigns/workflows`, { authed: true });
+      return data;
+    },
+    /** Social queue feed for /admin/social-queue. */
+    async listQueue(status?: string) {
+      const params = status ? { status } : undefined;
+      const { data } = await request<CampaignRunOut[]>(
+        `/admin/social-queue${qs(params)}`, { authed: true });
+      return data;
+    },
+    async markPosted(runId: number, payload: MarkPostedIn) {
+      const { data } = await request<CampaignRunOut>(
+        `/admin/social-queue/${runId}/mark-posted`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    async retryRun(runId: number) {
+      const { data } = await request<CampaignRunOut>(
+        `/admin/social-queue/${runId}/retry`,
+        { method: "POST", authed: true });
+      return data;
     },
   },
   observability: {

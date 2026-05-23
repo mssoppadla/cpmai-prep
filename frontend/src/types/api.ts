@@ -760,9 +760,23 @@ export interface SiteChrome {
   brand_name: string;
   tagline: string;
   support_email: string;
+  /** Dedicated privacy contact. Falls back to support_email server-side
+   *  if not configured separately. Privacy Policy page links here. */
+  privacy_email: string;
+  /** Public contact phone (optional). Empty = hide phone link. */
+  contact_phone: string;
+  /** Social handles — empty string = platform hidden across the site.
+   *  Each MUST be the FULL profile URL (https://...) when set; the
+   *  footer link, JSON-LD sameAs SEO array, and social-queue UI all
+   *  consume the value as-is. */
   linkedin_url: string;
   youtube_url: string;
   twitter_url: string;
+  instagram_url: string;
+  facebook_url: string;
+  threads_url: string;
+  tiktok_url: string;
+  github_url: string;
   copyright_text: string;
   show_pricing_link: boolean;
   /** Subtitle shown under "CPMAI Assistant" in the chat-widget header. */
@@ -1315,4 +1329,175 @@ export interface DiskUsageOut {
     bytes?: number;   // backend may populate in a future revision
     count?: number;
   }>;
+}
+
+
+// ==========================================================================
+// Zoom sessions (PR Z-A/B)
+// ==========================================================================
+/** Per-session control choices the admin makes. Defaults are PERMISSIVE
+ *  for learners — admin flips what they want to restrict. */
+export interface HostConfig {
+  mute_on_entry: boolean;
+  allow_self_unmute: boolean;
+  allow_video_toggle: boolean;
+  chat_mode: "open" | "admin_only" | "off";
+  screen_share_mode: "approval" | "all_users" | "host_only";
+  waiting_room: boolean;
+  lock_after_start: boolean;
+  auto_record: boolean;
+}
+
+export const DEFAULT_HOST_CONFIG: HostConfig = {
+  mute_on_entry: true,
+  allow_self_unmute: true,
+  allow_video_toggle: true,
+  chat_mode: "open",
+  screen_share_mode: "approval",
+  waiting_room: true,
+  lock_after_start: false,
+  auto_record: true,
+};
+
+export interface ZoomSessionCreateIn {
+  title: string;
+  description?: string | null;
+  scheduled_at: string;        // ISO datetime
+  duration_minutes: number;
+  course_id?: number | null;
+  host_config?: HostConfig;
+}
+
+export interface ZoomSessionUpdateIn {
+  title?: string;
+  description?: string | null;
+  scheduled_at?: string;
+  duration_minutes?: number;
+  course_id?: number | null;
+  host_config?: HostConfig;
+  status?: "draft" | "scheduled" | "live" | "ended" | "cancelled";
+}
+
+export interface ZoomSessionAdminOut {
+  id: number;
+  tenant_id: number;
+  course_id: number | null;
+  title: string;
+  description: string | null;
+  scheduled_at: string;
+  duration_minutes: number;
+  zoom_meeting_id: string | null;
+  zoom_join_url: string | null;
+  zoom_start_url: string | null;
+  status: "draft" | "scheduled" | "live" | "ended" | "cancelled";
+  host_config: HostConfig;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Public-facing slim view — no join URLs (URL-share defence). */
+export interface ZoomSessionPublicOut {
+  id: number;
+  course_id: number | null;
+  title: string;
+  description: string | null;
+  scheduled_at: string;
+  duration_minutes: number;
+  status: "scheduled" | "live" | "ended" | "cancelled";
+  host_config: HostConfig;
+}
+
+/** Returned by POST /lms/sessions/{id}/sdk-token. Feed straight into
+ *  the Zoom Web SDK's `client.join()` constructor. */
+export interface ZoomSDKTokenOut {
+  signature: string;
+  sdk_key: string;
+  meeting_number: string;
+  user_name: string;
+  role: number;          // 0 = participant
+  expires_at: string;
+}
+
+/** Archived recording metadata. The actual playback URL is issued
+ *  per-request by a separate endpoint (audit-logged). */
+export interface RecordingOut {
+  id: number;
+  zoom_session_id: number;
+  duration_seconds: number | null;
+  ready_at: string | null;
+  created_at: string;
+}
+
+export interface SignedRecordingPlaybackOut {
+  url: string;
+  expires_at: string;
+  duration_seconds: number | null;
+}
+
+
+// ==========================================================================
+// Social automation campaigns (S-A/B)
+// ==========================================================================
+export type WorkflowType =
+  | "weekly_content"
+  | "session_reminder"
+  | "auto_clip"
+  | "recording_published";
+
+export interface CampaignCreateIn {
+  name: string;
+  description?: string | null;
+  workflow_type: WorkflowType;
+  schedule_cron?: string | null;
+  config_json?: Record<string, unknown>;
+  active?: boolean;
+}
+
+export interface CampaignUpdateIn {
+  name?: string;
+  description?: string | null;
+  workflow_type?: WorkflowType;
+  schedule_cron?: string | null;
+  config_json?: Record<string, unknown>;
+  active?: boolean;
+}
+
+export interface CampaignOut {
+  id: number;
+  tenant_id: number;
+  name: string;
+  description: string | null;
+  workflow_type: WorkflowType;
+  schedule_cron: string | null;
+  config_json: Record<string, unknown>;
+  active: boolean;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignRunOut {
+  id: number;
+  tenant_id: number;
+  campaign_id: number;
+  started_at: string;
+  finished_at: string | null;
+  status: "queued" | "running" | "done" | "posted" | "failed" | "cancelled";
+  generated_content: string | null;
+  posted_at: string | null;
+  posted_to_platforms: Array<{ platform: string; url?: string | null; ts: string }>;
+  error: string | null;
+}
+
+export interface MarkPostedIn {
+  platform: string;
+  url?: string | null;
+}
+
+export interface WorkflowMetaOut {
+  workflow_type: WorkflowType;
+  label: string;
+  description: string;
+  config_schema: Record<string, unknown>;
 }

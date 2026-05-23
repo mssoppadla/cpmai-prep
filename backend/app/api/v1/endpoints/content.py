@@ -45,9 +45,25 @@ def site_chrome():
             "Pass the CPMAI certification on your first attempt.",
         ),
         "support_email": settings_store.get_str("site.support_email", ""),
-        "linkedin_url": settings_store.get_str("site.linkedin_url", ""),
-        "youtube_url": settings_store.get_str("site.youtube_url", ""),
-        "twitter_url": settings_store.get_str("site.twitter_url", ""),
+        # Dedicated privacy contact — falls back to support_email if
+        # not configured. Privacy Policy page links here directly.
+        "privacy_email": settings_store.get_str(
+            "site.privacy_email",
+            settings_store.get_str("site.support_email", ""),
+        ),
+        "contact_phone": settings_store.get_str("site.contact_phone", ""),
+        # Social handles — empty string = platform hidden in UI.
+        # When a value is set, it MUST be the full profile URL
+        # (https://...) — both the footer link and the JSON-LD
+        # `sameAs` SEO array consume it as-is.
+        "linkedin_url":  settings_store.get_str("site.linkedin_url",  ""),
+        "youtube_url":   settings_store.get_str("site.youtube_url",   ""),
+        "twitter_url":   settings_store.get_str("site.twitter_url",   ""),
+        "instagram_url": settings_store.get_str("site.instagram_url", ""),
+        "facebook_url":  settings_store.get_str("site.facebook_url",  ""),
+        "threads_url":   settings_store.get_str("site.threads_url",   ""),
+        "tiktok_url":    settings_store.get_str("site.tiktok_url",    ""),
+        "github_url":    settings_store.get_str("site.github_url",    ""),
         "copyright_text": settings_store.get_str(
             "site.copyright_text",
             "© 2026 CPMAI Prep. All rights reserved.",
