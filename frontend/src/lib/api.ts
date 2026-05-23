@@ -682,6 +682,14 @@ export const lmsPublic = {
       { method: "POST", authed: true });
     return data;
   },
+  /** Get a 1-hour playback URL for the latest recording of this
+   *  session. Each call is audit-logged; calling again issues a
+   *  fresh URL. */
+  async getSessionRecording(id: number) {
+    const { data } = await request<SignedRecordingPlaybackOut>(
+      `/lms/sessions/${id}/recording`, { authed: true });
+    return data;
+  },
 };
 
 
