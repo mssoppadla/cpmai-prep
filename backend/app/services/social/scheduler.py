@@ -39,6 +39,7 @@ from typing import Optional
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.models.social import Campaign, CampaignRun
@@ -132,50 +133,65 @@ def _job_id(campaign_id: int) -> str:
     return f"campaign:{campaign_id}"
 
 
-def execute_campaign(campaign_id: int) -> Optional[int]:
+def execute_campaign(
+    campaign_id: int,
+    db: Optional[Session] = None,
+) -> Optional[int]:
     """Fire a campaign. Creates a CampaignRun row, invokes the
     workflow runner, updates the run row to ``done`` or ``failed``.
 
     Returns the run id (useful for manual-trigger callers + tests).
     Returns None if the campaign vanished or was paused between
     scheduler-tick and execution.
+
+    ``db``: when None (the APScheduler-driven path) we open a fresh
+    SessionLocal. When provided (manual-trigger from an API endpoint,
+    or a unit test) we reuse the caller's session so we share the
+    same DB connection — required for the in-memory SQLite test DB
+    where ``SessionLocal()`` would point at a different engine.
     """
-    with SessionLocal() as db:
-        c = db.get(Campaign, campaign_id)
-        if c is None or c.is_deleted or not c.active:
-            return None
+    if db is not None:
+        return _do_execute(db, campaign_id)
+    with SessionLocal() as new_db:
+        return _do_execute(new_db, campaign_id)
 
-        runner = WORKFLOWS.get(c.workflow_type)
-        if runner is None:
-            log.error("scheduler.unknown_workflow_type",
-                      campaign_id=campaign_id, workflow_type=c.workflow_type)
-            return None
 
-        run = CampaignRun(
-            tenant_id=c.tenant_id,
-            campaign_id=c.id,
-            status="running",
-            posted_to_platforms=[],
-        )
-        db.add(run); db.commit(); db.refresh(run)
+def _do_execute(db: Session, campaign_id: int) -> Optional[int]:
+    c = db.get(Campaign, campaign_id)
+    if c is None or c.is_deleted or not c.active:
+        return None
 
-        try:
-            content = runner.run(c, db)
-            run.status = "done"
-            run.generated_content = content
-            run.finished_at = datetime.now(timezone.utc)
-            db.commit()
-            log.info("scheduler.run_done",
-                     campaign_id=c.id, run_id=run.id,
-                     content_chars=len(content or ""))
-        except Exception as e:
-            run.status = "failed"
-            # Cap traceback at ~4KB so the DB row stays small.
-            tb = traceback.format_exc()
-            run.error = tb[:4096]
-            run.finished_at = datetime.now(timezone.utc)
-            db.commit()
-            log.error("scheduler.run_failed",
-                      campaign_id=c.id, run_id=run.id, error=str(e))
+    runner = WORKFLOWS.get(c.workflow_type)
+    if runner is None:
+        log.error("scheduler.unknown_workflow_type",
+                  campaign_id=campaign_id, workflow_type=c.workflow_type)
+        return None
 
-        return run.id
+    run = CampaignRun(
+        tenant_id=c.tenant_id,
+        campaign_id=c.id,
+        status="running",
+        posted_to_platforms=[],
+    )
+    db.add(run); db.commit(); db.refresh(run)
+
+    try:
+        content = runner.run(c, db)
+        run.status = "done"
+        run.generated_content = content
+        run.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        log.info("scheduler.run_done",
+                 campaign_id=c.id, run_id=run.id,
+                 content_chars=len(content or ""))
+    except Exception as e:
+        run.status = "failed"
+        # Cap traceback at ~4KB so the DB row stays small.
+        tb = traceback.format_exc()
+        run.error = tb[:4096]
+        run.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        log.error("scheduler.run_failed",
+                  campaign_id=c.id, run_id=run.id, error=str(e))
+
+    return run.id
