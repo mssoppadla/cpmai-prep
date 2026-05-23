@@ -1420,3 +1420,70 @@ export interface SignedRecordingPlaybackOut {
   expires_at: string;
   duration_seconds: number | null;
 }
+
+
+// ==========================================================================
+// Social automation campaigns (S-A/B)
+// ==========================================================================
+export type WorkflowType =
+  | "weekly_content"
+  | "session_reminder"
+  | "auto_clip"
+  | "recording_published";
+
+export interface CampaignCreateIn {
+  name: string;
+  description?: string | null;
+  workflow_type: WorkflowType;
+  schedule_cron?: string | null;
+  config_json?: Record<string, unknown>;
+  active?: boolean;
+}
+
+export interface CampaignUpdateIn {
+  name?: string;
+  description?: string | null;
+  workflow_type?: WorkflowType;
+  schedule_cron?: string | null;
+  config_json?: Record<string, unknown>;
+  active?: boolean;
+}
+
+export interface CampaignOut {
+  id: number;
+  tenant_id: number;
+  name: string;
+  description: string | null;
+  workflow_type: WorkflowType;
+  schedule_cron: string | null;
+  config_json: Record<string, unknown>;
+  active: boolean;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignRunOut {
+  id: number;
+  tenant_id: number;
+  campaign_id: number;
+  started_at: string;
+  finished_at: string | null;
+  status: "queued" | "running" | "done" | "posted" | "failed" | "cancelled";
+  generated_content: string | null;
+  posted_at: string | null;
+  posted_to_platforms: Array<{ platform: string; url?: string | null; ts: string }>;
+  error: string | null;
+}
+
+export interface MarkPostedIn {
+  platform: string;
+  url?: string | null;
+}
+
+export interface WorkflowMetaOut {
+  workflow_type: WorkflowType;
+  label: string;
+  description: string;
+  config_schema: Record<string, unknown>;
+}

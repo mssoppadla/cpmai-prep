@@ -43,6 +43,8 @@ import type {
   ZoomSessionCreateIn, ZoomSessionUpdateIn,
   ZoomSessionAdminOut, ZoomSessionPublicOut,
   ZoomSDKTokenOut, RecordingOut, SignedRecordingPlaybackOut,
+  CampaignCreateIn, CampaignUpdateIn, CampaignOut,
+  CampaignRunOut, MarkPostedIn, WorkflowMetaOut,
 } from "@/types/api";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -1201,6 +1203,70 @@ export const admin = {
     async listRecordings(sessionId: number) {
       const { data } = await request<RecordingOut[]>(
         `/admin/sessions/${sessionId}/recordings`, { authed: true });
+      return data;
+    },
+  },
+  social: {
+    /** Admin social-automation campaigns + queue. */
+    async listCampaigns(p?: { active?: boolean; workflow_type?: string }) {
+      const { data } = await request<CampaignOut[]>(
+        `/admin/campaigns${qs(p)}`, { authed: true });
+      return data;
+    },
+    async getCampaign(id: number) {
+      const { data } = await request<CampaignOut>(
+        `/admin/campaigns/${id}`, { authed: true });
+      return data;
+    },
+    async createCampaign(payload: CampaignCreateIn) {
+      const { data } = await request<CampaignOut>(
+        `/admin/campaigns`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    async updateCampaign(id: number, payload: CampaignUpdateIn) {
+      const { data } = await request<CampaignOut>(
+        `/admin/campaigns/${id}`,
+        { method: "PATCH", json: payload, authed: true });
+      return data;
+    },
+    async deleteCampaign(id: number) {
+      await request(`/admin/campaigns/${id}`,
+        { method: "DELETE", authed: true });
+    },
+    async runCampaignNow(id: number) {
+      const { data } = await request<CampaignRunOut>(
+        `/admin/campaigns/${id}/run-now`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    async listCampaignRuns(id: number, limit = 50) {
+      const { data } = await request<CampaignRunOut[]>(
+        `/admin/campaigns/${id}/runs?limit=${limit}`, { authed: true });
+      return data;
+    },
+    async listWorkflows() {
+      const { data } = await request<WorkflowMetaOut[]>(
+        `/admin/campaigns/workflows`, { authed: true });
+      return data;
+    },
+    /** Social queue feed for /admin/social-queue. */
+    async listQueue(status?: string) {
+      const params = status ? { status } : undefined;
+      const { data } = await request<CampaignRunOut[]>(
+        `/admin/social-queue${qs(params)}`, { authed: true });
+      return data;
+    },
+    async markPosted(runId: number, payload: MarkPostedIn) {
+      const { data } = await request<CampaignRunOut>(
+        `/admin/social-queue/${runId}/mark-posted`,
+        { method: "POST", json: payload, authed: true });
+      return data;
+    },
+    async retryRun(runId: number) {
+      const { data } = await request<CampaignRunOut>(
+        `/admin/social-queue/${runId}/retry`,
+        { method: "POST", authed: true });
       return data;
     },
   },
