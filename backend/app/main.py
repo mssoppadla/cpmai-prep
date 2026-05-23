@@ -127,6 +127,29 @@ async def handle_integrity_error(request: Request, exc: IntegrityError):
 def startup():
     # Background listener for cross-worker setting invalidation.
     threading.Thread(target=start_invalidation_listener, daemon=True).start()
+    # Social-automation scheduler — picks up Campaign rows and fires
+    # them on their cron schedules. Skipped in test env to keep unit
+    # tests from spinning up an APScheduler event loop they don't need.
+    if settings.APP_ENV != "test":
+        try:
+            from app.services.social.scheduler import start as _start_social
+            _start_social()
+        except Exception as _e:
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "social scheduler failed to start: %s", _e,
+            )
+
+
+@app.on_event("shutdown")
+def shutdown():
+    """Clean shutdown of background services on uvicorn stop."""
+    if settings.APP_ENV != "test":
+        try:
+            from app.services.social.scheduler import stop as _stop_social
+            _stop_social()
+        except Exception:
+            pass
 
 
 app.include_router(api_router, prefix="/api/v1")
