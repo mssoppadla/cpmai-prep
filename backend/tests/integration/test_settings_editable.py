@@ -136,8 +136,29 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "site.linkedin_url":                 "https://www.linkedin.com/in/example",
     "site.youtube_url":                  "https://www.youtube.com/@example",
     "site.twitter_url":                  "https://x.com/example",
+    "site.instagram_url":                "https://instagram.com/example",
+    "site.facebook_url":                 "https://facebook.com/example",
+    "site.threads_url":                  "https://threads.net/@example",
+    "site.tiktok_url":                   "https://tiktok.com/@example",
+    "site.github_url":                   "https://github.com/example",
+    "site.privacy_email":                "privacy@cpmaiexamprep.com",
+    "site.contact_phone":                "+1-555-0100",
     "site.copyright_text":               "© 2026 CPMAI Prep.",
     "site.show_pricing_link":            False,
+    # zoom.* — admin-configurable Zoom credentials. Empty strings are
+    # the valid "not configured yet" state — the Zoom client probes
+    # these and raises ZoomNotConfigured cleanly when missing.
+    "zoom.sdk_key":                      "",
+    "zoom.sdk_secret":                   "",
+    "zoom.account_id":                   "",
+    "zoom.oauth_client_id":              "",
+    "zoom.oauth_client_secret":          "",
+    "zoom.host_email":                   "",
+    "zoom.webhook_secret_token":         "",
+    "zoom.sdk_jwt_ttl_seconds":          1800,
+    "zoom.api_base_url":                 "",
+    # uploads.max_mb — admin can raise the 1 GB default without redeploy.
+    "uploads.max_mb":                    1024,
     # geoip.* — see app/services/geoip/README.md
     "geoip.maxmind_account_id":          "1345788",
     "geoip.maxmind_license_key":         "test_license_key_only_for_round_trip",
@@ -222,6 +243,8 @@ def test_site_support_email_rejects_non_email():
 # ================================================ url validators
 @pytest.mark.parametrize("key", [
     "site.linkedin_url", "site.youtube_url", "site.twitter_url",
+    "site.instagram_url", "site.facebook_url", "site.threads_url",
+    "site.tiktok_url", "site.github_url",
 ])
 def test_site_urls_accept_empty_or_https(key):
     assert EDITABLE[key]("")
@@ -229,6 +252,21 @@ def test_site_urls_accept_empty_or_https(key):
     assert EDITABLE[key]("http://example.com")
     assert not EDITABLE[key]("ftp://example.com")
     assert not EDITABLE[key]("example.com")        # no scheme
+
+
+# ================================================ Zoom credential validators
+@pytest.mark.parametrize("key", [
+    "zoom.sdk_key", "zoom.sdk_secret", "zoom.account_id",
+    "zoom.oauth_client_id", "zoom.oauth_client_secret",
+    "zoom.webhook_secret_token",
+])
+def test_zoom_credentials_accept_empty_or_token(key):
+    """Empty = 'not configured yet' (the default state). Non-empty
+    accepts arbitrary opaque tokens up to 120 chars."""
+    assert EDITABLE[key]("")
+    assert EDITABLE[key]("abcdef1234567890")
+    assert not EDITABLE[key]("x" * 200)   # over the length cap
+    assert not EDITABLE[key](42)          # not a string
 
 
 # ============================================================ rejection

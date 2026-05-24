@@ -349,6 +349,41 @@
     "description": "Twitter/X profile URL for footer (leave blank to hide)"
   },
   {
+    "key": "site.instagram_url",
+    "value": "",
+    "description": "Instagram profile URL — appears in footer + social-queue mark-posted picker. Leave blank to hide."
+  },
+  {
+    "key": "site.facebook_url",
+    "value": "",
+    "description": "Facebook page URL. Leave blank to hide."
+  },
+  {
+    "key": "site.threads_url",
+    "value": "",
+    "description": "Threads profile URL. Leave blank to hide."
+  },
+  {
+    "key": "site.tiktok_url",
+    "value": "",
+    "description": "TikTok profile URL. Leave blank to hide."
+  },
+  {
+    "key": "site.github_url",
+    "value": "",
+    "description": "GitHub profile/org URL. Leave blank to hide."
+  },
+  {
+    "key": "site.privacy_email",
+    "value": "",
+    "description": "Privacy-contact email shown on /privacy. Falls back to site.support_email if blank."
+  },
+  {
+    "key": "site.contact_phone",
+    "value": "",
+    "description": "Public contact phone (optional, displayed in footer when set)."
+  },
+  {
     "key": "site.copyright_text",
     "value": "© 2026 CPMAI Prep. All rights reserved.",
     "description": "Bottom-of-footer copyright line"
@@ -388,5 +423,58 @@
     "key": "cms.use_cms_landing",
     "value": false,
     "description": "When true, the public homepage at / renders the content_page marked is_landing=true. When false (default), / always shows the marketing homepage regardless of any is_landing flag. Per-deploy switch so the operator can preview / safely toggle without rebuilding."
+  },
+  {
+    "key": "zoom.sdk_key",
+    "value": "",
+    "description": "Zoom Meeting SDK Key (browser embed auth). Get from Zoom App Marketplace → your Meeting SDK app → Credentials. Public-ish (visible to logged-in joiners) but never useful without sdk_secret."
+  },
+  {
+    "key": "zoom.sdk_secret",
+    "value": "",
+    "description": "Zoom Meeting SDK Secret. Signs the per-session JWT — NEVER sent to the browser. Stored masked.",
+    "is_secret": true
+  },
+  {
+    "key": "zoom.account_id",
+    "value": "",
+    "description": "Zoom OAuth Server-to-Server Account ID. Used to create/update meetings via the REST API."
+  },
+  {
+    "key": "zoom.oauth_client_id",
+    "value": "",
+    "description": "Zoom OAuth Server-to-Server Client ID."
+  },
+  {
+    "key": "zoom.oauth_client_secret",
+    "value": "",
+    "description": "Zoom OAuth Server-to-Server Client Secret. Stored masked.",
+    "is_secret": true
+  },
+  {
+    "key": "zoom.host_email",
+    "value": "",
+    "description": "Zoom account email that owns scheduled meetings (REST API uses this as the user identity for meeting creation)."
+  },
+  {
+    "key": "zoom.webhook_secret_token",
+    "value": "",
+    "description": "Secret token for verifying Zoom webhook signatures (recording.completed etc.). Get from Zoom App Marketplace → Feature → Event Subscriptions → Secret Token. Stored masked.",
+    "is_secret": true
+  },
+  {
+    "key": "zoom.sdk_jwt_ttl_seconds",
+    "value": 1800,
+    "description": "How long a Web SDK signature is valid. Default 30 min — long enough for the user to click 'Join live' but short enough that a leaked signature expires fast."
+  },
+  {
+    "key": "zoom.api_base_url",
+    "value": "",
+    "description": "Override the Zoom REST base URL. Leave blank for the default (https://api.zoom.us/v2). Only change if Zoom rolls out a regional endpoint we want to hit."
+  },
+  {
+    "key": "uploads.max_mb",
+    "value": 1024,
+    "description": "Maximum upload size in MB. Default 1024 (1 GB) — covers most hour-long lecture videos at recommended compression. Raise for raw 4K masters; lower to enforce stricter limits."
   }
 ]
