@@ -50,15 +50,32 @@ from app.models.user import User
 router = APIRouter()
 
 
-# 1 GB cap. A 1-hour lecture at "good professional quality"
-# (1080p H.264 ~2.5–3 Mbps) lands around 1–1.3 GB before compression;
-# operators are expected to compress with the in-browser MediaRecorder
-# step before upload (see VideoUploadField). The hard server cap
-# protects the disk from accidental "upload my 4K master" mishaps and
-# is still well above the recommended compressed-output budget.
+# Upload cap. Source-of-truth priority:
+#   1. settings_store["uploads.max_mb"] (admin-editable via /admin/settings;
+#      rotated without redeploy; per-tenant in Phase 2)
+#   2. MAX_UPLOAD_MB env (deploy-time override)
+#   3. 1024 MB / 1 GB default
 #
-# Configurable via MAX_UPLOAD_MB env if a tenant needs more headroom
-# (e.g. raw cinematic content stored on R2 later).
+# A 1-hour lecture at "good professional quality" (1080p H.264
+# ~2.5-3 Mbps) lands around 1-1.3 GB before compression; the
+# in-browser MediaRecorder step typically halves that. The hard
+# server cap protects disk from accidental "upload my 4K master"
+# mishaps and is still well above the recommended compressed-output
+# budget.
+#
+# Re-evaluated per-request so settings PATCH propagates without a
+# uvicorn restart (settings_store has its own Redis invalidation).
+def _max_upload_bytes() -> int:
+    from app.core.settings_store import settings_store
+    mb = settings_store.get_int("uploads.max_mb", 0)
+    if mb <= 0:
+        mb = int(os.environ.get("MAX_UPLOAD_MB", "1024"))
+    return mb * 1024 * 1024
+
+
+# Kept as a module-level constant for backward-compat with tests that
+# import it directly. NOT used by the upload endpoint anymore —
+# _max_upload_bytes() is the live value.
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 
 ALLOWED_MIMES = {
@@ -123,9 +140,10 @@ def upload_config(
     endpoint instead of hardcoding in the frontend keeps both sides
     in sync if MAX_UPLOAD_MB env is bumped on the VPS.
     """
+    cap = _max_upload_bytes()
     return {
-        "max_bytes": MAX_UPLOAD_BYTES,
-        "max_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
+        "max_bytes": cap,
+        "max_mb": cap // (1024 * 1024),
         "allowed_mimes": sorted(ALLOWED_MIMES),
     }
 
@@ -161,17 +179,20 @@ async def upload_file(
 
     # Stream-read with a running tally so we abort early on oversize.
     size = 0
+    # Cap evaluated once per request — picks up admin /admin/settings
+    # changes without a uvicorn restart.
+    cap_bytes = _max_upload_bytes()
     with abs_path.open("wb") as out:
         while True:
             chunk = await file.read(64 * 1024)
             if not chunk:
                 break
             size += len(chunk)
-            if size > MAX_UPLOAD_BYTES:
+            if size > cap_bytes:
                 out.close()
                 abs_path.unlink(missing_ok=True)
                 raise ValidationError(
-                    f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit."
+                    f"File exceeds {cap_bytes // (1024 * 1024)}MB limit."
                 )
             out.write(chunk)
 
