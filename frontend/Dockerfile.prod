@@ -9,7 +9,12 @@
 # the `args:` block, sourced from frontend/.env.local.
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package*.json ./
+# .npmrc carries `legacy-peer-deps=true` (see frontend/.npmrc for the why).
+# Without it `npm ci` aborts with ERESOLVE on @zoom/meetingsdk's strict
+# `react@18.2.0` peer pin. COPY listed explicitly (not via the
+# package*.json glob) because dotfiles don't match `package*.json` and
+# silently shipping without it would re-introduce the deploy outage.
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci --no-audit --no-fund
 
 FROM node:20-alpine AS builder

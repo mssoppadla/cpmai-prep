@@ -7,7 +7,14 @@ import { AssistantWidgetMount } from "@/components/assistant/AssistantWidgetMoun
 // over window.location, so the value baked in here at build time IS the
 // URL that gets shared. Plumb NEXT_PUBLIC_SITE_URL through the build env
 // to override (e.g. for staging), but never let a placeholder leak.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://cpmaiexamprep.com";
+//
+// IMPORTANT: use `||` not `??` — Docker ARG/ENV substitution can pass an
+// EMPTY STRING (not undefined) when the build arg isn't provided, and
+// `??` only triggers on null/undefined. An empty string flowing into
+// `new URL("")` (the metadataBase call below) throws `ERR_INVALID_URL`
+// during static page collection, breaking the prod build. `||` covers
+// both empty-string and undefined cases.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://cpmaiexamprep.com";
 
 export const viewport: Viewport = {
   width: "device-width",

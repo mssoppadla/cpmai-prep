@@ -57,15 +57,55 @@ if [ -z "${SKIP_FRONTEND:-}" ]; then
   ok "frontend typecheck green"
   ran "frontend tsc --noEmit"
 
-  # Skip `next build` on Windows. @vercel/og (used by /twitter-image)
-  # calls fileURLToPath() with a Windows-style path during prerender →
-  # TypeError: Invalid URL. Linux Docker build (prod) and Linux CI are
-  # unaffected. See vps-deployment-lessons.md row #22.
+  # Frontend build verification.
+  #
+  # Two paths, chosen by host OS:
+  #
+  #   * Native ``npm run build`` on Linux/macOS — fastest, no Docker needed.
+  #
+  #   * Linux Docker build on Windows — ``docker build -f Dockerfile.prod``
+  #     produces the EXACT image deploy.sh ships, so peer-dep ERESOLVE,
+  #     Dockerfile-context bugs (e.g. .npmrc not copied), and prod-only
+  #     build-env-substitution traps (e.g. empty NEXT_PUBLIC_SITE_URL →
+  #     ERR_INVALID_URL) all surface locally instead of on the VPS.
+  #
+  # Why Windows can't run native ``next build``: @vercel/og (used by
+  # /twitter-image) calls fileURLToPath() with a Windows-style path during
+  # prerender → TypeError: Invalid URL. Linux Docker build is unaffected.
+  # See vps-deployment-lessons.md row #22 + 2026-05-24 prod outage
+  # post-mortem (.npmrc not in Docker context + siteUrl empty-string fallback).
+  #
+  # SKIP_PROD_BUILD=1 escapes either path (useful when the docker daemon
+  # is unavailable during quick iteration — re-enable for the pre-push run).
   if [[ "$OSTYPE" == msys* ]] || [[ "$OSTYPE" == cygwin* ]] \
      || uname -s 2>/dev/null | grep -qi mingw; then
-    warn "windows detected — skipping 'next build' (known @vercel/og bug)"
-    warn "                   CI runs on Linux and will catch real build issues."
-    deferred "frontend next build (Windows-only @vercel/og incompat)"
+    if [ -n "${SKIP_PROD_BUILD:-}" ]; then
+      warn "windows + SKIP_PROD_BUILD=1 — skipping 'next build' entirely."
+      warn "                              CI runs on Linux and will catch issues."
+      deferred "frontend next build (skipped via SKIP_PROD_BUILD)"
+    elif ! command -v docker >/dev/null 2>&1; then
+      warn "windows + docker not on PATH — skipping 'next build'."
+      warn "                                Install Docker Desktop OR rely on CI."
+      deferred "frontend next build (Windows, no docker — CI catches issues)"
+    else
+      say "frontend: docker build -f Dockerfile.prod (matches deploy.sh)"
+      # Use docker build directly (not compose) so we don't accidentally
+      # rebuild backend + postgres + redis just to verify the frontend.
+      # Build args mirror docker-compose.prod.yml so the prerender step
+      # sees the same env it will in prod.
+      docker build -f frontend/Dockerfile.prod \
+        --build-arg NEXT_PUBLIC_API_URL="http://localhost:8000/api/v1" \
+        --build-arg NEXT_PUBLIC_GOOGLE_CLIENT_ID="" \
+        --build-arg NEXT_PUBLIC_RAZORPAY_KEY_ID="" \
+        --build-arg NEXT_PUBLIC_SITE_URL="https://preflight.example" \
+        --build-arg NEXTAUTH_URL="http://localhost:3000" \
+        --build-arg NEXTAUTH_SECRET="preflight-not-used-in-prod" \
+        frontend >/tmp/preflight-fe-build.log 2>&1 \
+        || die "frontend prod build failed — see /tmp/preflight-fe-build.log (last 30 lines below)
+$(tail -30 /tmp/preflight-fe-build.log)"
+      ok "frontend prod build green"
+      ran "frontend docker prod build (TS + prerender + image layers)"
+    fi
   else
     say "frontend: next build (catches TS + prerender errors)"
     # Build env vars match what the CI workflow uses — keep these in sync
