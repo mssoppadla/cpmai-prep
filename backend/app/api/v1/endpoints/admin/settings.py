@@ -130,7 +130,15 @@ def _is_flow_value(v) -> bool:
 # for geoip-related keys; other secret-bearing modules add to this set
 # alongside the keys themselves.
 from app.services.geoip.settings import SECRET_KEYS as _GEOIP_SECRET_KEYS
-SECRET_KEYS: frozenset[str] = frozenset(_GEOIP_SECRET_KEYS)
+# Zoom secrets — masked in GET /admin/settings so they never round-trip
+# the wire in plaintext after first save. Same pattern as the GeoIP
+# license key — last-4 visible, rest bullets, audit-logged on PATCH.
+_ZOOM_SECRET_KEYS = frozenset({
+    "zoom.sdk_secret",
+    "zoom.oauth_client_secret",
+    "zoom.webhook_secret_token",
+})
+SECRET_KEYS: frozenset[str] = frozenset(_GEOIP_SECRET_KEYS) | _ZOOM_SECRET_KEYS
 
 
 # Validator for ints stored as JSON-number or JSON-string. Settings
@@ -444,8 +452,43 @@ EDITABLE: dict[str, Callable] = {
     "site.linkedin_url":                 _optional_url(),
     "site.youtube_url":                  _optional_url(),
     "site.twitter_url":                  _optional_url(),
+    # Newer social platforms (added with the chrome unification — the
+    # SiteFooter + JSON-LD + social-queue UI all read these and hide
+    # the platform when empty).
+    "site.instagram_url":                _optional_url(),
+    "site.facebook_url":                 _optional_url(),
+    "site.threads_url":                  _optional_url(),
+    "site.tiktok_url":                   _optional_url(),
+    "site.github_url":                   _optional_url(),
+    # Dedicated privacy contact (Privacy Policy page links here; falls
+    # back server-side to support_email if empty). Public contact phone
+    # (optional; empty hides the link).
+    "site.privacy_email":                _optional_email(240),
+    "site.contact_phone":                _optional_str(40),
     "site.copyright_text":               _short_str(240),
     "site.show_pricing_link":            _bool,
+    # Zoom integration. SDK Key + Secret are used to sign the Web SDK
+    # JWT (browser embed). OAuth Server-to-Server creds (account_id,
+    # client_id, client_secret) are used to call the Zoom REST API to
+    # create/update meetings. host_email is the Zoom account that owns
+    # scheduled meetings. webhook_secret_token verifies the
+    # recording.completed callback. ALL are admin-configurable so
+    # rotating keys doesn't require a redeploy. Secrets masked via
+    # SECRET_KEYS below.
+    "zoom.sdk_key":                      _optional_str(120),
+    "zoom.sdk_secret":                   _optional_str(120),
+    "zoom.account_id":                   _optional_str(120),
+    "zoom.oauth_client_id":              _optional_str(120),
+    "zoom.oauth_client_secret":          _optional_str(120),
+    "zoom.host_email":                   _optional_email(240),
+    "zoom.webhook_secret_token":         _optional_str(120),
+    # Optional Zoom overrides (rarely changed — defaults usually fine).
+    "zoom.sdk_jwt_ttl_seconds":          _int_str_in(300, 7200),
+    "zoom.api_base_url":                 _optional_url(200),
+    # Upload cap (in MB) — exposed so operators can raise it for a
+    # tenant with bigger video budgets without a redeploy. Read by
+    # backend/app/api/v1/endpoints/admin/uploads.py at request time.
+    "uploads.max_mb":                    _int_str_in(10, 8192),
     # GeoIP feature (PR-A). License key is the secret; account_id is
     # not secret by itself but pointless without the key. Refresh_enabled
     # is the kill switch for the monthly cron in case MaxMind has

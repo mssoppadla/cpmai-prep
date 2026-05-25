@@ -187,3 +187,82 @@ so ops sees them in aggregate.
 Once the new `/admin/observability/disk` endpoint lands, set up a cron
 that fires a webhook when `cpmai-uploads` volume hits 80% of its
 provisioned size, or when `/var/backups/cpmai-prep` exceeds 50 GB.
+
+---
+
+## PR #8 follow-ups — captured from 2026-05-24 operator session
+
+After the Zoom + Social PR (#77) reached prod, the operator surfaced
+a set of requirements that don't fit the v1 scope but should land in
+the next PR. Captured here so they don't get lost.
+
+### [FEATURE] SEO foundations — crawling, indexing, rich snippets
+Comprehensive SEO pass:
+  * `robots.txt` admin-editable (allow/disallow rules per path)
+  * `sitemap.xml` auto-generated from active courses/pages/lessons
+    (drops drafts + paywalled bodies)
+  * Per-page Open Graph + Twitter Card admin controls (title, desc,
+    og:image override)
+  * Rich-snippet preview UI: "what Google will show" for the page
+    being edited (Google's search-snippet renderer + character counters)
+  * Schema.org JSON-LD per content type: Article for blog/study guide,
+    Course for /courses, Person for instructor bios
+  * Indexing controls: noindex toggle per CMS page; canonical URL
+    override per page; meta keywords if useful for niche SEO
+
+### [FEATURE] Campaign content sources — idea library + sheet sync
+Move beyond the "single prompt per campaign" model.
+  * New `campaign_ideas` table: id, tenant_id, idea_text, target_date,
+    target_platforms JSONB, tone (informational/question/opinion/insight),
+    engagement_hook (CTA template), status (queued/used/skipped), created_at
+  * Admin UI at `/admin/content-ideas` to add/edit/import ideas
+  * Optional Google Sheets two-way sync (Sheets API + OAuth) — admin
+    points the integration at a sheet; rows = ideas; cron syncs both
+    directions
+  * Campaign runner picks the next-due idea from the library
+    (where target_date <= today AND status='queued'), generates the
+    post, marks idea as 'used' on success
+  * Tone selector at the IDEA level (not the campaign level) so the
+    same campaign produces varied output
+
+### [FEATURE] Per-workflow LLM provider picker
+Each campaign workflow + each idea can specify its LLM:
+  * `weekly_content` → text-only → existing LLMRegistry provider
+    (OpenAI/Anthropic)
+  * `image_post` (new) → text + image → OpenAI DALL-E for images,
+    text from a separate provider
+  * `video_post` (new — see below) → text + video, separate providers
+  * Schema: Campaign.config_json gains `llm_provider_id` (FK to
+    llm_providers); falls back to "active" if not set
+  * Admin form: dropdown of registered LLM providers per campaign,
+    with hint text "use [provider X] for this workflow"
+
+### [FEATURE] Centralised hashtag library
+Define hashtags once; reuse across campaigns + posts.
+  * New `hashtag_sets` table: id, tenant_id, name, hashtags TEXT[],
+    description, created_at
+  * Admin UI at `/admin/hashtags` — CRUD on named sets
+    ("evergreen", "exam-prep", "ai-news", "platform-specific:linkedin")
+  * Campaign config_json gains `hashtag_set_ids` (list of FKs)
+  * Runner appends the configured sets' hashtags to generated content
+    (deduped, capped at platform limits)
+
+### [FEATURE] Video generation (real, not stub)
+The current `auto_clip` workflow returns a placeholder. Real options
+(in order of cost/quality trade-off):
+  * **Free**: OpenAI Sora-2 if pricing makes sense + slide-deck-to-video
+    pipeline (HTML/Canvas slides + OpenAI TTS narration via ffmpeg)
+  * **Paid**: Pictory / InVideo / Pika — admin enters API key in
+    `/admin/settings`, runner POSTs the script + waits for callback
+  * Either way: campaign runner writes the generated MP4 to the
+    uploads volume (same path as Zoom recordings); admin queue surfaces
+    a video preview alongside the text caption
+
+### [DONE in this commit] Zoom + new site.* settings visible in /admin/settings
+The admin settings page is whitelisted by key in the EDITABLE dict
+at `backend/app/api/v1/endpoints/admin/settings.py:441`. The new
+zoom.* keys (SDK, OAuth, webhook) + site.* keys (instagram_url,
+facebook_url, threads_url, tiktok_url, github_url, privacy_email,
+contact_phone) + uploads.max_mb were missing from EDITABLE so they
+didn't render. Validators added, seeded with empty defaults,
+drift-test extended.
