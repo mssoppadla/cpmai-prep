@@ -61,6 +61,27 @@ class SettingsStore:
         v = self.get(key, default)
         return str(v) if v is not None else default
 
+    def get_bool(self, key: str, default: bool = False) -> bool:
+        """Return a boolean setting value. Accepts both real booleans
+        (when value was stored as JSON ``true``) and the common string
+        encodings ("true"/"false"/"1"/"0"/"yes"/"no") that admins type
+        into the /admin/settings text input — the EDITABLE validator
+        normalises on write, but defensive coerce here protects against
+        legacy rows and direct DB edits."""
+        v = self.get(key, default)
+        if v is None:
+            return default
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return bool(v)
+        s = str(v).strip().lower()
+        if s in ("true", "1", "yes", "on"):
+            return True
+        if s in ("false", "0", "no", "off", ""):
+            return False
+        return default
+
     def set(self, key: str, value: Any, *, db: Session, updated_by: int) -> None:
         row = db.get(SystemSetting, key)
         if row:

@@ -20,12 +20,21 @@ export const metadata: Metadata = {
   alternates: { canonical: "/privacy" },
 };
 
-const LAST_UPDATED = "2026-05-21";
+const LAST_UPDATED = "2026-05-26";
 
 async function getChrome(): Promise<Partial<SiteChrome>> {
   try {
     const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
-    const r = await fetch(`${base}/content/site`, { next: { revalidate: 300 } });
+    // Hard 5s timeout via AbortSignal — without it, the static-page
+    // build hangs for the full 60s Next.js static-worker deadline
+    // when no backend is reachable (e.g. local prod builds, sandboxed
+    // CI runners without a backend service). The empty-chrome
+    // fallback below still renders a usable page, so failing fast is
+    // strictly better than blowing the build.
+    const r = await fetch(`${base}/content/site`, {
+      next: { revalidate: 300 },
+      signal: AbortSignal.timeout(5000),
+    });
     if (!r.ok) return {};
     return await r.json();
   } catch {
@@ -120,6 +129,38 @@ export default async function PrivacyPage() {
             We do not use third-party advertising cookies. You may
             disable cookies in your browser, but doing so will prevent
             you from logging in.
+          </p>
+        </Section>
+
+        <Section title="5a. Product Analytics (Visitor Insights)">
+          <p>
+            To understand how visitors and learners use the Service, we
+            run a first-party analytics tracker (no third-party
+            analytics provider, no cross-site tracking). This tracker
+            runs only in your browser session on our domain and the
+            data is stored on our own infrastructure.
+          </p>
+          <p><strong>What we collect:</strong></p>
+          <ul>
+            <li>The pages you view on this Service and the timestamps</li>
+            <li>How long each page was actively in the foreground (the tracker pauses when the tab is in the background)</li>
+            <li>Scroll depth on each page (25 / 50 / 75 / 100% milestones), to identify which content learners actually read</li>
+            <li>Clicks on a small number of explicitly-tagged calls-to-action (sign in, plan select, checkout, request callback, course enrol) — we do NOT capture every click</li>
+            <li>Standard UTM parameters in the URL if you arrived via a tagged campaign link</li>
+            <li>Referrer URL (the page that linked you here) with personal-looking query parameters (email, phone, tokens) stripped server-side before storage</li>
+            <li>Device, browser and operating system bucket parsed from the standard User-Agent header</li>
+            <li>Country and city from the same MaxMind GeoIP lookup described in §2 — not the precise IP</li>
+          </ul>
+          <p><strong>Why:</strong> improving the product (finding pages that aren&apos;t working), measuring whether new features are used, identifying drop-off in the signup &rarr; payment flow.</p>
+          <p><strong>How to opt out:</strong></p>
+          <ul>
+            <li>The tracker honours your browser&apos;s <em>Do Not Track</em> setting (set <code>navigator.doNotTrack = &quot;1&quot;</code> via your browser&apos;s privacy settings).</li>
+            <li>Operators can disable the tracker globally via a server-side kill switch; we may use this during incidents or in response to specific user requests.</li>
+            <li>You may request your captured analytics rows be detached from your identity at any time via the data deletion flow in §8 — your aggregate event counts stay in place, but no further drilldown by your visitor identifier is possible.</li>
+          </ul>
+          <p>
+            Retention for analytics events follows the same schedule as
+            other usage data (see §7).
           </p>
         </Section>
 

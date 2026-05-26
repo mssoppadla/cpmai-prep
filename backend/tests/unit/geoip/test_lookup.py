@@ -122,7 +122,15 @@ def test_lookup_reopens_after_mtime_change(synthetic_mmdb_path, settings,
     # Force mtime forward by at least 1 second (some filesystems have
     # second-resolution mtimes).
     time.sleep(1.1)
-    shutil.copy(synthetic_mmdb_path, target)
+    # Mirror the production refresh pattern (refresh.py:247-248): write
+    # to a staging path then os.replace. shutil.copy direct-to-target
+    # fails on Windows because maxminddb holds the file open via mmap
+    # (errno 22). os.replace is atomic and tolerates the open handle —
+    # which is exactly the property prod relies on, so testing the
+    # same pattern is more faithful than the original direct-copy did.
+    staging = target.with_suffix(".new")
+    shutil.copy(synthetic_mmdb_path, staging)
+    os.replace(staging, target)
 
     # Subsequent lookup must succeed AND the reader must have re-opened.
     assert lookup.lookup("1.1.1.1") is not None

@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     auth, users, payments, exam_sets, exams, leads, assistant, content,
     cms_public, lms_public, pricing,
-    webhooks_zoom,
+    webhooks_zoom, tracking,
 )
 from app.api.v1.endpoints.admin.router import admin_router
 
@@ -29,4 +29,7 @@ api_router.include_router(cms_public.router, prefix="/cms",       tags=["cms"])
 api_router.include_router(lms_public.router, prefix="/lms",       tags=["lms"])
 api_router.include_router(pricing.router,    prefix="/pricing",   tags=["pricing"])
 api_router.include_router(webhooks_zoom.router, prefix="/webhooks", tags=["webhooks", "zoom"])
+# Visitor-insights ingest — batched POST from the SPA tracker.
+# No prefix; the endpoint itself is "/track".
+api_router.include_router(tracking.router,   tags=["tracking"])
 api_router.include_router(admin_router,      prefix="/admin")

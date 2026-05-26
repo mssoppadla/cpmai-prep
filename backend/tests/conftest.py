@@ -104,8 +104,44 @@ def db_engine():
     Base.metadata.drop_all(engine)
 
 
+@pytest.fixture(autouse=True)
+def _patch_session_local(db_engine, monkeypatch):
+    """Patch SessionLocal in every module that imported it at module
+    load time so non-request code paths (settings_store, llm_registry,
+    payment_registry) hit the SAME in-memory SQLite the `db_engine`
+    fixture populated — not whatever default DATABASE_URL points at.
+
+    autouse so EVERY test gets it — many integration tests touch
+    settings_store indirectly (through IntentClassifier, handlers,
+    audit_log paths) without ever requesting the `db` fixture.
+
+    Historically this monkeypatching only ran inside the `client`
+    fixture, which left integration tests that exercise services
+    directly (agentic orchestrator, assistant handlers, classifier)
+    reading from a DB where `system_settings` had never been created
+    — every `settings_store.get()` call failed with
+    ``sqlite3.OperationalError: no such table: system_settings``.
+    Auto-applying the patch removes the entire failure class.
+    """
+    Session = sessionmaker(bind=db_engine, autoflush=False, autocommit=False)
+    for mod_path in (
+        "app.core.settings_store",
+        "app.services.assistant.llm_registry",
+        "app.services.payment_registry",
+    ):
+        monkeypatch.setattr(f"{mod_path}.SessionLocal", Session, raising=False)
+    # Also clear the in-process settings cache so a previous test that
+    # populated it via the REAL SessionLocal doesn't bleed into us.
+    try:
+        from app.core.settings_store import _local
+        _local.clear()
+    except Exception:
+        pass
+    return Session
+
+
 @pytest.fixture
-def db(db_engine):
+def db(db_engine, _patch_session_local):
     Session = sessionmaker(bind=db_engine, autoflush=False, autocommit=False)
     s = Session()
     try:
@@ -261,16 +297,9 @@ def client(db_engine, db, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    # Patch SessionLocal in every module that imported it at module load.
-    # `from app.core.database import SessionLocal` binds SessionLocal as a
-    # NAME in each importing module — patching db_module's attribute
-    # doesn't reach those name bindings.
-    for mod_path in (
-        "app.core.settings_store",
-        "app.services.assistant.llm_registry",
-        "app.services.payment_registry",
-    ):
-        monkeypatch.setattr(f"{mod_path}.SessionLocal", Session, raising=False)
+    # SessionLocal patching is now handled by the _patch_session_local
+    # fixture, which `db` already depends on. Kept the comment block
+    # here as a breadcrumb for the next reader.
 
     # Disable rate limiter for test runs (state would accumulate in real
     # Redis in CI, breaking unrelated tests).

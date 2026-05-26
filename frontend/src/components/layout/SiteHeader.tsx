@@ -196,6 +196,7 @@ export function SiteHeader({ active = null }: { active?: ActiveNav }) {
               )}
               <Link
                 href="/login"
+                data-track="cta:sign_in_header"
                 className="text-xs sm:text-sm text-slate-700 hover:text-indigo-600 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
               >
                 Sign in

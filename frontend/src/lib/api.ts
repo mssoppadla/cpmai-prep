@@ -1366,6 +1366,100 @@ export const admin = {
       return data;
     },
   },
+  /** Visitor Insights v2 — broader funnel + page-level analytics built
+   *  on the journey_events stream populated by the SPA tracker. Backs
+   *  /admin/insights. Four read endpoints + a GDPR action.
+   *
+   *  Window vocabulary mirrors anonymousTraffic / assistant-drift so a
+   *  future operator can flip windows on any dashboard with the same
+   *  mental model. */
+  insights: {
+    async overview(window: "24h" | "7d" | "30d" | "90d" = "7d") {
+      const { data } = await request<{
+        window: string;
+        since:  string;
+        kpi: {
+          sessions: number;
+          visitors: number;
+          page_views: number;
+          avg_session_seconds: number;
+          avg_pages_per_session: number;
+          bounce_rate: number;
+          conversion_rate: number;
+        };
+      }>(`/admin/insights/overview?window=${window}`,
+         { authed: true });
+      return data;
+    },
+    async pages(window: "24h" | "7d" | "30d" | "90d" = "7d", limit = 20) {
+      const { data } = await request<{
+        window: string;
+        since:  string;
+        pages: {
+          path: string;
+          views: number;
+          unique_visitors: number;
+          avg_seconds: number;
+          bounce_rate: number;
+          exit_rate: number;
+        }[];
+      }>(`/admin/insights/pages?window=${window}&limit=${limit}`,
+         { authed: true });
+      return data;
+    },
+    async funnel(window: "24h" | "7d" | "30d" | "90d" = "7d") {
+      const { data } = await request<{
+        window: string;
+        since:  string;
+        stages: {
+          label: string;
+          event: string;
+          path: string | null;
+          visitors: number;
+          conversion_from_prev: number | null;
+        }[];
+        overall_conversion: number;
+      }>(`/admin/insights/funnel?window=${window}`,
+         { authed: true });
+      return data;
+    },
+    async session(anonId: string, limit = 500) {
+      const { data } = await request<{
+        anon_id: string;
+        linked_user_ids: number[];
+        event_count: number;
+        first_seen: string;
+        last_seen:  string;
+        events: {
+          id: number;
+          event: string;
+          at: string;
+          path: string | null;
+          referrer: string | null;
+          device: string | null;
+          browser: string | null;
+          os: string | null;
+          country: string | null;
+          city: string | null;
+          user_id: number | null;
+          session_id: string | null;
+          duration_ms: number | null;
+          scroll_pct: number | null;
+          metadata: Record<string, unknown>;
+        }[];
+      }>(`/admin/insights/sessions/${encodeURIComponent(anonId)}?limit=${limit}`,
+         { authed: true });
+      return data;
+    },
+    async anonymize(anonId: string) {
+      const { data } = await request<{
+        anon_id: string;
+        rows_affected: number;
+      }>(`/admin/insights/anonymize/${encodeURIComponent(anonId)}`,
+         { method: "POST", authed: true });
+      return data;
+    },
+  },
   /** Live state + cohort preview for the assistant.flow toggle.
    *  Backed by /api/v1/admin/assistant-flow/{state,preview}. */
   assistantFlow: {

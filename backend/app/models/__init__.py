@@ -13,6 +13,7 @@ from app.models.payment import Payment, WebhookEvent                 # noqa
 from app.models.lead import Lead, LeadSource                         # noqa
 from app.models.audit_log import AuditLog                            # noqa
 from app.models.journey_event import JourneyEvent                    # noqa
+from app.models.visitor_insights_daily import VisitorInsightsDaily   # noqa
 from app.models.system_setting import SystemSetting                  # noqa
 from app.models.llm_provider import LLMProviderConfig                # noqa
 from app.models.assistant_log import AssistantLog                    # noqa

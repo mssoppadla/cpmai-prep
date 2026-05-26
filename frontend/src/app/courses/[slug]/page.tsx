@@ -152,17 +152,20 @@ export default function CourseDetailPage({
               <div className="h-12 bg-slate-100 rounded-lg animate-pulse" />
             ) : me === null ? (
               <button onClick={() => router.push(`/login?next=/courses/${c.slug}`)}
+                      data-track="cta:course_sign_in_to_enrol"
                       className="w-full px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
                 Sign in to enrol
               </button>
             ) : c.enrollment_type === "free" ? (
               <button onClick={selfEnroll}
+                      data-track="cta:course_enrol_free"
                       className="w-full px-4 py-3 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700">
                 Enrol for free
               </button>
             ) : (
               <button
                 onClick={() => router.push("/pricing")}
+                data-track="cta:course_get_access"
                 className="w-full px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
                 Get access
               </button>

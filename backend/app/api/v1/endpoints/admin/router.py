@@ -9,6 +9,7 @@ from app.api.v1.endpoints.admin import (
     assistant_drift,
     assistant_flow,
     anonymous_traffic,
+    visitor_insights,
     subscriptions,
     content_pages,
     cms_ai,
@@ -44,6 +45,10 @@ admin_router.include_router(pricing_admin.router, prefix="/pricing",      tags=[
 admin_router.include_router(assistant_drift.router, prefix="/assistant-drift", tags=["admin"])
 admin_router.include_router(assistant_flow.router,  prefix="/assistant-flow",  tags=["admin"])
 admin_router.include_router(anonymous_traffic.router, prefix="/anonymous-traffic", tags=["admin"])
+# Visitor Insights v2 — broader funnel + page-level analytics.
+# Mounted WITHOUT a prefix because each endpoint declares its full
+# /insights/* path so the urls are co-located in one module file.
+admin_router.include_router(visitor_insights.router, tags=["admin", "insights"])
 # Subscriptions admin: routes registered WITHOUT a prefix here because
 # they live at two different paths — /admin/users/{id}/subscriptions
 # (list + grant) and /admin/subscriptions/{id}/{extend,revoke}. The

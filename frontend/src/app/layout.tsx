@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import { AssistantWidgetMount } from "@/components/assistant/AssistantWidgetMount";
+import { TrackerMount } from "@/components/tracker/TrackerMount";
 
 // Fallback is the REAL production domain — not a placeholder. iOS Safari
 // and Android Chrome share sheets prefer the og:url / canonical meta tags
@@ -90,6 +92,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Chat widget — follows signed-in users across every page.
             Self-hides for anon visitors (so marketing pages stay clean). */}
         <AssistantWidgetMount />
+        {/* Visitor Insights tracker — captures page views, active
+            time, scroll depth, CTA clicks for the /admin/insights
+            dashboard. Wrapped in Suspense because useSearchParams()
+            requires it under Next.js App Router static rendering.
+            Self-disables on Do-Not-Track and via the
+            tracking.enabled server setting (the POST returns
+            {accepted:0,reason:"disabled"} which the tracker ignores). */}
+        <Suspense fallback={null}>
+          <TrackerMount />
+        </Suspense>
       </body>
     </html>
   );
