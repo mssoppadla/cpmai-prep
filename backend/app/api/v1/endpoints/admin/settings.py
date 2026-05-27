@@ -507,6 +507,22 @@ EDITABLE: dict[str, Callable] = {
     # instead of the marketing homepage. See migration 0025 and
     # backend/app/api/v1/endpoints/cms_public.py::cms_landing.
     "cms.use_cms_landing":               _bool,
+    # ── Visitor Insights v2 (tracker → /admin/insights) ─────────────
+    # Master kill switch for the SPA tracker. When false, POST /track
+    # returns {accepted:0,reason:"disabled"} and writes nothing. Lets
+    # ops silence the firehose during incidents (DB stress, partial
+    # outage, legal hold) without a deploy.
+    "tracking.enabled":                  _bool,
+    # Per-batch sample rate (0.0–1.0). 1.0 keeps every batch; lower
+    # values drop batches at the ingest endpoint BEFORE any DB write.
+    # At our v1 scale the default stays 1.0; flip below 1.0 only when
+    # journey_events row growth threatens index health.
+    "tracking.sample_rate":              _float_in(0.0, 1.0),
+    # When true, /admin/insights/* endpoints prefer the
+    # visitor_insights_daily rollup over live aggregation against
+    # journey_events. Flip ON once the nightly job (PR VI-8) has
+    # produced enough days of rollup to keep dashboards accurate.
+    "tracking.rollup_enabled":           _bool,
 }
 
 

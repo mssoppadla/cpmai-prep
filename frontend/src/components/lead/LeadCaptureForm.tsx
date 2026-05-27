@@ -225,6 +225,7 @@ export function LeadCaptureForm({
       </label>
       <button
         type="submit"
+        data-track="cta:lead_capture_submit"
         disabled={state === "submitting"}
         className="w-full min-h-[48px] bg-indigo-600 text-white px-6 py-3
                    text-base font-semibold rounded-lg

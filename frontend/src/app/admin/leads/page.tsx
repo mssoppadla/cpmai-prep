@@ -518,6 +518,14 @@ function AnonymousTrafficSection() {
             Visitors who opened the chat without signing in. Where are
             they coming from, when did they show up?
           </p>
+          {/* Bridge to Visitor Insights v2 — the broader dashboard
+              that adds top-pages, funnel, and per-visitor timeline.
+              The summary widget below remains the at-a-glance view
+              for operators sitting on /admin/leads. */}
+          <a href="/admin/insights"
+              className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+            Open full Visitor Insights dashboard →
+          </a>
         </div>
         <select value={window}
                 onChange={(e) => setWindow(e.target.value as AnonWindow)}

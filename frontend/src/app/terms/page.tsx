@@ -35,7 +35,15 @@ const LAST_UPDATED = "2026-05-21";
 async function getChrome(): Promise<Partial<SiteChrome>> {
   try {
     const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
-    const r = await fetch(`${base}/content/site`, { next: { revalidate: 300 } });
+    // 5s timeout via AbortSignal so a backend-less build (local prod
+    // build, CI without a backend service) falls through to the
+    // empty-chrome fallback instead of hanging until the Next.js
+    // static-worker 60s deadline kills it. See privacy/page.tsx for
+    // the matching rationale — same pattern.
+    const r = await fetch(`${base}/content/site`, {
+      next: { revalidate: 300 },
+      signal: AbortSignal.timeout(5000),
+    });
     if (!r.ok) return {};
     return await r.json();
   } catch {

@@ -376,6 +376,7 @@ export default function PricingPage() {
                   && planQuote.display_currency_supported;
                 return (
                   <button key={p.id} onClick={() => setSelectedSlug(p.slug)}
+                    data-track={`cta:select_plan:${p.slug}`}
                     className={`w-full text-left rounded-xl border p-5 transition ${
                       selected
                         ? "border-indigo-600 ring-2 ring-indigo-200 bg-white"
@@ -575,6 +576,7 @@ export default function PricingPage() {
                   </div>
 
                   <button onClick={checkout}
+                          data-track="cta:checkout"
                           disabled={!canCheckout || quoteBusy || checkoutBusy}
                           className="w-full px-4 py-3 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
                     {!authChecked

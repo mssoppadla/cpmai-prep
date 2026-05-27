@@ -167,6 +167,12 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "geoip.trusted_proxy_count":         1,
     # CMS landing master switch — bool, round-trip-tested.
     "cms.use_cms_landing":               True,
+    # tracking.* — Visitor Insights v2 master knobs. The kill switch
+    # plus the per-batch sample rate plus the rollup-enabled flag are
+    # the three live levers ops can pull without a redeploy.
+    "tracking.enabled":                  False,
+    "tracking.sample_rate":              0.5,
+    "tracking.rollup_enabled":           True,
 }
 
 

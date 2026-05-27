@@ -10,7 +10,7 @@ the foundation commit. Conventions mirror `backlog.md`:
 - `[INFRA]` — deploy / ops / observability gap
 - `[FOLLOW-UP]` — known gap, scheduled for a later PR
 
-Last updated: 2026-05-20 (during the operator-readiness audit).
+Last updated: 2026-05-26 (Visitor Insights v2 — local build, awaiting preflight + PR).
 
 ---
 
@@ -247,6 +247,124 @@ Define hashtags once; reuse across campaigns + posts.
   * Runner appends the configured sets' hashtags to generated content
     (deduped, capped at platform limits)
 
+### [FEATURE] AI-generated voiceover for course videos (multi-language, cached)
+Operator request — give learners a toggle on the video player:
+"Human voice" (default, the original recording) vs "AI voice
+(English)" vs "AI voice (Hindi/Tamil/Telugu/…)". First-click
+generation, then cached forever for reuse.
+
+**User-facing flow:**
+  * Video lesson player shows a small dropdown / segmented control
+    above the player: `Voice: [Human ▼]` with options for every
+    pre-generated track plus "Generate AI voice (English)" /
+    "Generate AI voice (Hindi)" / etc.
+  * Selecting an existing track swaps the `<audio>` element instantly
+    (the video stays muted; we play the chosen track in sync via
+    `currentTime` binding). Subtitles continue to render from the
+    SRT.
+  * Selecting "Generate AI voice (Lang)" for the first time on a
+    given (lesson, language) pair queues a background job; the player
+    falls back to the human track until the job finishes (admin
+    notification + in-player toast).
+  * Every learner thereafter who picks "AI voice (Lang)" on this
+    lesson streams the cached MP3 — zero TTS cost per replay.
+
+**Admin-facing flow:**
+  * Lesson editor for video-type lessons gains an "SRT subtitles" tab
+    next to "Attached files". Admin can paste SRT, upload `.srt`
+    file, or drag-drop. Live preview shows the SRT parsed into
+    timed cues so they can spot bad timestamps before publishing.
+  * Admin can pre-generate any (lesson, language) MP3 from this tab
+    so the first-learner experience isn't a "generating…" wait.
+  * Admin can delete a cached AI track (e.g. updated the SRT and
+    needs a re-render) — confirms with row count of users who'd
+    re-use it.
+
+**Backend architecture:**
+  * New table `lesson_voiceovers`:
+       id, tenant_id, lesson_id, language, voice_provider, voice_id,
+       audio_url (object_key on R2 when we swap), duration_ms,
+       srt_hash, generated_at, generated_by, generation_cost_usd,
+       play_count
+    `UNIQUE(lesson_id, language, voice_id)` — at most one cached
+    track per (lesson × language × voice). srt_hash lets the player
+    invalidate stale tracks when the admin updates the SRT.
+  * New service `app/services/voiceover/` with:
+       * `srt_parser.py` — parse + validate SRT (drop overlaps,
+         normalise newlines, cap each cue at N seconds)
+       * `tts_registry.py` — pluggable TTS provider just like
+         LLMRegistry (`OpenAITTS`, `ElevenLabsTTS`, `AzureTTS`,
+         `StubTTS` for tests)
+       * `voiceover_generator.py` — main pipeline:
+         SRT → per-cue chunks → TTS calls → ffmpeg concat with
+         silent-pad to match each cue's start/end → final MP3 →
+         persist row + write to uploads volume (or R2 once PR #9 lands)
+  * APScheduler queue (in-process today, swappable to RQ/Celery
+    later) handles generation jobs so the HTTP request that triggered
+    "Generate" returns immediately with a job_id.
+  * `POST /api/v1/lessons/{id}/voiceover/generate` (auth required,
+    rate-limited per user) — queues a job, returns `{job_id, status}`.
+  * `GET  /api/v1/lessons/{id}/voiceover` — list available tracks
+    (cached + in-progress) for the player dropdown.
+  * `GET  /api/v1/voiceover/jobs/{job_id}` — poll for progress
+    (status, percent_complete, eta_seconds).
+  * Admin endpoints under `/admin/voiceover/*` for SRT CRUD + delete-
+    cached-track.
+
+**Cost + scale guards (Day-1):**
+  * Hard cap per tenant per day on TTS cost (settings_store key
+    `voiceover.daily_cost_cap_usd`, default $20). Job manager checks
+    cap before enqueuing.
+  * Per-user rate limit (1 generation job per lesson per 10 min) so
+    a refresh-loop can't drain budget.
+  * `voiceover.allowed_languages` setting — comma-separated ISO
+    codes, default "en,hi". Admin enables Tamil/Telugu/etc. when
+    they're ready to QC the output.
+  * Audit log + dashboard tile under `/admin/observability`: per-day
+    generation count, total cost, cache hit rate (plays of cached
+    tracks ÷ total plays).
+
+**SRT handling:**
+  * If a video has no SRT, "Generate AI voice" is disabled with a
+    tooltip: "Add subtitles in the lesson editor first."
+  * If SRT has gaps, we generate silence to fill (so the AI voice
+    stays in sync with the video timeline).
+  * If SRT has overlapping cues (multi-speaker captions), we
+    sequentialise them with a 300ms pause — operator gets a warning
+    banner in the editor.
+  * `Lesson.captions_url` (already in schema, see Bucket D) is the
+    SRT source of truth; voiceover service reads from there.
+
+**Multi-language nuance:**
+  * Captions can be uploaded per language (`lesson_captions` table:
+    lesson_id + language + url). The AI voice track for "hi" reads
+    from the `hi` captions row, not the English one — a separate
+    translation step is the admin's responsibility (we don't
+    auto-translate captions; that's a separate AI feature).
+  * Player UI groups available tracks by language with native-name
+    labels (हिन्दी / தமிழ் / etc.) using the existing country-flag
+    util pattern.
+
+**Trade-off acknowledged:**
+  * Cached MP3s grow `cpmai-uploads` linearly with (lessons ×
+    languages). At ~3MB per 10-min lesson × 5 languages × 200
+    lessons = ~3 GB total — comfortable for v1, justifies the R2
+    swap by year 2.
+  * Cold-start latency for first-learner is unavoidable; we mitigate
+    with admin pre-generation + an inline "generating, ~30s"
+    progress bar that doesn't block playback.
+
+**Why this is its own PR (not bundled with Visitor Insights v2):**
+  * Touches lesson schema, lesson editor UI, video player UI, a new
+    service layer, an external TTS provider with real costs — large
+    surface, deserves dedicated review.
+  * Provider selection (OpenAI TTS vs ElevenLabs vs Azure) is its
+    own evaluation — different voice quality, different per-1k-char
+    pricing, different language support.
+  * Belongs after PR #9 (R2 storage) so cached MP3s don't pin disk
+    on the VPS. If R2 slips, fallback to local-uploads volume with
+    the daily cap acting as the guardrail.
+
 ### [FEATURE] Video generation (real, not stub)
 The current `auto_clip` workflow returns a placeholder. Real options
 (in order of cost/quality trade-off):
@@ -258,11 +376,52 @@ The current `auto_clip` workflow returns a placeholder. Real options
     uploads volume (same path as Zoom recordings); admin queue surfaces
     a video preview alongside the text caption
 
-### [DONE in this commit] Zoom + new site.* settings visible in /admin/settings
+### [DONE locally — Visitor Insights v2] Page-level analytics + funnel + drilldown
+Replaces the narrow /admin/anonymous-traffic widget (which only knew
+about chat-bubble opens) with a full /admin/insights dashboard
+covering both anonymous visitors AND signed-in users. Three PRs
+bundled per operator request:
+
+* **Capture (PR-A)** — Migration `0032_visitor_insights` extends
+  `journey_events` with tenant_id + path + referrer + UTM +
+  device/browser/os + GeoIP + duration_ms + scroll_pct. Backend
+  endpoint `POST /api/v1/track` accepts batched events (≤50/batch,
+  120 batches/min/IP). Frontend tracker (`src/lib/tracker.ts` +
+  `TrackerMount` in root layout) emits page.view / page.heartbeat /
+  page.exit / scroll.depth / cta.click / session.start / session.end
+  with `sendBeacon` on pagehide. Respects Do-Not-Track + per-batch
+  sampling.
+
+* **Dashboard (PR-B)** — `/admin/insights` page with KPI strip
+  (sessions, visitors, avg duration, pages/session, bounce%,
+  conversion%), top-pages table (views + avg active time + bounce% +
+  exit%), funnel viz (landing → signup → first lesson → payment),
+  session-timeline drilldown (paste anon_id, see ordered events).
+  Backed by 4 admin endpoints + 1 GDPR action.
+
+* **Scale prep (PR-C)** — `visitor_insights_daily` rollup table +
+  nightly APScheduler job (gated by `tracking.rollup_enabled`,
+  default off). Three live levers: `tracking.enabled`, `sample_rate`,
+  `rollup_enabled` — all in `EDITABLE` + seed + drift test.
+
+Tests added: `test_tracking.py` (HTTP surface, kill switches, PII
+strip, path normalisation), `test_tracking_ua_parser.py` (device/
+browser/OS bucketing), `test_visitor_insights.py` (RBAC + each
+endpoint's aggregation logic + GDPR anonymise).
+
+Local Python syntax check + JSON validity green. Pending: full
+`scripts/preflight.sh` run + PR + deploy.
+
+### [DONE in prod — PR #79] Zoom + new site.* settings visible in /admin/settings
 The admin settings page is whitelisted by key in the EDITABLE dict
 at `backend/app/api/v1/endpoints/admin/settings.py:441`. The new
 zoom.* keys (SDK, OAuth, webhook) + site.* keys (instagram_url,
 facebook_url, threads_url, tiktok_url, github_url, privacy_email,
 contact_phone) + uploads.max_mb were missing from EDITABLE so they
 didn't render. Validators added, seeded with empty defaults,
-drift-test extended.
+drift-test extended. Zoom secrets (sdk_secret, oauth_client_secret,
+webhook_secret_token) added to SECRET_KEYS so GET masks them to
+last-4 only. Admins can now rotate all credentials live without a
+redeploy — uploads.max_mb takes effect on the next POST because
+`/admin/uploads.py::_max_upload_bytes()` reads settings_store per
+request. **Deployed to prod 2026-05-25.**

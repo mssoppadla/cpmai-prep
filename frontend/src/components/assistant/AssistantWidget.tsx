@@ -537,6 +537,7 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
                 <button
                   type="button"
                   onClick={openCallback}
+                  data-track="cta:talk_to_human"
                   className="text-xs text-slate-500 hover:text-indigo-600 hover:underline"
                 >
                   Talk to a human →
@@ -605,6 +606,7 @@ export function AssistantWidget({ user }: { user: UserOut | null }) {
                   Back to chat
                 </button>
                 <button type="submit"
+                        data-track="cta:request_callback_submit"
                         disabled={cbBusy}
                         className="flex-1 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded
                                    hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">

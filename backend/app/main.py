@@ -133,12 +133,26 @@ def startup():
     if settings.APP_ENV != "test":
         try:
             from app.services.social.scheduler import start as _start_social
-            _start_social()
+            _sched = _start_social()
         except Exception as _e:
             import logging as _log
             _log.getLogger(__name__).warning(
                 "social scheduler failed to start: %s", _e,
             )
+            _sched = None
+        # Visitor Insights nightly rollup — shares the same APScheduler
+        # instance so we don't run two event loops. Registration is
+        # idempotent; the job itself no-ops when tracking.rollup_enabled
+        # is false (which is the default until ops flips it on).
+        if _sched is not None:
+            try:
+                from app.services.tracking.rollup import register as _register_rollup
+                _register_rollup(_sched)
+            except Exception as _e:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "visitor-insights rollup failed to register: %s", _e,
+                )
 
 
 @app.on_event("shutdown")

@@ -88,6 +88,7 @@ export function LandingTopBar() {
             )}
             <Link
               href="/login"
+              data-track="cta:sign_in_landing"
               className="text-sm text-slate-600 hover:text-indigo-600 px-3 py-2"
             >
               Sign in
