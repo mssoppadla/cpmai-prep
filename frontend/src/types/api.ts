@@ -264,6 +264,19 @@ export interface SubmitAttemptOut {
   /** Set when this was a domain-practice drill (vs a full sitting). */
   practice_domain: string | null;
 }
+/** One past submitted attempt, for the learner's exam-history list. */
+export interface AttemptHistoryOut {
+  id: number;
+  exam_set_name: string | null;
+  exam_set_slug: string | null;
+  practice_domain: string | null;
+  score: number;
+  passed: boolean;
+  total_questions: number;
+  correct_count: number;
+  time_taken_seconds: number;
+  submitted_at: string;
+}
 
 // ---------- Leads ----------------------------------------------------------
 export interface UtmIn {

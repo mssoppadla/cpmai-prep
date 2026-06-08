@@ -6,7 +6,7 @@ import { auth, content as contentApi, exams as examsApi, errMsg } from "@/lib/ap
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import type {
-  ExamSetSummaryOut, LandingCopy, UserDashboardOut,
+  AttemptHistoryOut, ExamSetSummaryOut, LandingCopy, UserDashboardOut,
 } from "@/types/api";
 
 const UPSELL_FALLBACK: Pick<LandingCopy, "premium_upsell_title" | "premium_upsell_body"> = {
@@ -148,6 +148,9 @@ export default function LearnerDashboard() {
           )}
         </div>
       </section>
+
+      {/* Exam history — past attempts persist; revisit domain insights anytime */}
+      <ExamHistorySection />
 
       {/* Free exam sets — always available */}
       <section className="max-w-5xl mx-auto px-6 pb-8">
@@ -333,6 +336,88 @@ function PrivacySection({ email, onAfterDelete }: {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Exam history — the learner's past submitted attempts. Each row links back
+ * into the full results screen (by-domain breakdown + question review), so a
+ * candidate can always return to see which domains they scored high/low on
+ * and where to focus. Attempts persist server-side; this just surfaces them.
+ */
+function ExamHistorySection() {
+  const [attempts, setAttempts] = useState<AttemptHistoryOut[] | null>(null);
+
+  useEffect(() => {
+    examsApi.listAttempts().then(setAttempts).catch(() => setAttempts([]));
+  }, []);
+
+  if (attempts === null) return null; // resolve quietly; no flash
+
+  return (
+    <section className="max-w-5xl mx-auto px-6 pb-8">
+      <h2 className="text-lg font-semibold text-slate-900 mb-1">
+        Your exam history
+      </h2>
+      <p className="text-sm text-slate-500 mb-3">
+        Revisit any past attempt to see which domains you scored high or low on,
+        and where to focus next.
+      </p>
+
+      {attempts.length === 0 ? (
+        <p className="text-sm text-slate-500 bg-white border border-slate-200 rounded-xl p-5">
+          No completed exams yet — finish a set and your result will appear here,
+          so you can come back to your domain breakdown anytime.
+        </p>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+          {attempts.map((a) => {
+            const dt = new Date(a.submitted_at);
+            const mins = Math.floor(a.time_taken_seconds / 60);
+            const secs = a.time_taken_seconds % 60;
+            return (
+              <Link
+                key={a.id}
+                href={`/exams/results/${a.id}`}
+                className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900 truncate">
+                    {a.exam_set_name ?? "Exam"}
+                    {a.practice_domain && (
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        Practice: {a.practice_domain}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {dt.toLocaleDateString()}{" "}
+                    {dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {" · "}{a.correct_count}/{a.total_questions} correct
+                    {" · "}{mins}m {secs}s
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className={`text-lg font-bold tabular-nums ${
+                    a.passed ? "text-emerald-700" : "text-rose-600"
+                  }`}>
+                    {a.score}%
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                    a.passed
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : "bg-rose-50 text-rose-700 border-rose-200"
+                  }`}>
+                    {a.passed ? "Passed" : "Keep practicing"}
+                  </span>
+                  <span className="text-indigo-600 text-sm hidden sm:inline">View →</span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       )}
     </section>

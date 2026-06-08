@@ -11,7 +11,7 @@ Two actor types are supported:
 """
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, func, case
 from app.core.exceptions import (
     NotFoundError, ConflictError, ForbiddenError, SubscriptionRequiredError,
     UnauthorizedError,
@@ -28,6 +28,7 @@ from app.models.subscription import Subscription
 from app.models.plan import PlanExamSet
 from app.schemas.exam import (
     ExamAttemptOut, AnswerIn, SubmitAttemptOut, PhaseBreakdown, DomainBreakdown,
+    AttemptHistoryOut,
 )
 from app.schemas.exam_set import ExamSetSummaryOut
 from app.schemas.question import (
@@ -183,6 +184,50 @@ class ExamService:
                              "is_premium": es.is_premium,
                              "anonymous": actor_user_id is None})
         return self._serialize_attempt(session, es)
+
+    # -------------------------------------------------------------- history
+    def list_attempts(self, user: "User") -> list[AttemptHistoryOut]:
+        """The signed-in user's submitted attempts, newest first — their
+        exam history. Anonymous attempts are intentionally excluded (they
+        aren't bound to an account). Counts come from one grouped query
+        over the answer rows, so this stays O(1) round-trips."""
+        sessions = (self.db.query(ExamSession)
+                    .filter(ExamSession.user_id == user.id,
+                            ExamSession.status == "submitted")
+                    .order_by(ExamSession.submitted_at.desc().nullslast(),
+                              ExamSession.id.desc())
+                    .all())
+        if not sessions:
+            return []
+        sids = [s.id for s in sessions]
+        set_ids = {s.exam_set_id for s in sessions if s.exam_set_id}
+        sets = ({es.id: es for es in self.db.query(ExamSet)
+                 .filter(ExamSet.id.in_(set_ids)).all()} if set_ids else {})
+        rows = (self.db.query(
+                    ExamAttemptAnswer.exam_session_id,
+                    func.count(ExamAttemptAnswer.id),
+                    func.sum(case((ExamAttemptAnswer.is_correct.is_(True), 1),
+                                  else_=0)))
+                .filter(ExamAttemptAnswer.exam_session_id.in_(sids))
+                .group_by(ExamAttemptAnswer.exam_session_id).all())
+        counts = {sid: (total, int(correct or 0)) for sid, total, correct in rows}
+        out: list[AttemptHistoryOut] = []
+        for s in sessions:
+            es = sets.get(s.exam_set_id)
+            total, correct = counts.get(s.id, (0, 0))
+            out.append(AttemptHistoryOut(
+                id=s.id,
+                exam_set_name=es.name if es else None,
+                exam_set_slug=es.slug if es else None,
+                practice_domain=s.practice_domain,
+                score=s.score or 0,
+                passed=bool(s.passed),
+                total_questions=total,
+                correct_count=correct,
+                time_taken_seconds=s.time_taken_seconds or 0,
+                submitted_at=s.submitted_at,
+            ))
+        return out
 
     # -------------------------------------------------------- domain practice
     def start_domain_practice(self, actor: "User | str | None",
