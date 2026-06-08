@@ -1,41 +1,39 @@
-"""Bulk-upload questions from an admin-supplied Excel sheet.
+"""Bulk export/import of questions via Excel.
 
-Two responsibilities:
+Three responsibilities:
 
   1. `build_template()` — emit a downloadable .xlsx with column headers,
      example rows, and data-validation dropdowns for the enum-shaped
-     columns (difficulty, question_type) so admins can't typo them.
+     columns (difficulty, question_type, topic_code, domain) so admins
+     can't typo them.
 
-  2. `parse_workbook(stream)` — read an uploaded sheet, map each row
-     to a `QuestionAdminIn` payload, and return both the valid payloads
-     and per-row errors. Caller (the endpoint) decides whether to
-     commit the valid ones and report the errors back.
+  2. `build_export(rows)` — emit the SAME sheet shape, but pre-filled
+     with every existing question (id + all fields + exam-set memberships
+     + options). This is what "Download" gives an admin: the live data,
+     ready to edit and re-upload.
+
+  3. `parse_workbook(stream)` — read an uploaded sheet, map each row to a
+     `QuestionAdminIn` payload plus its `id` (blank = create, present =
+     update) and `exam_sets` slug list. Caller (the endpoint) decides how
+     to apply them.
 
 Format (wide, one row per question):
 
-    A: stem                       (required)
-    B: topic_code                 (required, case-insensitive: BU/DU/DP/MD/EV/DE)
-    C: difficulty                 (required: easy / medium / hard)
-    D: question_type              (default single_choice; multi_choice allowed)
-    E: domain                     (optional)
-    F: task                       (optional)
-    G: enablers                   (optional, comma-separated → list[str])
-    H: remarks                    (optional, admin-only note)
-    I: explanation                (optional, shown to learner after submit)
-    J: is_active                  (default true; accepts y/n, true/false, 1/0)
-    K: option_a_text              (required)
-    L: option_a_is_correct        (required: true/false)
-    M: option_a_reasoning         (optional)
-    N..M: option_b_*              (required — at least 2 options needed)
-    P..R: option_c_*              (optional)
-    S..U: option_d_*
-    V..X: option_e_*
-    Y..AA: option_f_*
-
-Wide format chosen over long because admins maintaining a question
-bank in Excel work one-question-at-a-time and benefit from seeing the
-full row at once. Long format would compact variable-option counts but
-is hideous to edit.
+    id                  (existing id → update; blank or unknown id → create new)
+    stem                (required)
+    topic_code          (required, case-insensitive: BU/DU/DP/MD/EV/DE)
+    difficulty          (required: easy / medium / hard)
+    question_type       (default single_choice; multi_choice allowed)
+    domain              (ECO domain code: D-I … D-V; blank = unassigned)
+    task                (optional)
+    enablers            (optional, comma-separated → list[str])
+    remarks             (optional, admin-only note)
+    explanation         (optional, shown to learner after submit)
+    is_active           (default true; accepts y/n, true/false, 1/0)
+    exam_sets           (comma-separated set slugs — AUTHORITATIVE on import:
+                         the question's memberships are synced to exactly
+                         this list; clearing the cell removes it from all sets)
+    option_a_text       (required) … option_f_* (optional)
 
 Hard caps (enforced at the endpoint, not here):
     file size  ≤ 5 MB
@@ -51,22 +49,28 @@ from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.comments import Comment
 from pydantic import ValidationError as PydanticValidationError
 
+from app.core import domains as domain_registry
 from app.schemas.question import QuestionAdminIn, QuestionOptionIn
 
 
 # Column layout — must match the docstring above. Single source of truth
 # for both the template writer and the parser.
 COLUMNS: list[tuple[str, str]] = [
+    ("id",             "Question id. An existing id UPDATES that question; "
+                       "blank — or an unknown id — CREATES a new one."),
     ("stem",           "Question stem (required)"),
     ("topic_code",     "CPMAI phase code: BU, DU, DP, MD, EV, or DE (required)"),
     ("difficulty",     "easy / medium / hard (required)"),
     ("question_type",  "single_choice (default) or multi_choice"),
-    ("domain",         "Optional sub-area string"),
+    ("domain",         "ECO domain code: D-I … D-V (blank = unassigned)"),
     ("task",           "Optional task description"),
     ("enablers",       "Optional comma-separated list of enablers"),
     ("remarks",        "Optional admin-only note (not shown to learner)"),
     ("explanation",    "Optional general explanation, shown after submit"),
     ("is_active",      "true (default) / false / 1 / 0 / y / n"),
+    ("exam_sets",      "Comma-separated exam-set slugs. AUTHORITATIVE on "
+                       "upload: memberships are synced to exactly this list "
+                       "(clear the cell to remove from all sets)."),
 ]
 OPTION_LETTERS = ("A", "B", "C", "D", "E", "F")
 for L in OPTION_LETTERS:
@@ -79,6 +83,9 @@ for L in OPTION_LETTERS:
     ]
 HEADERS = [c[0] for c in COLUMNS]
 HEADER_NOTES = {c[0]: c[1] for c in COLUMNS}
+
+# Comma-separated domain codes for the dropdown + error messages.
+_DOMAIN_CODES = [d.code for d in domain_registry.all_domains()]
 
 
 # --------------------------------------------------------- bool parsing
@@ -110,15 +117,50 @@ def _cell_str(v) -> str:
 
 
 # =========================================================== template
-def build_template() -> bytes:
-    """Generate the .xlsx admins download. Includes:
-       - frozen header row with column titles + a docstring-comment
-         on each header explaining the field
-       - 3 example rows: a single-choice, a multi-choice, and a
-         minimal-fields example
-       - data-validation dropdowns on `difficulty`, `question_type`,
-         and every `option_*_is_correct` so a wrong value can't be saved
-    """
+# Three example rows — pre-filled so admins can copy-and-modify a blank sheet.
+_EXAMPLE_ROWS: list[dict] = [
+    {
+        "stem": "Which CPMAI phase is dedicated to assessing data quality?",
+        "topic_code": "DU", "difficulty": "easy",
+        "question_type": "single_choice",
+        "domain": "D-III",
+        "explanation": "Phase 2 (Data Understanding) is where data is profiled.",
+        "is_active": "true",
+        "option_a_text": "Phase 1 — Business Understanding", "option_a_is_correct": "false",
+        "option_a_reasoning": "Phase 1 defines the business goal, not data quality.",
+        "option_b_text": "Phase 2 — Data Understanding", "option_b_is_correct": "true",
+        "option_b_reasoning": "Correct — Phase 2 is dedicated to data assessment.",
+        "option_c_text": "Phase 4 — Modeling", "option_c_is_correct": "false",
+        "option_c_reasoning": "Modeling consumes prepared data; quality is assessed earlier.",
+        "option_d_text": "Phase 6 — Operationalization", "option_d_is_correct": "false",
+        "option_d_reasoning": "Operationalization is for deployed models, not raw data.",
+    },
+    {
+        "stem": "Which phases involve hands-on work with data? (pick all that apply)",
+        "topic_code": "DP", "difficulty": "medium",
+        "question_type": "multi_choice",
+        "domain": "D-III",
+        "is_active": "true",
+        "option_a_text": "Data Understanding", "option_a_is_correct": "true",
+        "option_a_reasoning": "Data profiling and quality assessment happen here.",
+        "option_b_text": "Data Preparation", "option_b_is_correct": "true",
+        "option_b_reasoning": "Cleansing, transformation, and feature engineering.",
+        "option_c_text": "Modeling", "option_c_is_correct": "false",
+        "option_c_reasoning": "Modeling consumes data but doesn't manipulate it directly.",
+        "option_d_text": "Business Understanding", "option_d_is_correct": "false",
+        "option_d_reasoning": "Business Understanding is goal-setting, not data work.",
+    },
+    {
+        "stem": "Minimal example: what does CPMAI stand for?",
+        "topic_code": "BU", "difficulty": "easy", "domain": "D-II",
+        "option_a_text": "Cognitive Project Management for AI", "option_a_is_correct": "true",
+        "option_b_text": "Continuous Process Modeling and Iteration", "option_b_is_correct": "false",
+    },
+]
+
+
+def _write_workbook(data_rows: list[dict]) -> bytes:
+    """Write the canonical sheet (header + validations + the given rows)."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Questions"
@@ -139,7 +181,7 @@ def build_template() -> bytes:
     for i, name in enumerate(HEADERS, start=1):
         if name == "stem" or name == "explanation":
             ws.column_dimensions[get_column_letter(i)].width = 60
-        elif name.endswith("_text") or name.endswith("_reasoning"):
+        elif name.endswith("_text") or name.endswith("_reasoning") or name == "exam_sets":
             ws.column_dimensions[get_column_letter(i)].width = 35
         else:
             ws.column_dimensions[get_column_letter(i)].width = 16
@@ -150,10 +192,7 @@ def build_template() -> bytes:
     def col(name: str) -> str:
         return get_column_letter(HEADERS.index(name) + 1)
 
-    def col_range(name: str, start_row: int = 2, end_row: int = 1000) -> str:
-        """Build a single-column range like 'C2:C1000' — openpyxl
-        requires the column letter on BOTH sides; 'C2:1000' raises
-        ValueError on workbook save."""
+    def col_range(name: str, start_row: int = 2, end_row: int = 2000) -> str:
         c = col(name)
         return f"{c}{start_row}:{c}{end_row}"
 
@@ -189,48 +228,17 @@ def build_template() -> bytes:
     ws.add_data_validation(topic_dv)
     topic_dv.add(col_range('topic_code'))
 
-    # Three example rows — pre-filled so admins can copy-and-modify.
-    examples: list[dict] = [
-        {
-            "stem": "Which CPMAI phase is dedicated to assessing data quality?",
-            "topic_code": "DU", "difficulty": "easy",
-            "question_type": "single_choice",
-            "domain": "Data Understanding > Quality",
-            "explanation": "Phase 2 (Data Understanding) is where data is profiled.",
-            "is_active": "true",
-            "option_a_text": "Phase 1 — Business Understanding", "option_a_is_correct": "false",
-            "option_a_reasoning": "Phase 1 defines the business goal, not data quality.",
-            "option_b_text": "Phase 2 — Data Understanding", "option_b_is_correct": "true",
-            "option_b_reasoning": "Correct — Phase 2 is dedicated to data assessment.",
-            "option_c_text": "Phase 4 — Modeling", "option_c_is_correct": "false",
-            "option_c_reasoning": "Modeling consumes prepared data; quality is assessed earlier.",
-            "option_d_text": "Phase 6 — Operationalization", "option_d_is_correct": "false",
-            "option_d_reasoning": "Operationalization is for deployed models, not raw data.",
-        },
-        {
-            "stem": "Which phases involve hands-on work with data? (pick all that apply)",
-            "topic_code": "DP", "difficulty": "medium",
-            "question_type": "multi_choice",
-            "is_active": "true",
-            "option_a_text": "Data Understanding", "option_a_is_correct": "true",
-            "option_a_reasoning": "Data profiling and quality assessment happen here.",
-            "option_b_text": "Data Preparation", "option_b_is_correct": "true",
-            "option_b_reasoning": "Cleansing, transformation, and feature engineering.",
-            "option_c_text": "Modeling", "option_c_is_correct": "false",
-            "option_c_reasoning": "Modeling consumes data but doesn't manipulate it directly.",
-            "option_d_text": "Business Understanding", "option_d_is_correct": "false",
-            "option_d_reasoning": "Business Understanding is goal-setting, not data work.",
-        },
-        {
-            "stem": "Minimal example: what does CPMAI stand for?",
-            "topic_code": "BU", "difficulty": "easy",
-            "option_a_text": "Cognitive Project Management for AI", "option_a_is_correct": "true",
-            "option_b_text": "Continuous Process Modeling and Iteration", "option_b_is_correct": "false",
-        },
-    ]
-    for rownum, ex in enumerate(examples, start=2):
+    domain_dv = DataValidation(type="list",
+                                formula1='"' + ",".join(_DOMAIN_CODES) + '"',
+                                allow_blank=True)
+    domain_dv.error = "Use one of: " + ", ".join(_DOMAIN_CODES)
+    domain_dv.errorTitle = "Invalid domain"
+    ws.add_data_validation(domain_dv)
+    domain_dv.add(col_range('domain'))
+
+    for rownum, ex in enumerate(data_rows, start=2):
         for i, name in enumerate(HEADERS, start=1):
-            if name in ex:
+            if name in ex and ex[name] is not None:
                 ws.cell(row=rownum, column=i, value=ex[name])
 
     buf = BytesIO()
@@ -238,24 +246,86 @@ def build_template() -> bytes:
     return buf.getvalue()
 
 
+def build_template() -> bytes:
+    """Generate the blank .xlsx admins download (header + 3 example rows
+    + dropdown validations). Used when there's nothing to export yet."""
+    return _write_workbook(_EXAMPLE_ROWS)
+
+
+def build_export(rows: list[dict]) -> bytes:
+    """Generate an .xlsx pre-filled with existing questions (one dict per
+    question, keys matching HEADERS). Falls back to the example rows when
+    the bank is empty so the admin still gets a usable starting sheet."""
+    return _write_workbook(rows if rows else _EXAMPLE_ROWS)
+
+
+def question_to_row(q, topic_code: str, set_slugs: list[str]) -> dict:
+    """Flatten a Question ORM object + its set memberships into a row dict
+    for `build_export`. `topic_code` is supplied by the caller (the Question
+    model has no `topic` relationship)."""
+    row: dict = {
+        "id": q.id,
+        "stem": q.stem,
+        "topic_code": topic_code,
+        "difficulty": q.difficulty.value if hasattr(q.difficulty, "value") else q.difficulty,
+        "question_type": (q.question_type.value
+                          if hasattr(q.question_type, "value") else q.question_type),
+        "domain": q.domain or "",
+        "task": q.task or "",
+        "enablers": ", ".join(q.enablers or []),
+        "remarks": q.remarks or "",
+        "explanation": q.explanation or "",
+        "is_active": "true" if q.is_active else "false",
+        "exam_sets": ", ".join(set_slugs),
+    }
+    for opt in q.options:
+        L = opt.option_letter.lower()
+        row[f"option_{L}_text"] = opt.text
+        row[f"option_{L}_is_correct"] = "true" if opt.is_correct else "false"
+        row[f"option_{L}_reasoning"] = opt.reasoning or ""
+    return row
+
+
 # ============================================================ parser
 @dataclass
+class ParsedRow:
+    """One successfully-parsed upload row."""
+    row_num: int
+    payload: QuestionAdminIn
+    topic_code: str
+    question_id: int | None       # None → create; int → update existing
+    # Authoritative membership list when the `exam_sets` column is present;
+    # None when the column is absent entirely (→ leave memberships untouched,
+    # so an old sheet without the column never wipes associations).
+    set_slugs: list[str] | None
+
+
+@dataclass
 class ParseResult:
-    """Outcome of parsing the upload. The endpoint commits `valid`
-    entries and reports `errors` to the admin so they can fix the
-    failing rows in their sheet and re-upload only those."""
-    valid: list[tuple[int, QuestionAdminIn, str]]   # (row_num, payload, topic_code)
-    errors: list[dict]                               # {row, field, message}
+    """Outcome of parsing the upload. The endpoint applies `valid` entries
+    and reports `errors` so the admin can fix failing rows and re-upload."""
+    valid: list[ParsedRow]
+    errors: list[dict]            # {row, field, message}
 
 
-def _build_payload(row: dict, row_num: int) -> tuple[QuestionAdminIn, str]:
-    """Validate + coerce a single row into a QuestionAdminIn.
-    Returns (payload, topic_code) — the endpoint resolves topic_code
-    to topic_id outside this module so we don't need a DB session here.
-    Raises ValueError with a human-readable message on any problem."""
+def _build_row(row: dict, row_num: int, *, sets_present: bool) -> ParsedRow:
+    """Validate + coerce a single sheet row. Raises ValueError with a
+    human-readable message on any problem. topic_code is resolved to a
+    topic_id by the endpoint (no DB session here)."""
     stem = _cell_str(row.get("stem"))
     if not stem:
         raise ValueError("stem is required")
+
+    # id: blank → create; otherwise must be a positive integer.
+    question_id: int | None = None
+    id_raw = row.get("id")
+    if id_raw is not None and _cell_str(id_raw) != "":
+        try:
+            question_id = int(float(id_raw))   # tolerate "12" / 12 / 12.0
+        except (TypeError, ValueError):
+            raise ValueError(f"id must be a whole number or blank, got {id_raw!r}")
+        if question_id <= 0:
+            raise ValueError(f"id must be positive, got {question_id}")
 
     topic_code = _cell_str(row.get("topic_code")).upper()
     if not topic_code:
@@ -269,9 +339,28 @@ def _build_payload(row: dict, row_num: int) -> tuple[QuestionAdminIn, str]:
     if qt not in {"single_choice", "multi_choice"}:
         raise ValueError(f"question_type must be single_choice or multi_choice, got {qt!r}")
 
+    # domain: blank allowed. A recognised value (code/name/slug) is
+    # normalised to its canonical code; an unrecognised value is preserved
+    # as-is. Tolerating legacy free-text keeps an export → re-import of
+    # pre-existing data a clean no-op rather than a wall of row errors.
+    domain_raw = _cell_str(row.get("domain"))
+    domain_value: str | None = None
+    if domain_raw:
+        d = domain_registry.get(domain_raw)
+        domain_value = d.code if d else domain_raw
+
     enablers_raw = _cell_str(row.get("enablers"))
     enablers = [e.strip() for e in enablers_raw.split(",") if e.strip()] \
                 if enablers_raw else []
+
+    # None when the column is absent (don't touch memberships); a (possibly
+    # empty) list when present (authoritative).
+    if sets_present:
+        sets_raw = _cell_str(row.get("exam_sets"))
+        set_slugs: list[str] | None = [
+            s.strip() for s in sets_raw.split(",") if s.strip()]
+    else:
+        set_slugs = None
 
     is_active = _parse_bool(row.get("is_active"), default=True)
 
@@ -299,7 +388,7 @@ def _build_payload(row: dict, row_num: int) -> tuple[QuestionAdminIn, str]:
     try:
         payload = QuestionAdminIn(
             stem=stem, topic_id=0,
-            domain=(_cell_str(row.get("domain")) or None),
+            domain=domain_value,
             task=(_cell_str(row.get("task")) or None),
             enablers=enablers,
             remarks=(_cell_str(row.get("remarks")) or None),
@@ -311,15 +400,15 @@ def _build_payload(row: dict, row_num: int) -> tuple[QuestionAdminIn, str]:
         )
     except PydanticValidationError as e:
         raise ValueError(f"schema validation: {e.errors()[0]['msg']}")
-    return payload, topic_code
+    return ParsedRow(row_num=row_num, payload=payload, topic_code=topic_code,
+                     question_id=question_id, set_slugs=set_slugs)
 
 
 def parse_workbook(stream: bytes, *, max_rows: int = 500) -> ParseResult:
-    """Read a .xlsx upload and return per-row payloads + errors.
+    """Read a .xlsx upload and return per-row parsed rows + errors.
 
-    `max_rows` is enforced ABOVE the schema: a 1000-row sheet returns
-    an immediate "too many" error before any row is parsed, so we
-    don't waste compute on a sheet we'll reject anyway.
+    `max_rows` is enforced ABOVE the schema: a too-big sheet returns an
+    immediate "too many" error before any row is parsed.
     """
     try:
         wb = load_workbook(BytesIO(stream), data_only=True, read_only=True)
@@ -330,7 +419,6 @@ def parse_workbook(stream: bytes, *, max_rows: int = 500) -> ParseResult:
 
     ws = wb.active
 
-    # First row = headers. Read them and verify.
     rows_iter = ws.iter_rows(values_only=True)
     try:
         header_row = next(rows_iter)
@@ -339,23 +427,25 @@ def parse_workbook(stream: bytes, *, max_rows: int = 500) -> ParseResult:
             "row": 0, "field": "file", "message": "sheet is empty"}])
 
     headers_in_file = [_cell_str(h) for h in header_row]
-    missing = [h for h in HEADERS if h not in headers_in_file]
+    # `id` and `exam_sets` are optional columns for back-compat with older
+    # sheets — everything else must be present.
+    optional = {"id", "exam_sets"}
+    missing = [h for h in HEADERS if h not in headers_in_file and h not in optional]
     if missing:
         return ParseResult(valid=[], errors=[{
             "row": 1, "field": "headers",
             "message": (f"missing required header columns: {missing}. "
                          f"Download the latest template via the "
-                         f"'Download template' button.")}])
+                         f"'Download' button.")}])
 
-    # Build positional → name index for fast row lookup.
     name_at = {i: name for i, name in enumerate(headers_in_file)}
+    sets_present = "exam_sets" in headers_in_file
 
-    valid: list[tuple[int, QuestionAdminIn, str]] = []
+    valid: list[ParsedRow] = []
     errors: list[dict] = []
     seen_data_rows = 0
 
     for row_num, row_values in enumerate(rows_iter, start=2):
-        # Skip fully-blank rows (admins often leave trailing empties).
         if all(v is None or (isinstance(v, str) and not v.strip())
                 for v in row_values):
             continue
@@ -369,8 +459,7 @@ def parse_workbook(stream: bytes, *, max_rows: int = 500) -> ParseResult:
             break
         row = {name_at.get(i): v for i, v in enumerate(row_values)}
         try:
-            payload, topic_code = _build_payload(row, row_num)
-            valid.append((row_num, payload, topic_code))
+            valid.append(_build_row(row, row_num, sets_present=sets_present))
         except ValueError as e:
             errors.append({
                 "row": row_num, "field": "row",

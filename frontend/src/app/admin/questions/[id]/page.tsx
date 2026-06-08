@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { admin, content as contentApi, ApiError, errMsg } from "@/lib/api";
 import type {
-  Difficulty, QuestionAdminIn, QuestionOptionIn, QuestionType,
+  Difficulty, DomainOut, QuestionAdminIn, QuestionOptionIn, QuestionType,
 } from "@/types/api";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -18,6 +18,7 @@ export default function QuestionEditorPage() {
   const isNew = id === "new";
 
   const [topics, setTopics] = useState<Array<{id:number;code:string;name:string}>>([]);
+  const [domains, setDomains] = useState<DomainOut[]>([]);
   const [form, setForm] = useState<QuestionAdminIn>({
     stem: "", topic_id: 0,
     domain: "", task: "", enablers: [], remarks: "",
@@ -36,6 +37,7 @@ export default function QuestionEditorPage() {
       setTopics(t);
       if (isNew && t.length > 0) setForm(f => ({ ...f, topic_id: t[0].id }));
     });
+    contentApi.domains().then(setDomains).catch(() => {});
     if (!isNew) {
       admin.questions.get(Number(id))
         .then(q => {
@@ -131,6 +133,13 @@ export default function QuestionEditorPage() {
     } finally { setBusy(false); }
   }
 
+  // The domain a phase usually maps to (D-II..D-V), offered as a one-click
+  // suggestion. Trustworthy (D-I) is cross-cutting and never auto-suggested.
+  const selectedTopicCode = topics.find(t => t.id === form.topic_id)?.code;
+  const suggestedDomain = selectedTopicCode
+    ? domains.find(d => d.phase_codes.includes(selectedTopicCode))
+    : undefined;
+
   const correctCount = form.options.filter(o => o.is_correct).length;
   const isMulti = form.question_type === "multi_choice";
   // Validation mirrors the backend rules so the Save button reflects
@@ -211,12 +220,27 @@ export default function QuestionEditorPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
-              Domain (optional)
+              ECO domain
             </label>
-            <input value={form.domain ?? ""}
-                   onChange={(e) => setForm({ ...form, domain: e.target.value })}
-                   placeholder="Data Understanding > Quality"
-                   className={input} />
+            <select value={form.domain ?? ""}
+                    onChange={(e) => setForm({ ...form, domain: e.target.value })}
+                    className={input}>
+              <option value="">— unassigned —</option>
+              {domains.map(d => (
+                <option key={d.code} value={d.code}>{d.code} — {d.name}</option>
+              ))}
+            </select>
+            {suggestedDomain && form.domain !== suggestedDomain.code && (
+              <button type="button"
+                      onClick={() => setForm({ ...form, domain: suggestedDomain.code })}
+                      className="text-xs text-indigo-600 hover:underline mt-1">
+                This phase usually maps to {suggestedDomain.code} — {suggestedDomain.name}. Use it?
+              </button>
+            )}
+            <p className="text-xs text-slate-500 mt-1">
+              Results &amp; focused practice are grouped by domain. Pick{" "}
+              <strong>Trustworthy AI</strong> for cross-cutting questions.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">

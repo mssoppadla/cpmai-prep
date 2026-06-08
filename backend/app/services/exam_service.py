@@ -17,6 +17,7 @@ from app.core.exceptions import (
     UnauthorizedError,
 )
 from app.core.audit import audit_log
+from app.core import domains as domain_registry
 from app.services.tracking_service import emit_event
 from app.models.user import User
 from app.models.exam_set import ExamSet, ExamSetQuestion
@@ -26,7 +27,7 @@ from app.models.topic import Topic
 from app.models.subscription import Subscription
 from app.models.plan import PlanExamSet
 from app.schemas.exam import (
-    ExamAttemptOut, AnswerIn, SubmitAttemptOut, PhaseBreakdown,
+    ExamAttemptOut, AnswerIn, SubmitAttemptOut, PhaseBreakdown, DomainBreakdown,
 )
 from app.schemas.exam_set import ExamSetSummaryOut
 from app.schemas.question import (
@@ -54,13 +55,60 @@ def _correct_set(question) -> set[str]:
     return {o.option_letter for o in question.options if o.is_correct}
 
 
+# The CPMAI ECO is organised by domain, so results are rolled up by the
+# question's `domain` rather than by phase/topic. Questions with no domain
+# fall into this bucket, which is always sorted last.
+UNASSIGNED_DOMAIN = "Unassigned"
+
+
+def _domain_label(question) -> str:
+    """Canonical grouping key for a question's domain. Resolves legacy
+    spellings (name/slug) to the ECO domain code so groups merge; keeps
+    unrecognised free-text as-is; falls back to 'Unassigned' when blank."""
+    d = domain_registry.get(question.domain)
+    if d:
+        return d.code
+    raw = (question.domain or "").strip()
+    return raw or UNASSIGNED_DOMAIN
+
+
+def _build_domain_breakdown(domain_counts: dict[str, dict]) -> list[DomainBreakdown]:
+    """Turn a {domain: {correct, total}} tally into sorted DomainBreakdowns.
+    Ordered by the ECO domain order, then alphabetically, with 'Unassigned'
+    pinned last."""
+    rows = [
+        DomainBreakdown(
+            domain=label,
+            domain_name=domain_registry.display_name(label),
+            practiceable=domain_registry.is_valid_code(label),
+            correct=v["correct"], total=v["total"],
+            percent=round((v["correct"] / v["total"]) * 100) if v["total"] else 0,
+        )
+        for label, v in domain_counts.items()
+    ]
+
+    def sort_key(r: DomainBreakdown):
+        d = domain_registry.get(r.domain)
+        order = d.order if d else 98  # known domains first, in ECO order
+        if r.domain == UNASSIGNED_DOMAIN:
+            order = 99
+        return (order, r.domain_name.lower())
+
+    rows.sort(key=sort_key)
+    return rows
+
+
 class ExamService:
     def __init__(self, db: Session):
         self.db = db
 
-    # ------------------------------------------------------------------ start
-    def start_attempt(self, actor: "User | str | None",
-                      exam_set_slug: str) -> ExamAttemptOut:
+    # ------------------------------------------------------------ access guard
+    def _load_set_for_attempt(self, actor: "User | str | None",
+                              exam_set_slug: str) -> ExamSet:
+        """Load an active set and enforce the same access rules every
+        attempt path shares (auth presence + premium paywall). Does NOT
+        check emptiness — callers decide what "empty" means (a full set
+        vs a domain-filtered subset)."""
         if actor is None:
             raise UnauthorizedError(
                 "Provide an Authorization header or X-Anon-Token to start.",
@@ -76,19 +124,29 @@ class ExamService:
                 )
             if not self._can_access_exam_set(actor.id, es.id):
                 raise SubscriptionRequiredError()
+        return es
+
+    # ------------------------------------------------------------------ start
+    def start_attempt(self, actor: "User | str | None",
+                      exam_set_slug: str) -> ExamAttemptOut:
+        es = self._load_set_for_attempt(actor, exam_set_slug)
         if not es.questions:
             raise ConflictError("Exam set has no questions yet.")
 
         # Block multiple in-progress sessions for the same set, scoped to the
         # caller (a logged-in user gets one session per set; an anon token
-        # gets one session per set per browser).
+        # gets one session per set per browser). `practice_domain IS NULL`
+        # keeps full-set sittings distinct from domain-practice sessions on
+        # the same set — resuming one must never resume the other.
         if isinstance(actor, User):
             existing_q = self.db.query(ExamSession).filter_by(
                 user_id=actor.id, exam_set_id=es.id, status="in_progress",
+                practice_domain=None,
             )
         else:
             existing_q = self.db.query(ExamSession).filter_by(
                 anon_token=actor, exam_set_id=es.id, status="in_progress",
+                practice_domain=None,
             )
         existing = existing_q.first()
         if existing and existing.expires_at > datetime.now(timezone.utc):
@@ -125,6 +183,91 @@ class ExamService:
                              "is_premium": es.is_premium,
                              "anonymous": actor_user_id is None})
         return self._serialize_attempt(session, es)
+
+    # -------------------------------------------------------- domain practice
+    def start_domain_practice(self, actor: "User | str | None",
+                              exam_set_slug: str,
+                              domain_code: str) -> ExamAttemptOut:
+        """Start (or resume) a focused practice attempt over the questions
+        of one ECO domain *within a set the caller already has access to*.
+
+        Reached from the results screen: after a full sitting, a learner
+        drills into a domain they scored low on. Access rules mirror the
+        full-set path (premium paywall still applies), and the question
+        pool is the set's own questions filtered to `domain_code` — so a
+        premium set's questions are never exposed outside its paywall.
+        """
+        domain = domain_registry.get(domain_code)
+        if not domain:
+            raise NotFoundError(f"Unknown domain {domain_code!r}.")
+        es = self._load_set_for_attempt(actor, exam_set_slug)
+        scoped = [q for q in es.questions if _domain_label(q) == domain.code]
+        if not scoped:
+            raise ConflictError(
+                f"This set has no '{domain.name}' questions to practice yet.")
+
+        # Resume an in-progress practice for the SAME (caller, set, domain).
+        if isinstance(actor, User):
+            existing_q = self.db.query(ExamSession).filter_by(
+                user_id=actor.id, exam_set_id=es.id, status="in_progress",
+                practice_domain=domain.code,
+            )
+        else:
+            existing_q = self.db.query(ExamSession).filter_by(
+                anon_token=actor, exam_set_id=es.id, status="in_progress",
+                practice_domain=domain.code,
+            )
+        existing = existing_q.first()
+        if existing and existing.expires_at > datetime.now(timezone.utc):
+            self._ensure_answer_rows(existing, es)
+            return self._serialize_attempt(existing, es)
+
+        now = datetime.now(timezone.utc)
+        # Allow ~1.5 min/question (min 5), independent of the full set's
+        # clock — a domain drill is shorter than a full sitting.
+        minutes = max(5, round(len(scoped) * 1.5))
+        session = ExamSession(
+            user_id=actor.id if isinstance(actor, User) else None,
+            anon_token=None if isinstance(actor, User) else actor,
+            exam_set_id=es.id,
+            practice_domain=domain.code,
+            started_at=now,
+            expires_at=now + timedelta(minutes=minutes),
+            status="in_progress",
+        )
+        self.db.add(session)
+        self.db.flush()
+        for q in scoped:
+            self.db.add(ExamAttemptAnswer(
+                exam_session_id=session.id, question_id=q.id,
+            ))
+        self.db.commit()
+        self.db.refresh(session)
+        actor_user_id = actor.id if isinstance(actor, User) else None
+        audit_log(self.db, actor_user_id, "exam.domain_practice_started",
+                  {"exam_set_id": es.id, "session_id": session.id,
+                   "domain": domain.code, "question_count": len(scoped),
+                   "anonymous": actor_user_id is None})
+        emit_event(self.db, "exam.started", user_id=actor_user_id,
+                   metadata={"exam_set_id": es.id, "exam_set_slug": es.slug,
+                             "exam_session_id": session.id,
+                             "practice_domain": domain.code,
+                             "is_premium": es.is_premium,
+                             "anonymous": actor_user_id is None})
+        return self._serialize_attempt(session, es)
+
+    # --------------------------------------------------- attempt question pool
+    def _attempt_questions(self, session: "ExamSession",
+                           es: "ExamSet") -> list[Question]:
+        """The questions that belong to THIS attempt, in set order.
+
+        Full sitting → every question in the set. Domain practice → only
+        the set's questions whose domain matches `session.practice_domain`.
+        Single source of truth for serialization and answer-row backfill."""
+        if session.practice_domain:
+            return [q for q in es.questions
+                    if _domain_label(q) == session.practice_domain]
+        return list(es.questions)
 
     # ------------------------------------------------------------------- get
     def get_attempt(self, actor: "User | str | None",
@@ -209,6 +352,7 @@ class ExamService:
         correct = 0; incorrect = 0; unanswered = 0
         results: list[QuestionResultView] = []
         phase_counts: dict[int, dict] = {}
+        domain_counts: dict[str, dict] = {}
 
         for ans in session.answers:
             q = question_map.get(ans.question_id)
@@ -231,6 +375,12 @@ class ExamService:
             slot["total"] += 1
             if is_correct:
                 slot["correct"] += 1
+
+            # Per-domain tally (what the results screen surfaces)
+            dslot = domain_counts.setdefault(_domain_label(q), {"correct": 0, "total": 0})
+            dslot["total"] += 1
+            if is_correct:
+                dslot["correct"] += 1
 
             # Build result view (full reveal)
             results.append(QuestionResultView(
@@ -295,17 +445,22 @@ class ExamService:
             unanswered_count=unanswered,
             time_taken_seconds=session.time_taken_seconds,
             questions=results, by_phase=by_phase,
+            by_domain=_build_domain_breakdown(domain_counts),
+            exam_set_slug=es.slug if es else None,
+            exam_set_name=es.name if es else None,
+            practice_domain=session.practice_domain,
         )
 
     # -------------------------------------------------------------- helpers
     def _ensure_answer_rows(self, session: "ExamSession", es: "ExamSet") -> None:
-        """Make sure there's a one-to-one mapping between current set
-        questions and answer rows. Creates rows for any question that
-        was added to the set after this session began."""
+        """Make sure there's a one-to-one mapping between this attempt's
+        questions and answer rows. Creates rows for any in-scope question
+        added to the set after this session began. Scope respects domain
+        practice — a drill never back-fills the whole set."""
         existing = {a.question_id for a in self.db.query(ExamAttemptAnswer)
                     .filter_by(exam_session_id=session.id).all()}
         added = 0
-        for q in es.questions:
+        for q in self._attempt_questions(session, es):
             if q.id in existing:
                 continue
             self.db.add(ExamAttemptAnswer(
@@ -380,17 +535,21 @@ class ExamService:
         return link is not None
 
     def _serialize_attempt(self, session: ExamSession, es: ExamSet) -> ExamAttemptOut:
+        # Only the questions in THIS attempt's scope (full set, or one
+        # domain for a practice drill).
+        scoped = self._attempt_questions(session, es)
+        scoped_ids = {q.id for q in scoped}
+
         # Per-question current selection. Single-choice → letter | None.
         # Multi-choice → comma-joined sorted letters | None (so the wire
         # type stays `dict[int, str | None]` and the frontend just splits
         # on ',' for multi questions). Empty selection → None either way.
-        question_by_id = {q.id: q for q in es.questions}
+        question_by_id = {q.id: q for q in scoped}
         user_answers: dict[int, str | None] = {}
         for a in session.answers:
-            q = question_by_id.get(a.question_id)
-            if q is None:
-                user_answers[a.question_id] = None
-                continue
+            if a.question_id not in scoped_ids:
+                continue  # stray row from a since-removed question
+            q = question_by_id[a.question_id]
             if q.question_type == QuestionType.MULTI_CHOICE:
                 letters = a.selected_letters or []
                 user_answers[a.question_id] = (",".join(sorted(letters))
@@ -400,7 +559,7 @@ class ExamService:
 
         # Strip correct/reasoning from options before sending
         questions: list[QuestionAttemptView] = []
-        for q in es.questions:
+        for q in scoped:
             questions.append(QuestionAttemptView(
                 id=q.id, stem=q.stem, topic_id=q.topic_id,
                 domain=q.domain, task=q.task, difficulty=q.difficulty,
@@ -409,14 +568,21 @@ class ExamService:
                          for o in q.options],
             ))
 
+        # For a domain drill, annotate the set name so the attempt header
+        # reads e.g. "Set 2 · Practice: Trustworthy AI".
+        display_name = es.name
+        if session.practice_domain:
+            dn = domain_registry.display_name(session.practice_domain)
+            display_name = f"{es.name} · Practice: {dn}"
+
         return ExamAttemptOut(
             id=session.id,
             exam_set=ExamSetSummaryOut(
-                id=es.id, name=es.name, slug=es.slug, description=es.description,
+                id=es.id, name=display_name, slug=es.slug, description=es.description,
                 difficulty=es.difficulty, time_limit_minutes=es.time_limit_minutes,
                 passing_score=es.passing_score, is_premium=es.is_premium,
                 cover_image_url=es.cover_image_url,
-                question_count=len(es.questions),
+                question_count=len(scoped),
             ),
             started_at=session.started_at, expires_at=session.expires_at,
             status=session.status, questions=questions,
@@ -437,6 +603,7 @@ class ExamService:
         correct = 0; incorrect = 0; unanswered = 0
         results: list[QuestionResultView] = []
         phase_counts: dict[int, dict] = {}
+        domain_counts: dict[str, dict] = {}
 
         for ans in session.answers:
             q = question_map.get(ans.question_id)
@@ -453,6 +620,11 @@ class ExamService:
             slot["total"] += 1
             if ans.is_correct:
                 slot["correct"] += 1
+
+            dslot = domain_counts.setdefault(_domain_label(q), {"correct": 0, "total": 0})
+            dslot["total"] += 1
+            if ans.is_correct:
+                dslot["correct"] += 1
 
             results.append(QuestionResultView(
                 id=q.id, stem=q.stem, topic_id=q.topic_id,
@@ -493,4 +665,8 @@ class ExamService:
             unanswered_count=unanswered,
             time_taken_seconds=session.time_taken_seconds or 0,
             questions=results, by_phase=by_phase,
+            by_domain=_build_domain_breakdown(domain_counts),
+            exam_set_slug=es.slug if es else None,
+            exam_set_name=es.name if es else None,
+            practice_domain=session.practice_domain,
         )

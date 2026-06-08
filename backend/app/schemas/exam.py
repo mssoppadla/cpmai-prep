@@ -48,6 +48,25 @@ class PhaseBreakdown(BaseModel):
     percent: int
 
 
+class DomainBreakdown(BaseModel):
+    """Per-domain score breakdown. The CPMAI ECO is organised by domain,
+    so this is what the results screen surfaces.
+
+    `domain` is the canonical ECO domain code (e.g. "D-I"), or the raw
+    stored value for legacy rows, or "Unassigned" when blank. The frontend
+    uses it both as the review filter key and to build the
+    "practice this domain" link. `domain_name` is the human label.
+
+    `practiceable` is true only for real ECO domain codes — the results
+    screen shows a "Practice this domain" action for those rows."""
+    domain: str
+    domain_name: str
+    practiceable: bool
+    correct: int
+    total: int
+    percent: int
+
+
 class SubmitAttemptOut(BaseModel):
     id: int
     score: int
@@ -57,4 +76,15 @@ class SubmitAttemptOut(BaseModel):
     unanswered_count: int
     time_taken_seconds: int
     questions: list[QuestionResultView]
+    # by_phase: CPMAI-phase (topic) rollup — kept for backward compatibility.
+    # by_domain: ECO-domain rollup — what the results UI displays.
     by_phase: list[PhaseBreakdown]
+    by_domain: list[DomainBreakdown]
+    # The set this attempt was taken on — lets the results screen offer
+    # "retake full exam" and "practice this domain" deep-links. None only
+    # for legacy attempts with no set.
+    exam_set_slug: str | None = None
+    exam_set_name: str | None = None
+    # The domain this attempt was scoped to, if it was a domain-practice
+    # attempt (vs a full-set sitting). None for full sittings.
+    practice_domain: str | None = None

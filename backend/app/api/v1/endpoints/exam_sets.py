@@ -63,3 +63,14 @@ def start_attempt(slug: str, db: Session = Depends(get_db),
     reject anonymous callers up front; free sets are open to either.
     """
     return ExamService(db).start_attempt(actor, slug)
+
+
+@router.post("/{slug}/practice/{domain_code}/start",
+             response_model=ExamAttemptOut, status_code=201)
+def start_domain_practice(slug: str, domain_code: str,
+                          db: Session = Depends(get_db),
+                          actor=Depends(get_actor)):
+    """Start (or resume) a focused practice over one ECO domain's questions
+    within a set. Reached from the results screen's per-domain drill-down.
+    Same access rules as a full sitting (premium paywall still applies)."""
+    return ExamService(db).start_domain_practice(actor, slug, domain_code)

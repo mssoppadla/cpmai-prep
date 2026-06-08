@@ -5,7 +5,7 @@
 import type {
   ApiErrorBody, AuthTokens, LoginIn, SignupIn, RefreshIn,
   UserOut, UserAdminOut, UserDashboardOut, ExamSetSummaryOut, ExamSetAdminIn,
-  ExamAttemptOut, AnswerIn, SubmitAttemptOut,
+  ExamAttemptOut, AnswerIn, SubmitAttemptOut, DomainOut,
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
   FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
@@ -334,6 +334,16 @@ export const exams = {
     );
     return data;
   },
+  /** Start (or resume) a focused practice over one ECO domain's questions
+   *  within a set — the results-screen drill-down. Same access rules as a
+   *  full sitting. */
+  async startDomainPractice(slug: string, domainCode: string): Promise<ExamAttemptOut> {
+    const { data } = await request<ExamAttemptOut>(
+      `/exam-sets/${slug}/practice/${encodeURIComponent(domainCode)}/start`,
+      { method: "POST", authed: true, withAnon: true }
+    );
+    return data;
+  },
   async getAttempt(id: number): Promise<ExamAttemptOut> {
     const { data } = await request<ExamAttemptOut>(`/exams/attempts/${id}`,
       { authed: true, withAnon: true });
@@ -549,10 +559,29 @@ function qs(params?: Record<string, unknown>): string {
   return s ? `?${s}` : "";
 }
 
+/** GET an authed .xlsx endpoint and return the blob for save-as. */
+async function downloadXlsx(path: string, label: string): Promise<Blob> {
+  const token = typeof window !== "undefined"
+    ? window.localStorage.getItem("cpmai.access") : null;
+  const r = await fetch(`${BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!r.ok) throw new ApiError(r.status, {
+    code: "download_failed",
+    message: `${label} failed (HTTP ${r.status}).`,
+  });
+  return r.blob();
+}
+
 export const content = {
   async topics(): Promise<Array<{id: number; code: string; name: string; order: number}>> {
     const { data } = await request<Array<{id: number; code: string; name: string; order: number}>>(
       "/content/topics");
+    return data;
+  },
+  /** The five CPMAI ECO domains, with live active-question counts. */
+  async domains(): Promise<DomainOut[]> {
+    const { data } = await request<DomainOut[]>("/content/domains");
     return data;
   },
   async faqs(): Promise<FaqOut[]> {
@@ -732,6 +761,9 @@ export const admin = {
   questions: {
     async list(p?: {
       topic_id?: number;
+      domain?: string;
+      /** Restrict to questions tagged into this specific exam set. */
+      exam_set_id?: number;
       q?: string;
       /** "any" → only questions tagged into ≥1 set; "none" → orphans only;
        *  omit → no filter. */
@@ -743,27 +775,26 @@ export const admin = {
         `/admin/questions${qs(p)}`, { authed: true });
       return data;
     },
-    /** Download the .xlsx template admins fill in for bulk uploads.
-     *  Returns the raw blob so the caller can save-as locally. */
+    /** Download the BLANK .xlsx template (headers + examples). Returns the
+     *  raw blob so the caller can save-as locally. */
     async downloadBulkTemplate(): Promise<Blob> {
-      const token = typeof window !== "undefined"
-        ? window.localStorage.getItem("cpmai.access") : null;
-      const r = await fetch(`${BASE}/admin/questions/bulk-template`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!r.ok) throw new ApiError(r.status, {
-        code: "download_failed",
-        message: `Template download failed (HTTP ${r.status}).`,
-      });
-      return r.blob();
+      return downloadXlsx("/admin/questions/bulk-template",
+        "Template download");
     },
-    /** Upload a filled .xlsx. Returns per-row breakdown:
-     *    { created: N, created_ids: number[], errors: [{row, field, message}] }
-     *  Caller should surface errors to the admin so they can fix the
-     *  failing rows in their sheet and re-upload only those. */
+    /** Download every existing question pre-filled into the bulk sheet —
+     *  id, all fields, ECO domain, and exam-set memberships. Edit + re-upload
+     *  to update in place. */
+    async exportQuestions(): Promise<Blob> {
+      return downloadXlsx("/admin/questions/export", "Export");
+    },
+    /** Upload a filled .xlsx. Rows with an id update in place (+ sync set
+     *  memberships); rows with a blank id create new. Returns per-row
+     *  breakdown so the caller can surface errors. */
     async bulkUpload(file: File): Promise<{
       created: number;
       created_ids: number[];
+      updated: number;
+      updated_ids: number[];
       errors: Array<{ row: number; field: string; message: string }>;
     }> {
       const token = typeof window !== "undefined"

@@ -2,7 +2,7 @@
   {
     "stem": "In CPMAI Phase 2 (Data Understanding), you discover 18% of records have missing values in a key feature. What is the MOST APPROPRIATE immediate action?",
     "phase_code": "DU",
-    "domain": "Data Understanding > Data Quality Assessment",
+    "domain": "D-III",
     "task": "Identify and document data gaps",
     "enablers": ["Data profiling", "Quality metrics", "Stakeholder communication"],
     "remarks": "Tests understanding that Phase 2 is about assessment, not treatment.",
@@ -30,7 +30,7 @@
   {
     "stem": "Which CPMAI phase explicitly produces the formal business goal and success criteria for the AI initiative?",
     "phase_code": "BU",
-    "domain": "Business Understanding > Goal Definition",
+    "domain": "D-II",
     "task": "Articulate measurable success criteria",
     "enablers": ["Stakeholder workshops", "KPI definition"],
     "remarks": "Foundational — almost always tested.",
@@ -50,7 +50,7 @@
   {
     "stem": "Which evaluation metric is generally MOST appropriate for a binary classifier on a heavily imbalanced dataset where false negatives are very costly?",
     "phase_code": "EV",
-    "domain": "Model Evaluation > Metric Selection",
+    "domain": "D-IV",
     "task": "Choose evaluation metric aligned to business cost",
     "enablers": ["Confusion matrix", "Cost-sensitive analysis"],
     "remarks": "Common trap: candidates default to accuracy.",
@@ -70,7 +70,7 @@
   {
     "stem": "A model performs well in offline evaluation but degrades in production. According to CPMAI Phase 6, what is the FIRST thing to investigate?",
     "phase_code": "DE",
-    "domain": "Model Operationalization > Production Monitoring",
+    "domain": "D-V",
     "task": "Diagnose production degradation",
     "enablers": ["Data drift detection", "Distribution monitoring"],
     "remarks": "Tests Phase 6 monitoring fundamentals.",
@@ -90,7 +90,7 @@
   {
     "stem": "When preparing data in CPMAI Phase 3, you encounter a categorical feature with 1,200 distinct values. Which technique is MOST APPROPRIATE before passing it to a tree-based model?",
     "phase_code": "DP",
-    "domain": "Data Preparation > Feature Engineering",
+    "domain": "D-III",
     "task": "Encode high-cardinality categorical features",
     "enablers": ["Target encoding", "Frequency encoding", "Embedding"],
     "remarks": "High-cardinality features are a frequent CPMAI exam topic.",

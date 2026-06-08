@@ -1,29 +1,43 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { admin, content as contentApi, errMsg } from "@/lib/api";
-import type { QuestionAdminOut } from "@/types/api";
+import type { DomainOut, QuestionAdminOut } from "@/types/api";
+
+// One page of questions. The list endpoint is offset/limit paged; we fetch
+// PAGE_SIZE rows at a time and infer "there's a next page" from a full page.
+const PAGE_SIZE = 50;
 
 export default function QuestionsListPage() {
   const [rows, setRows] = useState<QuestionAdminOut[] | null>(null);
   const [topics, setTopics] = useState<Array<{id:number;code:string;name:string}>>([]);
+  const [domains, setDomains] = useState<DomainOut[]>([]);
+  const [sets, setSets] = useState<Array<{id:number;name:string}>>([]);
   const [filter, setFilter] = useState<{
-    q: string; topic_id: string; tagged: "" | "any" | "none";
-  }>({ q: "", topic_id: "", tagged: "" });
+    q: string; topic_id: string; domain: string;
+    exam_set_id: string; tagged: "" | "any" | "none";
+  }>({ q: "", topic_id: "", domain: "", exam_set_id: "", tagged: "" });
+  const [page, setPage] = useState(0);
   const [err, setErr] = useState<string | null>(null);
 
-  async function reload() {
+  const load = useCallback(async (p: number) => {
     try {
-      const params: Record<string, unknown> = {};
+      const params: Record<string, unknown> = { limit: PAGE_SIZE, offset: p * PAGE_SIZE };
       if (filter.q) params.q = filter.q;
       if (filter.topic_id) params.topic_id = Number(filter.topic_id);
+      if (filter.domain) params.domain = filter.domain;
+      if (filter.exam_set_id) params.exam_set_id = Number(filter.exam_set_id);
       if (filter.tagged) params.tagged = filter.tagged;
       setRows(await admin.questions.list(params));
+      setPage(p);
     } catch (e) { console.error("[admin/questions] list", e); setErr(errMsg(e)); }
-  }
+  }, [filter]);
+
   useEffect(() => {
     contentApi.topics().then(setTopics).catch(() => {});
-    reload();
+    contentApi.domains().then(setDomains).catch(() => {});
+    admin.examSets.list().then(setSets).catch(() => {});
+    load(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -33,9 +47,13 @@ export default function QuestionsListPage() {
 
   async function remove(id: number) {
     if (!confirm("Delete this question? It will also be removed from any exam set it belongs to.")) return;
-    try { await admin.questions.delete(id); await reload(); }
+    try { await admin.questions.delete(id); await load(page); }
     catch (e) { console.error("[admin/questions] delete", e); setErr(errMsg(e)); }
   }
+
+  // A full page means there are (probably) more rows beyond it.
+  const hasNext = !!rows && rows.length === PAGE_SIZE;
+  const hasPrev = page > 0;
 
   return (
     <div className="p-8">
@@ -64,11 +82,31 @@ export default function QuestionsListPage() {
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex gap-2 flex-wrap">
         <input value={filter.q}
                onChange={(e) => setFilter({ ...filter, q: e.target.value })}
+               onKeyDown={(e) => { if (e.key === "Enter") load(0); }}
                placeholder="Search stem…"
-               className="flex-1 min-w-[200px] px-3 py-1.5 text-sm border border-slate-300 rounded" />
+               className="flex-1 min-w-[180px] px-3 py-1.5 text-sm border border-slate-300 rounded" />
+        <select value={filter.exam_set_id}
+                onChange={(e) => setFilter({ ...filter, exam_set_id: e.target.value })}
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded"
+                title="Filter by exam set">
+          <option value="">All sets</option>
+          {sets.map(s => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+        <select value={filter.domain}
+                onChange={(e) => setFilter({ ...filter, domain: e.target.value })}
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded"
+                title="Filter by ECO domain">
+          <option value="">All domains</option>
+          {domains.map(d => (
+            <option key={d.code} value={d.code}>{d.code} — {d.name}</option>
+          ))}
+        </select>
         <select value={filter.topic_id}
                 onChange={(e) => setFilter({ ...filter, topic_id: e.target.value })}
-                className="px-3 py-1.5 text-sm border border-slate-300 rounded">
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded"
+                title="Filter by CPMAI phase">
           <option value="">All phases</option>
           {topics.map(t => (
             <option key={t.id} value={t.id}>{t.code} — {t.name}</option>
@@ -82,7 +120,7 @@ export default function QuestionsListPage() {
           <option value="any">Tagged in ≥1 set</option>
           <option value="none">Untagged (orphan)</option>
         </select>
-        <button onClick={reload}
+        <button onClick={() => load(0)}
                 className="px-4 py-1.5 bg-slate-700 text-white text-sm rounded
                            hover:bg-slate-800">
           Filter
@@ -99,11 +137,13 @@ export default function QuestionsListPage() {
            Create the first one</Link>.
          </div>
        ) : (
+        <>
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-xs font-medium text-slate-500 uppercase">
                 <th className="px-4 py-3">Stem</th>
+                <th className="px-4 py-3">Domain</th>
                 <th className="px-4 py-3">Phase</th>
                 <th className="px-4 py-3">Difficulty</th>
                 <th className="px-4 py-3">Status</th>
@@ -114,12 +154,9 @@ export default function QuestionsListPage() {
               {rows.map(q => (
                 <tr key={q.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3">
-                    <div className="text-sm text-slate-900 line-clamp-2 max-w-xl">
+                    <div className="text-sm text-slate-900 line-clamp-2 max-w-md">
                       {q.stem}
                     </div>
-                    {q.domain && (
-                      <div className="text-xs text-slate-500 mt-1">{q.domain}</div>
-                    )}
                     {/* Cross-set visibility — admin can see at a glance
                         which sets a question already lives in. Empty
                         list = unattached (omit the row entirely). */}
@@ -134,6 +171,11 @@ export default function QuestionsListPage() {
                         ))}
                       </div>
                     )}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600 max-w-[16rem]">
+                    {q.domain
+                      ? <span className="line-clamp-2">{q.domain}</span>
+                      : <span className="text-slate-400 italic">Unassigned</span>}
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600">
                     {topicCode(q.topic_id)}
@@ -150,7 +192,7 @@ export default function QuestionsListPage() {
                       {q.is_active ? "active" : "draft"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
                     <Link href={`/admin/questions/${q.id}`}
                           className="text-xs text-indigo-600 hover:underline mr-3">
                       Edit
@@ -165,6 +207,29 @@ export default function QuestionsListPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Pager — the list endpoint is offset-paged, so we step a page at a
+            time. We don't know the grand total, so "Next" is shown whenever
+            the current page came back full. */}
+        <div className="flex items-center justify-between mt-4 text-sm">
+          <span className="text-slate-500">
+            Page {page + 1} · showing {rows.length} question{rows.length === 1 ? "" : "s"}
+            {hasNext ? " (more available)" : ""}
+          </span>
+          <div className="flex gap-2">
+            <button onClick={() => load(page - 1)} disabled={!hasPrev}
+                    className="px-3 py-1.5 border border-slate-300 rounded
+                               disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50">
+              ← Prev
+            </button>
+            <button onClick={() => load(page + 1)} disabled={!hasNext}
+                    className="px-3 py-1.5 border border-slate-300 rounded
+                               disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50">
+              Next →
+            </button>
+          </div>
+        </div>
+        </>
       )}
     </div>
   );

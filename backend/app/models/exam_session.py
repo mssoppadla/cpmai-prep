@@ -15,6 +15,11 @@ class ExamSession(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     anon_token = Column(String(64), nullable=True, index=True)
     exam_set_id = Column(Integer, ForeignKey("exam_sets.id"), index=True)
+    # When set, this attempt is a focused *domain practice* over a subset of
+    # the set's questions (only those whose Question.domain matches this ECO
+    # domain code, e.g. "D-I"). NULL = a normal full-set sitting. Scoring
+    # and the question list both respect this scope — see ExamService.
+    practice_domain = Column(String(8), nullable=True, index=True)
     started_at  = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     submitted_at = Column(DateTime(timezone=True))
     expires_at   = Column(DateTime(timezone=True), nullable=False)

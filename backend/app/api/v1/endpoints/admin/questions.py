@@ -1,7 +1,7 @@
 """Admin question CRUD with strict validation + bulk Excel upload."""
 from fastapi import APIRouter, Depends, Query, UploadFile, File
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_admin_user
 from app.core.exceptions import NotFoundError, ValidationError
@@ -78,6 +78,7 @@ def _attach_in_sets(db: Session, questions: list[Question]) -> list[QuestionAdmi
 def list_questions(db: Session = Depends(get_db),
                    topic_id: int | None = None,
                    domain: str | None = None,
+                   exam_set_id: int | None = None,
                    q: str | None = None,
                    tagged: str | None = Query(
                        None,
@@ -98,7 +99,15 @@ def list_questions(db: Session = Depends(get_db),
     """
     query = db.query(Question)
     if topic_id: query = query.filter(Question.topic_id == topic_id)
-    if domain:   query = query.filter(Question.domain.ilike(f"%{domain}%"))
+    # Exact match — the admin UI sends a canonical ECO domain code ("D-I"),
+    # and a substring match would let "D-I" leak "D-II"/"D-III" rows.
+    if domain:   query = query.filter(Question.domain == domain)
+    if exam_set_id:
+        in_set = (db.query(ExamSetQuestion.question_id)
+                  .filter(ExamSetQuestion.question_id == Question.id,
+                          ExamSetQuestion.exam_set_id == exam_set_id)
+                  .exists())
+        query = query.filter(in_set)
     if q:        query = query.filter(Question.stem.ilike(f"%{q}%"))
     if tagged:
         link_exists = (db.query(ExamSetQuestion.question_id)
@@ -110,18 +119,14 @@ def list_questions(db: Session = Depends(get_db),
     return _attach_in_sets(db, rows)
 
 
-# IMPORTANT: declare static routes (`/bulk-template`, `/bulk-upload`)
-# BEFORE the dynamic `/{question_id}` route. FastAPI matches routes in
-# declaration order; otherwise `bulk-template` is interpreted as a
+# IMPORTANT: declare static routes (`/bulk-template`, `/export`,
+# `/bulk-upload`) BEFORE the dynamic `/{question_id}` route. FastAPI matches
+# routes in declaration order; otherwise `bulk-template` is interpreted as a
 # question_id and tries to coerce to int → 422.
 @router.get("/bulk-template", include_in_schema=True)
 def bulk_template(admin: User = Depends(get_admin_user)):
-    """Return an .xlsx admins fill in to upload many questions at once.
-
-    Includes pre-filled example rows + data-validation dropdowns for
-    enum-shaped columns (difficulty, question_type, topic_code, every
-    *_is_correct) so admins can't typo those values.
-    """
+    """Return a BLANK .xlsx (headers + example rows + dropdowns). For most
+    workflows admins want `/export` instead, which pre-fills live data."""
     blob = question_excel.build_template()
     return Response(
         content=blob,
@@ -132,20 +137,92 @@ def bulk_template(admin: User = Depends(get_admin_user)):
     )
 
 
+@router.get("/export", include_in_schema=True)
+def export_questions(db: Session = Depends(get_db),
+                     admin: User = Depends(get_admin_user)):
+    """Export EVERY question into the bulk sheet, pre-filled with the live
+    data — id, all fields, ECO domain, and exam-set memberships. The admin
+    edits this and re-uploads via `/bulk-upload`; rows keep their id so the
+    upload updates in place (and syncs set memberships) rather than
+    duplicating. One-shot bulk JOINs keep it O(1) in round-trips.
+    """
+    questions = (db.query(Question)
+                 .order_by(Question.id.asc())
+                 .all())
+    topic_code_by_id = {t.id: t.code for t in db.query(Topic).all()}
+
+    # question_id → [set slugs], ordered by display_order then id.
+    slug_rows = db.execute(
+        select(ExamSetQuestion.question_id, ExamSet.slug)
+        .join(ExamSet, ExamSet.id == ExamSetQuestion.exam_set_id)
+        .order_by(ExamSet.display_order, ExamSet.id)
+    ).all()
+    slugs_by_qid: dict[int, list[str]] = {}
+    for qid, slug in slug_rows:
+        slugs_by_qid.setdefault(qid, []).append(slug)
+
+    rows = [
+        question_excel.question_to_row(
+            q, topic_code_by_id.get(q.topic_id, ""), slugs_by_qid.get(q.id, []))
+        for q in questions
+    ]
+    blob = question_excel.build_export(rows)
+    audit_log(db, admin.id, "question.bulk_export", {"count": len(rows)})
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="cpmai-questions.xlsx"',
+        },
+    )
+
+
+def _sync_memberships(db: Session, q: Question, set_slugs: list[str],
+                      sets_by_slug: dict[str, ExamSet], admin_id: int) -> None:
+    """Make `q`'s exam-set memberships exactly match `set_slugs` (add the
+    missing, drop the extras). New links append at the end of each set.
+    Raises ValueError on an unknown slug so the row is reported, not
+    silently dropped."""
+    target_sets = []
+    for slug in set_slugs:
+        es = sets_by_slug.get(slug)
+        if es is None:
+            raise ValueError(f"unknown exam_set slug {slug!r}")
+        target_sets.append(es)
+    target_ids = {es.id for es in target_sets}
+
+    existing = {link.exam_set_id: link for link in
+                db.query(ExamSetQuestion).filter_by(question_id=q.id).all()}
+    # Drop memberships no longer listed.
+    for sid, link in existing.items():
+        if sid not in target_ids:
+            db.delete(link)
+    # Add newly-listed memberships at the tail of each set.
+    for es in target_sets:
+        if es.id in existing:
+            continue
+        next_pos = (db.query(func.coalesce(func.max(ExamSetQuestion.position), -1))
+                    .filter(ExamSetQuestion.exam_set_id == es.id).scalar() or 0)
+        db.add(ExamSetQuestion(exam_set_id=es.id, question_id=q.id,
+                               position=next_pos + 1, added_by=admin_id))
+
+
 @router.post("/bulk-upload")
 async def bulk_upload(file: UploadFile = File(...),
                       db: Session = Depends(get_db),
                       admin: User = Depends(get_admin_user)):
-    """Parse an admin-supplied .xlsx and create questions from it.
+    """Parse an admin-supplied .xlsx and create OR update questions from it.
 
-    Per-row partial success: valid rows commit, invalid rows come back
-    in the `errors` array with row number + reason so the admin can
-    fix the failing rows in their sheet and re-upload only those.
+    Round-trip aware: a row with a blank `id` creates a new question; a row
+    carrying an `id` updates that question in place (all fields + options),
+    and — when the `exam_sets` column is present — syncs its set memberships
+    to exactly the listed slugs. An absent `exam_sets` column leaves
+    memberships untouched (back-compat with older sheets).
 
-    Validates each row through the SAME `_validate(payload)` function
-    `POST /admin/questions` uses — bulk path can't drift from single.
-    Wraps every row in a savepoint so one bad insert doesn't poison
-    the rest.
+    Per-row partial success: valid rows commit, invalid rows come back in
+    `errors` with a row number + reason. Each row is its own savepoint, so
+    one bad row never poisons the rest. Validation reuses the SAME
+    `_validate(payload)` the single-question POST uses — no path drift.
     """
     # File size guard — read in one shot since we capped at 5MB.
     blob = await file.read()
@@ -158,63 +235,101 @@ async def bulk_upload(file: UploadFile = File(...),
 
     parsed = question_excel.parse_workbook(blob)
 
-    # Resolve topic_code → topic_id once per upload (single query, no N+1).
-    topics_by_code = {t.code.upper(): t.id
-                      for t in db.query(Topic).all()}
+    # Resolve lookups once per upload (no N+1).
+    topics_by_code = {t.code.upper(): t.id for t in db.query(Topic).all()}
+    sets_by_slug = {s.slug: s for s in db.query(ExamSet).all()}
 
     created_ids: list[int] = []
+    updated_ids: list[int] = []
     errors: list[dict] = list(parsed.errors)
 
-    for row_num, payload, topic_code in parsed.valid:
-        topic_id = topics_by_code.get(topic_code.upper())
+    for pr in parsed.valid:
+        topic_id = topics_by_code.get(pr.topic_code.upper())
         if topic_id is None:
-            errors.append({"row": row_num, "field": "topic_code",
-                            "message": (f"unknown topic_code {topic_code!r} — "
+            errors.append({"row": pr.row_num, "field": "topic_code",
+                            "message": (f"unknown topic_code {pr.topic_code!r} — "
                                          f"valid: {sorted(topics_by_code.keys())}")})
             continue
-        # Bind the resolved topic and run the EXACT SAME validator
-        # /admin/questions POST uses — no drift between paths.
+        payload = pr.payload
         payload.topic_id = topic_id
         try:
             _validate(payload)
         except ValidationError as e:
-            errors.append({"row": row_num, "field": "validation",
+            errors.append({"row": pr.row_num, "field": "validation",
                             "message": e.detail if isinstance(e.detail, str)
                                        else e.detail.get("message", str(e.detail))})
             continue
 
-        # Wrap each insert in a savepoint so a single DB-level failure
-        # (e.g. an integrity constraint we didn't anticipate) doesn't
-        # roll back the entire upload.
+        # Each row is its own savepoint — a single DB-level failure (e.g. an
+        # unexpected integrity error) doesn't roll back the whole upload.
+        # Remember the success-list lengths so a mid-row failure can undo
+        # any id we optimistically appended before the savepoint rolled back.
+        pre_created, pre_updated = len(created_ids), len(updated_ids)
         sp = db.begin_nested()
         try:
-            q = Question(
-                stem=payload.stem, topic_id=payload.topic_id,
-                domain=payload.domain, task=payload.task,
-                enablers=payload.enablers, remarks=payload.remarks,
-                difficulty=payload.difficulty,
-                question_type=payload.question_type,
-                explanation=payload.explanation,
-                is_active=payload.is_active, created_by=admin.id,
-            )
-            q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
-            db.add(q)
-            db.flush()
-            created_ids.append(q.id)
+            # Upsert by id-existence: an id that maps to a real question
+            # updates it; a blank id — OR an id that doesn't exist yet (e.g.
+            # a new row an admin numbered by hand) — creates a new question.
+            # The sheet's id is never forced onto a new row; the DB assigns it.
+            q = (db.get(Question, pr.question_id)
+                 if pr.question_id is not None else None)
+            if q is not None:
+                # Update scalar fields, then replace options wholesale
+                # (clear + flush before re-insert to dodge the unique
+                # (question_id, option_letter) constraint mid-flush).
+                for f in ("stem", "topic_id", "domain", "task", "enablers",
+                          "remarks", "difficulty", "question_type",
+                          "explanation", "is_active"):
+                    setattr(q, f, getattr(payload, f))
+                q.options.clear()
+                db.flush()
+                q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
+                db.flush()
+                updated_ids.append(q.id)
+            else:
+                q = Question(
+                    stem=payload.stem, topic_id=payload.topic_id,
+                    domain=payload.domain, task=payload.task,
+                    enablers=payload.enablers, remarks=payload.remarks,
+                    difficulty=payload.difficulty,
+                    question_type=payload.question_type,
+                    explanation=payload.explanation,
+                    is_active=payload.is_active, created_by=admin.id,
+                )
+                q.options = [QuestionOption(**o.model_dump()) for o in payload.options]
+                db.add(q)
+                db.flush()
+                created_ids.append(q.id)
+
+            # Sync set memberships only when the column was present.
+            if pr.set_slugs is not None:
+                _sync_memberships(db, q, pr.set_slugs, sets_by_slug, admin.id)
             sp.commit()
+        except ValueError as e:
+            sp.rollback()
+            del created_ids[pre_created:]; del updated_ids[pre_updated:]
+            errors.append({"row": pr.row_num, "field": "exam_sets"
+                            if "slug" in str(e) else "row",
+                            "message": str(e)})
         except Exception as e:
             sp.rollback()
-            errors.append({"row": row_num, "field": "db",
-                            "message": f"insert failed: {type(e).__name__}: {e}"})
+            del created_ids[pre_created:]; del updated_ids[pre_updated:]
+            errors.append({"row": pr.row_num, "field": "db",
+                            "message": f"write failed: {type(e).__name__}: {e}"})
 
     db.commit()
+    # Keep the RAG corpus in sync for every question we touched.
+    for qid in created_ids + updated_ids:
+        reindex_quietly(db, "question_explanation", qid)
     audit_log(db, admin.id, "question.bulk_upload",
-              {"created": len(created_ids), "errors": len(errors),
-               "filename": file.filename})
+              {"created": len(created_ids), "updated": len(updated_ids),
+               "errors": len(errors), "filename": file.filename})
 
     return {
         "created": len(created_ids),
         "created_ids": created_ids,
+        "updated": len(updated_ids),
+        "updated_ids": updated_ids,
         "errors": errors,
     }
 

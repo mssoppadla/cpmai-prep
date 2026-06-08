@@ -21,31 +21,45 @@ import { admin, errMsg } from "@/lib/api";
 interface UploadResult {
   created: number;
   created_ids: number[];
+  updated: number;
+  updated_ids: number[];
   errors: Array<{ row: number; field: string; message: string }>;
 }
 
 export default function BulkUploadQuestionsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState<"download" | "upload" | null>(null);
+  const [busy, setBusy] = useState<"download" | "export" | "upload" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
+
+  function saveBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   async function downloadTemplate() {
     setBusy("download"); setErr(null);
     try {
-      const blob = await admin.questions.downloadBulkTemplate();
-      // Trigger a browser save-as without leaving the page.
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "cpmai-questions-template.xlsx";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      saveBlob(await admin.questions.downloadBulkTemplate(),
+               "cpmai-questions-template.xlsx");
     } catch (e) {
       console.error("[bulk] template download", e); setErr(errMsg(e));
+    } finally { setBusy(null); }
+  }
+
+  async function exportAll() {
+    setBusy("export"); setErr(null);
+    try {
+      saveBlob(await admin.questions.exportQuestions(), "cpmai-questions.xlsx");
+    } catch (e) {
+      console.error("[bulk] export", e); setErr(errMsg(e));
     } finally { setBusy(null); }
   }
 
@@ -87,22 +101,29 @@ export default function BulkUploadQuestionsPage() {
         </div>
       )}
 
-      {/* Step 1 — template */}
+      {/* Step 1 — export / template */}
       <section className="bg-white rounded-xl border border-slate-200 p-6 mb-4">
-        <h2 className="font-semibold text-slate-900 mb-1">1. Download the template</h2>
+        <h2 className="font-semibold text-slate-900 mb-1">1. Get the sheet</h2>
         <p className="text-sm text-slate-600 mb-3">
-          Fresh template with column headers, three pre-filled example
-          rows (single-choice, multi-choice, minimal), and dropdown
-          validations on{" "}
-          <code className="bg-slate-100 px-1 rounded text-xs">topic_code</code>,{" "}
-          <code className="bg-slate-100 px-1 rounded text-xs">difficulty</code>,{" "}
-          <code className="bg-slate-100 px-1 rounded text-xs">question_type</code>,
-          and every <code className="bg-slate-100 px-1 rounded text-xs">option_*_is_correct</code>.
+          <strong>Export</strong> downloads every existing question pre-filled
+          into the sheet — id, all fields, ECO{" "}
+          <code className="bg-slate-100 px-1 rounded text-xs">domain</code>, and
+          its <code className="bg-slate-100 px-1 rounded text-xs">exam_sets</code>{" "}
+          memberships. Edit and re-upload to update in place. Rows keep their{" "}
+          <code className="bg-slate-100 px-1 rounded text-xs">id</code>, so nothing
+          is duplicated. Prefer a <strong>blank template</strong> only when
+          starting from scratch.
         </p>
-        <button onClick={downloadTemplate} disabled={busy !== null}
-                className="px-4 py-2 bg-slate-700 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50">
-          {busy === "download" ? "Preparing…" : "Download template (.xlsx)"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={exportAll} disabled={busy !== null}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            {busy === "export" ? "Preparing…" : "Export all questions (.xlsx)"}
+          </button>
+          <button onClick={downloadTemplate} disabled={busy !== null}
+                  className="px-4 py-2 bg-white text-slate-700 border border-slate-300 text-sm font-medium rounded-lg hover:bg-slate-50 disabled:opacity-50">
+            {busy === "download" ? "Preparing…" : "Blank template"}
+          </button>
+        </div>
       </section>
 
       {/* Step 2 — guidance */}
@@ -110,16 +131,25 @@ export default function BulkUploadQuestionsPage() {
         <h2 className="font-semibold text-slate-900 mb-2">2. Fill it in</h2>
         <ul className="text-sm text-slate-700 space-y-1.5 list-disc list-inside">
           <li><strong>One question per row.</strong> Headers are in row 1; first data row is row 2.</li>
+          <li><strong><code className="text-xs bg-slate-100 px-1 rounded">id</code> column:</strong>{" "}
+            keep it to <strong>update</strong> that question in place; leave it{" "}
+            <strong>blank</strong> to <strong>create</strong> a new one.
+          </li>
+          <li><strong><code className="text-xs bg-slate-100 px-1 rounded">exam_sets</code> column:</strong>{" "}
+            comma-separated set <em>slugs</em>. This is <strong>authoritative</strong> —
+            on upload the question's memberships are set to exactly this list
+            (clear the cell to remove it from all sets).
+          </li>
+          <li><strong><code className="text-xs bg-slate-100 px-1 rounded">domain</code> column:</strong>{" "}
+            an ECO domain code (D-I … D-V) or blank. Results &amp; focused
+            practice are grouped by this.
+          </li>
           <li><strong>Required cells:</strong>{" "}
             <code className="text-xs bg-slate-100 px-1 rounded">stem</code>,{" "}
             <code className="text-xs bg-slate-100 px-1 rounded">topic_code</code> (BU, DU, DP, MD, EV, DE),{" "}
             <code className="text-xs bg-slate-100 px-1 rounded">difficulty</code> (easy / medium / hard),{" "}
             and at least <code className="text-xs bg-slate-100 px-1 rounded">option_a_*</code> +{" "}
             <code className="text-xs bg-slate-100 px-1 rounded">option_b_*</code>.
-          </li>
-          <li><strong>Correct answers:</strong> use the
-            <code className="text-xs bg-slate-100 px-1 mx-1 rounded">option_X_is_correct</code>
-            column for each option (true / false). Reasoning goes next to it.
           </li>
           <li><strong>Single-choice:</strong> exactly one option must be{" "}
             <code className="text-xs bg-slate-100 px-1 rounded">true</code>.{" "}
@@ -160,6 +190,9 @@ export default function BulkUploadQuestionsPage() {
             <span className="px-3 py-1 rounded-full text-sm font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
               ✓ {result.created} created
             </span>
+            <span className="px-3 py-1 rounded-full text-sm font-medium bg-sky-50 text-sky-700 border border-sky-200">
+              ↻ {result.updated} updated
+            </span>
             <span className={`px-3 py-1 rounded-full text-sm font-medium border ${
               result.errors.length === 0
                 ? "bg-slate-50 text-slate-500 border-slate-200"
@@ -169,8 +202,13 @@ export default function BulkUploadQuestionsPage() {
             </span>
           </div>
           {result.created > 0 && (
+            <p className="text-xs text-slate-500 mb-1">
+              Created IDs: <code className="text-xs">{result.created_ids.join(", ")}</code>
+            </p>
+          )}
+          {result.updated > 0 && (
             <p className="text-xs text-slate-500 mb-3">
-              Created question IDs: <code className="text-xs">{result.created_ids.join(", ")}</code>
+              Updated IDs: <code className="text-xs">{result.updated_ids.join(", ")}</code>
             </p>
           )}
           {result.errors.length > 0 && (
