@@ -5,17 +5,11 @@ import Link from "next/link";
 import { exams as examsApi, content as contentApi, ApiError } from "@/lib/api";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
-import type { SubmitAttemptOut, DomainOut, QuestionResultView } from "@/types/api";
+import type { SubmitAttemptOut, DomainOut } from "@/types/api";
 import { QuestionResultCard } from "@/components/exam/QuestionResultCard";
-
-type Status = "correct" | "incorrect" | "unanswered";
-
-/** A question's outcome. Incorrect vs unanswered is decided by whether the
- *  learner selected any option (both have is_user_correct === false). */
-function qStatus(q: QuestionResultView): Status {
-  if (q.is_user_correct) return "correct";
-  return q.options.some((o) => o.selected_by_user) ? "incorrect" : "unanswered";
-}
+import {
+  matchesReviewFilters, type ReviewStatus,
+} from "@/lib/examReview";
 
 export default function ResultsPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,7 +19,7 @@ export default function ResultsPage() {
   // Which domain the question-by-question review is filtered to. null = all.
   const [reviewFilter, setReviewFilter] = useState<string | null>(null);
   // Outcome filter, toggled from the score summary. null = all.
-  const [statusFilter, setStatusFilter] = useState<Status | null>(null);
+  const [statusFilter, setStatusFilter] = useState<ReviewStatus | null>(null);
 
   useEffect(() => {
     // Try session cache first (fast), then fall back to API (cold load).
@@ -66,12 +60,11 @@ export default function ResultsPage() {
   const visibleQuestions = useMemo(() => {
     if (!result) return [];
     return result.questions.filter((q) =>
-      (!reviewFilter || canon(q.domain) === reviewFilter) &&
-      (!statusFilter || qStatus(q) === statusFilter)
+      matchesReviewFilters(q, { domain: reviewFilter, status: statusFilter, canon })
     );
   }, [result, reviewFilter, statusFilter, canon]);
 
-  const toggleStatus = (s: Status) =>
+  const toggleStatus = (s: ReviewStatus) =>
     setStatusFilter((cur) => (cur === s ? null : s));
 
   if (error) {
