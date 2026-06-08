@@ -6,11 +6,24 @@ either session.user_id or session.anon_token — see ExamService._load_session.
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.core.deps import get_db, get_actor
-from app.schemas.exam import ExamAttemptOut, AnswerIn, SubmitAttemptOut
+from app.core.deps import get_db, get_actor, get_current_user
+from app.models.user import User
+from app.schemas.exam import (
+    ExamAttemptOut, AnswerIn, SubmitAttemptOut, AttemptHistoryOut,
+)
 from app.services.exam_service import ExamService
 
 router = APIRouter()
+
+
+# Declared before "/attempts/{attempt_id}" so the literal path wins cleanly.
+@router.get("/attempts", response_model=list[AttemptHistoryOut])
+def list_my_attempts(db: Session = Depends(get_db),
+                     user: User = Depends(get_current_user)):
+    """The signed-in learner's exam history — their submitted attempts,
+    newest first. Each links back to the full results screen (by-domain
+    breakdown + review) via its `id`. Requires a signed-in account."""
+    return ExamService(db).list_attempts(user)
 
 
 @router.get("/attempts/{attempt_id}", response_model=ExamAttemptOut)

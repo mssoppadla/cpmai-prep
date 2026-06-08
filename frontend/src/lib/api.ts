@@ -5,7 +5,7 @@
 import type {
   ApiErrorBody, AuthTokens, LoginIn, SignupIn, RefreshIn,
   UserOut, UserAdminOut, UserDashboardOut, ExamSetSummaryOut, ExamSetAdminIn,
-  ExamAttemptOut, AnswerIn, SubmitAttemptOut, DomainOut,
+  ExamAttemptOut, AnswerIn, SubmitAttemptOut, DomainOut, AttemptHistoryOut,
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
   FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
@@ -357,6 +357,13 @@ export const exams = {
     const { data } = await request<SubmitAttemptOut>(
       `/exams/attempts/${id}/result`, { authed: true, withAnon: true }
     );
+    return data;
+  },
+  /** The signed-in learner's past submitted attempts (exam history),
+   *  newest first. Each links back into the results screen via its id. */
+  async listAttempts(): Promise<AttemptHistoryOut[]> {
+    const { data } = await request<AttemptHistoryOut[]>(
+      "/exams/attempts", { authed: true });
     return data;
   },
   async submit(id: number): Promise<SubmitAttemptOut> {

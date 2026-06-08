@@ -88,3 +88,20 @@ class SubmitAttemptOut(BaseModel):
     # The domain this attempt was scoped to, if it was a domain-practice
     # attempt (vs a full-set sitting). None for full sittings.
     practice_domain: str | None = None
+
+
+class AttemptHistoryOut(BaseModel):
+    """One past (submitted) attempt, for the learner's exam-history list.
+    Lightweight — the full per-domain breakdown + review lives on the
+    results screen, reached via this `id`."""
+    id: int
+    exam_set_name: str | None = None
+    exam_set_slug: str | None = None
+    # Set when this was a domain-practice drill rather than a full sitting.
+    practice_domain: str | None = None
+    score: int
+    passed: bool
+    total_questions: int
+    correct_count: int
+    time_taken_seconds: int
+    submitted_at: datetime
