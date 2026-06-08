@@ -102,11 +102,14 @@ def test_template_includes_example_rows_for_self_documentation(client, admin):
     h = auth_header(client, admin.email)
     r = client.get("/api/v1/admin/questions/bulk-template", headers=h)
     wb = load_workbook(io.BytesIO(r.content), read_only=True)
-    rows = list(wb.active.iter_rows(min_row=2, values_only=True))
-    nonblank = [r for r in rows if r and r[0]]
+    all_rows = list(wb.active.iter_rows(min_row=1, values_only=True))
+    # Header-aware (column order is not guaranteed — `id` leads now).
+    header = list(all_rows[0])
+    stem_i = header.index("stem")
+    qtype_i = header.index("question_type")
+    nonblank = [row for row in all_rows[1:] if row and row[stem_i]]
     assert len(nonblank) >= 1, "template should have at least one example row"
-    # qtype is column 4 (1-indexed)
-    qtypes = [r[3] for r in nonblank if r[3]]
+    qtypes = [row[qtype_i] for row in nonblank if row[qtype_i]]
     assert "multi_choice" in qtypes, (
         "template should include a multi_choice example so admins "
         "discover the feature")

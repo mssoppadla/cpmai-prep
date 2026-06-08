@@ -1,9 +1,12 @@
-"""Public content endpoints — CPMAI phases, FAQs, and admin-edited landing copy."""
+"""Public content endpoints — CPMAI phases, ECO domains, FAQs, landing copy."""
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.deps import get_db
+from app.core import domains as domain_registry
 from app.core.settings_store import settings_store
 from app.models.faq import FaqItem
+from app.models.question import Question
 from app.models.topic import Topic
 from app.schemas.faq import FaqOut
 
@@ -15,6 +18,38 @@ def list_topics(db: Session = Depends(get_db)):
     return [
         {"id": t.id, "code": t.code, "name": t.name, "order": t.order}
         for t in db.query(Topic).order_by(Topic.order).all()
+    ]
+
+
+@router.get("/domains")
+def list_domains(db: Session = Depends(get_db)):
+    """The five CPMAI ECO domains, with a live count of active questions
+    tagged into each. The frontend uses this for the admin domain dropdown
+    and the results-screen domain breakdown labels."""
+    counts = dict(
+        db.query(Question.domain, func.count(Question.id))
+          .filter(Question.is_active.is_(True))
+          .group_by(Question.domain)
+          .all()
+    )
+
+    def active_count(d) -> int:
+        # Count rows stored under any accepted spelling of this domain
+        # (code is canonical, but legacy rows may hold the name/slug).
+        total = 0
+        for stored, n in counts.items():
+            if domain_registry.get(stored) and domain_registry.get(stored).code == d.code:
+                total += n
+        return total
+
+    return [
+        {
+            "code": d.code, "name": d.name, "slug": d.slug,
+            "order": d.order, "weight": d.weight,
+            "phase_codes": list(d.phase_codes),
+            "active_question_count": active_count(d),
+        }
+        for d in domain_registry.all_domains()
     ]
 
 

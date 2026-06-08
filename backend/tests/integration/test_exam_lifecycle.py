@@ -63,6 +63,10 @@ def test_full_exam_lifecycle(client, user, sample_exam_set):
     assert options["A"]["is_correct"] is False
     # Phase breakdown present
     assert any(p["topic_code"] == "DU" for p in result["by_phase"])
+    # Domain breakdown present (what the results screen displays)
+    assert result["by_domain"], "expected a by_domain rollup"
+    assert all({"domain", "correct", "total", "percent"} <= d.keys()
+               for d in result["by_domain"])
 
 
 def test_cold_load_result_endpoint(client, user, sample_exam_set):

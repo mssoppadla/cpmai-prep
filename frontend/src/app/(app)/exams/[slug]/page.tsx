@@ -47,9 +47,18 @@ export default function ExamAttemptPage() {
     auth.me().then(setMe).catch(() => setMe(null));
   }, []);
 
-  // Start the attempt on mount, restore local annotations / marked
+  // Start the attempt on mount, restore local annotations / marked.
+  // `?domain=D-I` switches this into a focused domain-practice drill over
+  // just that domain's questions in the set (reached from the results
+  // screen). No query param → a normal full-set sitting.
   useEffect(() => {
-    examsApi.startAttempt(slug)
+    const domain = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("domain")
+      : null;
+    const starting = domain
+      ? examsApi.startDomainPractice(slug, domain)
+      : examsApi.startAttempt(slug);
+    starting
       .then((a) => {
         setAttempt(a);
         const secs = Math.max(0,

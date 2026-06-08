@@ -224,6 +224,27 @@ export interface PhaseBreakdown {
   total: number;
   percent: number;
 }
+export interface DomainBreakdown {
+  /** Canonical ECO domain code (e.g. "D-I"), legacy raw value, or
+   *  "Unassigned". Used as the review-filter key and practice deep-link. */
+  domain: string;
+  domain_name: string;
+  /** True only for real ECO domain codes — gates the "Practice" action. */
+  practiceable: boolean;
+  correct: number;
+  total: number;
+  percent: number;
+}
+/** One CPMAI ECO domain (from GET /content/domains). */
+export interface DomainOut {
+  code: string;
+  name: string;
+  slug: string;
+  order: number;
+  weight: number;
+  phase_codes: string[];
+  active_question_count: number;
+}
 export interface SubmitAttemptOut {
   id: number;
   score: number;
@@ -233,7 +254,15 @@ export interface SubmitAttemptOut {
   unanswered_count: number;
   time_taken_seconds: number;
   questions: QuestionResultView[];
+  /** CPMAI-phase rollup — retained for backward compatibility. */
   by_phase: PhaseBreakdown[];
+  /** ECO-domain rollup — what the results screen displays. */
+  by_domain: DomainBreakdown[];
+  /** The set this attempt was on — powers "retake" / "practice" links. */
+  exam_set_slug: string | null;
+  exam_set_name: string | null;
+  /** Set when this was a domain-practice drill (vs a full sitting). */
+  practice_domain: string | null;
 }
 
 // ---------- Leads ----------------------------------------------------------
