@@ -19,7 +19,7 @@ Three responsibilities:
 
 Format (wide, one row per question):
 
-    id                  (blank → create new; integer → update that question)
+    id                  (existing id → update; blank or unknown id → create new)
     stem                (required)
     topic_code          (required, case-insensitive: BU/DU/DP/MD/EV/DE)
     difficulty          (required: easy / medium / hard)
@@ -56,8 +56,8 @@ from app.schemas.question import QuestionAdminIn, QuestionOptionIn
 # Column layout — must match the docstring above. Single source of truth
 # for both the template writer and the parser.
 COLUMNS: list[tuple[str, str]] = [
-    ("id",             "Question id. LEAVE BLANK to create a new question; "
-                       "keep the existing number to UPDATE that question."),
+    ("id",             "Question id. An existing id UPDATES that question; "
+                       "blank — or an unknown id — CREATES a new one."),
     ("stem",           "Question stem (required)"),
     ("topic_code",     "CPMAI phase code: BU, DU, DP, MD, EV, or DE (required)"),
     ("difficulty",     "easy / medium / hard (required)"),

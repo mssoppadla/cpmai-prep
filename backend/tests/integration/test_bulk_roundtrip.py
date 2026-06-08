@@ -174,3 +174,31 @@ def test_import_preserves_legacy_freetext_domain(client, admin, db):
     assert res["errors"] == [], res
     db.expire_all()
     assert db.get(Question, q1.id).domain == "Data Understanding > Quality"
+
+
+def test_import_unknown_id_creates_new_question(client, admin, db):
+    """An id that doesn't exist (e.g. a new row an admin hand-numbered) is
+    upserted as a CREATE, not rejected — and the DB assigns the real id."""
+    headers = auth_header(client, admin.email)
+    _seed_question(db, stem="Existing Q for upsert")
+
+    ws = _export(client, headers)
+    idx = _headers_index(ws)
+    new_row = ws.max_row + 1
+    ws.cell(row=new_row, column=idx["id"] + 1, value=99999)          # non-existent id
+    ws.cell(row=new_row, column=idx["stem"] + 1, value="New via unknown id " + "z" * 12)
+    ws.cell(row=new_row, column=idx["topic_code"] + 1, value="BU")
+    ws.cell(row=new_row, column=idx["difficulty"] + 1, value="easy")
+    ws.cell(row=new_row, column=idx["option_a_text"] + 1, value="a")
+    ws.cell(row=new_row, column=idx["option_a_is_correct"] + 1, value="false")
+    ws.cell(row=new_row, column=idx["option_b_text"] + 1, value="b")
+    ws.cell(row=new_row, column=idx["option_b_is_correct"] + 1, value="true")
+
+    res = _upload(client, headers, ws)
+    assert res["created"] == 1, res     # the unknown-id row created a new question
+    assert res["errors"] == [], res
+    # The sheet's id is ignored — nothing literally lands at id 99999.
+    assert db.get(Question, 99999) is None
+    created = db.query(Question).filter(
+        Question.stem.like("New via unknown id%")).one()
+    assert created.id != 99999

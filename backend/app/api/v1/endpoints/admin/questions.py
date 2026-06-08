@@ -267,11 +267,13 @@ async def bulk_upload(file: UploadFile = File(...),
         pre_created, pre_updated = len(created_ids), len(updated_ids)
         sp = db.begin_nested()
         try:
-            if pr.question_id is not None:
-                q = db.get(Question, pr.question_id)
-                if q is None:
-                    raise ValueError(f"id {pr.question_id} not found — "
-                                     f"leave id blank to create a new question")
+            # Upsert by id-existence: an id that maps to a real question
+            # updates it; a blank id — OR an id that doesn't exist yet (e.g.
+            # a new row an admin numbered by hand) — creates a new question.
+            # The sheet's id is never forced onto a new row; the DB assigns it.
+            q = (db.get(Question, pr.question_id)
+                 if pr.question_id is not None else None)
+            if q is not None:
                 # Update scalar fields, then replace options wholesale
                 # (clear + flush before re-insert to dodge the unique
                 # (question_id, option_letter) constraint mid-flush).
