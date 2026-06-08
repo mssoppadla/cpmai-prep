@@ -5,8 +5,17 @@ import Link from "next/link";
 import { exams as examsApi, content as contentApi, ApiError } from "@/lib/api";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
-import type { SubmitAttemptOut, DomainOut } from "@/types/api";
+import type { SubmitAttemptOut, DomainOut, QuestionResultView } from "@/types/api";
 import { QuestionResultCard } from "@/components/exam/QuestionResultCard";
+
+type Status = "correct" | "incorrect" | "unanswered";
+
+/** A question's outcome. Incorrect vs unanswered is decided by whether the
+ *  learner selected any option (both have is_user_correct === false). */
+function qStatus(q: QuestionResultView): Status {
+  if (q.is_user_correct) return "correct";
+  return q.options.some((o) => o.selected_by_user) ? "incorrect" : "unanswered";
+}
 
 export default function ResultsPage() {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +24,8 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   // Which domain the question-by-question review is filtered to. null = all.
   const [reviewFilter, setReviewFilter] = useState<string | null>(null);
+  // Outcome filter, toggled from the score summary. null = all.
+  const [statusFilter, setStatusFilter] = useState<Status | null>(null);
 
   useEffect(() => {
     // Try session cache first (fast), then fall back to API (cold load).
@@ -54,9 +65,14 @@ export default function ResultsPage() {
 
   const visibleQuestions = useMemo(() => {
     if (!result) return [];
-    if (!reviewFilter) return result.questions;
-    return result.questions.filter((q) => canon(q.domain) === reviewFilter);
-  }, [result, reviewFilter, canon]);
+    return result.questions.filter((q) =>
+      (!reviewFilter || canon(q.domain) === reviewFilter) &&
+      (!statusFilter || qStatus(q) === statusFilter)
+    );
+  }, [result, reviewFilter, statusFilter, canon]);
+
+  const toggleStatus = (s: Status) =>
+    setStatusFilter((cur) => (cur === s ? null : s));
 
   if (error) {
     return (
@@ -109,12 +125,16 @@ export default function ResultsPage() {
           {result.passed ? "🎉 You passed!" : "Keep practicing — it'll help you ace the exam."}
         </div>
         <div className="text-5xl font-bold tabular-nums">{result.score}%</div>
-        <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm opacity-90">
-          <span>{result.correct_count} correct</span>
-          <span>{result.incorrect_count} incorrect</span>
-          <span>{result.unanswered_count} unanswered</span>
-          <span>Time: {minutes}m {seconds}s</span>
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm opacity-90">
+          <CountChip n={result.correct_count} label="correct"
+                     active={statusFilter === "correct"} onClick={() => toggleStatus("correct")} />
+          <CountChip n={result.incorrect_count} label="incorrect"
+                     active={statusFilter === "incorrect"} onClick={() => toggleStatus("incorrect")} />
+          <CountChip n={result.unanswered_count} label="unanswered"
+                     active={statusFilter === "unanswered"} onClick={() => toggleStatus("unanswered")} />
+          <span className="ml-1">Time: {minutes}m {seconds}s</span>
         </div>
+        <div className="text-xs opacity-75 mt-1">Tap a count to filter the review below.</div>
       </div>
 
       <section className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
@@ -214,8 +234,32 @@ export default function ResultsPage() {
           </div>
         )}
 
+        {(statusFilter || reviewFilter) && (
+          <div className="text-xs text-slate-600 mb-4 flex items-center gap-2 flex-wrap">
+            <span>Showing {visibleQuestions.length} of {result.questions.length}</span>
+            {statusFilter && (
+              <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 capitalize">
+                {statusFilter}
+              </span>
+            )}
+            {reviewFilter && (
+              <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                {labelFor(reviewFilter)}
+              </span>
+            )}
+            <button onClick={() => { setStatusFilter(null); setReviewFilter(null); }}
+                    className="text-indigo-600 hover:underline">
+              Clear filters
+            </button>
+          </div>
+        )}
+
         <div className="space-y-5">
-          {visibleQuestions.map((q, i) => (
+          {visibleQuestions.length === 0 ? (
+            <p className="text-sm text-slate-500 bg-white border border-slate-200 rounded-xl p-6 text-center">
+              No questions match this filter.
+            </p>
+          ) : visibleQuestions.map((q, i) => (
             <QuestionResultCard key={q.id} result={q} index={i} />
           ))}
         </div>
@@ -230,5 +274,27 @@ export default function ResultsPage() {
       </main>
       <SiteFooter />
     </>
+  );
+}
+
+/** A clickable count in the score banner that filters the review by outcome.
+ *  Renders as plain text (non-interactive) when the count is zero. */
+function CountChip({ n, label, active, onClick }: {
+  n: number; label: string; active: boolean; onClick: () => void;
+}) {
+  if (n === 0) return <span className="opacity-60">{n} {label}</span>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded px-2 py-0.5 transition ${
+        active
+          ? "bg-white/25 font-semibold"
+          : "hover:bg-white/15 underline-offset-4 hover:underline"
+      }`}
+    >
+      {n} {label}
+    </button>
   );
 }
