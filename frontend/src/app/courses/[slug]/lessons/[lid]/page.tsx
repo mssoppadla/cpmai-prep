@@ -16,7 +16,7 @@
  *   - Completion stamps cascade to enrollment.completed_at via the backend's
  *     ``recalculate_completion`` helper.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { lmsPublic, errMsg } from "@/lib/api";
@@ -360,7 +360,8 @@ function LessonBody({
   if (lesson.lesson_type === "video") {
     return <VideoLesson lesson={lesson} progress={progress}
                         enrollmentId={enrollmentId}
-                        onProgressUpdate={onProgressUpdate} />;
+                        onProgressUpdate={onProgressUpdate}
+                        onComplete={onMarkComplete} />;
   }
   if (lesson.lesson_type === "quiz") {
     return <QuizLesson lessonId={lesson.id} />;
@@ -387,13 +388,52 @@ function LessonBody({
 // ====================================================== Video lesson
 
 function VideoLesson({
-  lesson, progress, enrollmentId, onProgressUpdate,
+  lesson, progress, enrollmentId, onProgressUpdate, onComplete,
 }: {
   lesson: LessonInTree;
   progress: LessonProgressOut | null;
   enrollmentId: number | null;
   onProgressUpdate: (p: LessonProgressOut) => void;
+  onComplete: () => void;
 }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Last saved position — comes from the server on load, so resume works
+  // across refreshes AND across devices (it's not a local-only cache).
+  const resumeAt = progress?.last_position_seconds ?? 0;
+
+  // Persist the current position to the server. The 10s throttle on
+  // timeupdate keeps the row roughly fresh during playback; this is the
+  // "save now" used on pause / tab-hide / unmount so that pausing and
+  // then refreshing (or closing) resumes from the right spot — the old
+  // code only wrote on the 10s boundary, so a pause at 0:07 was lost.
+  const savePosition = useCallback((seconds: number) => {
+    if (!enrollmentId || !Number.isFinite(seconds) || seconds <= 0) return;
+    lmsPublic.updateProgress(enrollmentId, lesson.id, {
+      last_position_seconds: Math.floor(seconds),
+    }).then(onProgressUpdate).catch((err) => {
+      // Background write — failing silently would hide a broken
+      // /lms/progress endpoint (the learner thinks resume is saved but
+      // it isn't). console.error gives devtools + log collectors a hook
+      // without nagging mid-video.
+      console.error("[lesson player] progress save", err);
+    });
+  }, [enrollmentId, lesson.id, onProgressUpdate]);
+
+  // Flush position when the tab is hidden or the component unmounts
+  // (route change / navigation) so a quick pause-then-leave is captured.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden" && videoRef.current) {
+        savePosition(videoRef.current.currentTime);
+      }
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      if (videoRef.current) savePosition(videoRef.current.currentTime);
+    };
+  }, [savePosition]);
+
   if (!lesson.video_url) {
     return <p className="text-slate-500 text-sm italic">Video URL not configured.</p>;
   }
@@ -418,25 +458,29 @@ function VideoLesson({
   }
   return (
     <video
+      ref={videoRef}
       src={lesson.video_url}
       controls
       className="w-full rounded-lg bg-black"
       preload="metadata"
+      onLoadedMetadata={(e) => {
+        // Resume from the last saved position. Guard against seeking at
+        // or past the end (a fully-watched video should replay from 0).
+        const v = e.currentTarget;
+        if (resumeAt > 0 && Number.isFinite(v.duration) && resumeAt < v.duration - 2) {
+          v.currentTime = resumeAt;
+        }
+      }}
       onTimeUpdate={(e) => {
-        const v = e.target as HTMLVideoElement;
-        if (!enrollmentId) return;
-        // Throttle progress writes: only every 10 seconds.
+        // Throttle progress writes: only every 10 seconds of playback.
+        const v = e.currentTarget;
         if (Math.floor(v.currentTime) % 10 !== 0) return;
-        lmsPublic.updateProgress(enrollmentId, lesson.id, {
-          last_position_seconds: Math.floor(v.currentTime),
-        }).then(onProgressUpdate).catch((e) => {
-          // Background throttle write — every 10s of playback.
-          // Failing silently hides a broken /lms/progress endpoint
-          // (the user thinks resume-position is being saved but it
-          // isn't); console.error gives devtools + Sentry-style log
-          // collectors a hook without nagging the learner mid-video.
-          console.error("[lesson player] progress throttle write", e);
-        });
+        savePosition(v.currentTime);
+      }}
+      onPause={(e) => savePosition(e.currentTarget.currentTime)}
+      onEnded={() => {
+        // Auto-mark the lesson complete when the video finishes.
+        onComplete();
       }}
     />
   );

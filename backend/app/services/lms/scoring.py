@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.lms import (
@@ -183,3 +183,41 @@ def recalculate_completion(db: Session, enrollment: Enrollment) -> bool:
         enrollment.completed_at = None
         return False
     return enrollment.completed_at is not None
+
+
+def course_progress(db: Session, enrollment: Enrollment) -> dict:
+    """Compute a display-friendly progress summary for an enrollment.
+
+    Unlike ``recalculate_completion`` (which gates the "Completed" state
+    on *mandatory* lessons + the course threshold), this counts ALL
+    published lessons so the dashboard progress bar reflects how much of
+    the course the learner has actually worked through.
+
+    Returns ``{lessons_completed, lessons_total, percent}``.
+    """
+    all_lessons = list(db.execute(
+        select(Lesson.id).join(Chapter, Lesson.chapter_id == Chapter.id).where(
+            Chapter.course_id == enrollment.course_id,
+            Chapter.is_published.is_(True),
+            Chapter.is_deleted.is_(False),
+            Lesson.is_published.is_(True),
+            Lesson.is_deleted.is_(False),
+        )
+    ).scalars())
+    total = len(all_lessons)
+    if total == 0:
+        return {"lessons_completed": 0, "lessons_total": 0, "percent": 0}
+
+    completed = db.execute(
+        select(func.count()).select_from(LessonProgress).where(
+            LessonProgress.enrollment_id == enrollment.id,
+            LessonProgress.completed_at.is_not(None),
+            LessonProgress.lesson_id.in_(all_lessons),
+        )
+    ).scalar() or 0
+
+    return {
+        "lessons_completed": int(completed),
+        "lessons_total": total,
+        "percent": round((completed / total) * 100),
+    }

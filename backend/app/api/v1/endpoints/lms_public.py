@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import audit_log
 from app.core.deps import get_current_user, get_db, get_optional_user
+from app.core.media_tokens import protected_media_url
 from app.core.exceptions import (
     ConflictError, NotFoundError, SubscriptionRequiredError,
     UnauthorizedError, ValidationError,
@@ -47,7 +48,8 @@ from app.schemas.zoom import (
     SignedRecordingPlaybackOut, ZoomSDKTokenOut, ZoomSessionPublicOut,
 )
 from app.services.lms.scoring import (
-    next_attempt_number, recalculate_completion, score_attempt,
+    course_progress, next_attempt_number, recalculate_completion,
+    score_attempt,
 )
 from app.services.zoom_integration import (
     ZoomNotConfigured, zoom_client,
@@ -134,12 +136,43 @@ def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enroll
     return enrollment
 
 
+def _sign_block_media(blocks: list | None, viewer_id: int) -> list:
+    """Rewrite ``/uploads/...`` URLs embedded in BlockNote body blocks
+    (video / file / audio blocks) into signed, expiring URLs.
+
+    ``protected_media_url`` is a no-op for images and external URLs, so
+    applying it to every block that carries a ``props.url`` string is
+    safe — only protected (non-image) uploads get a token appended.
+    """
+    if not blocks:
+        return blocks or []
+    signed: list = []
+    for b in blocks:
+        props = b.get("props") if isinstance(b, dict) else None
+        if isinstance(props, dict) and isinstance(props.get("url"), str):
+            signed.append({
+                **b,
+                "props": {**props,
+                          "url": protected_media_url(props["url"], viewer_id)},
+            })
+        else:
+            signed.append(b)
+    return signed
+
+
 def _redact_lesson(
     lsn: Lesson, is_enrolled: bool,
     course_discussion_url: str | None = None,
+    viewer_id: int = 0,
 ) -> LessonPublicOut:
     """Build a public lesson payload. For non-enrolled users, lesson
     body / video_url are nulled unless the lesson is free_preview.
+
+    For entitled viewers, protected media (uploaded video + non-image
+    body-block files) is rewritten to signed, expiring ``/uploads/...?
+    token=`` URLs via ``protected_media_url`` so a raw paid-media link
+    can't be shared with non-payers. ``viewer_id`` is the user id (0 for
+    anonymous free-preview) — carried in the token for audit.
 
     Computes the effective discussion_url cascade:
       lesson.discussion_url OR course.discussion_url OR None
@@ -152,6 +185,9 @@ def _redact_lesson(
     if not show_body:
         out.video_url = None
         out.body_blocks = []
+    else:
+        out.video_url = protected_media_url(out.video_url, viewer_id)
+        out.body_blocks = _sign_block_media(out.body_blocks, viewer_id)
     if not out.discussion_url and course_discussion_url:
         out.discussion_url = course_discussion_url
     return out
@@ -238,6 +274,7 @@ def get_public_course(
     if not c:
         raise NotFoundError("Course not found")
     enrolled = _active_enrollment(db, user, c.id) is not None
+    viewer_id = user.id if user else 0
 
     # Social-proof signal for the course detail hero: how many active
     # enrollments are on this course. We count rows from the canonical
@@ -283,9 +320,11 @@ def get_public_course(
                 "is_mandatory": ch.is_mandatory,
                 "lessons": [
                     {
-                        **_redact_lesson(lsn, enrolled, c.discussion_url).model_dump(),
+                        **_redact_lesson(lsn, enrolled, c.discussion_url,
+                                         viewer_id).model_dump(),
                         "files": [
-                            LessonFileOut.model_validate(f).model_dump()
+                            {**LessonFileOut.model_validate(f).model_dump(),
+                             "file_url": protected_media_url(f.file_url, viewer_id)}
                             for f in sorted(files_by_lesson.get(lsn.id, []),
                                             key=lambda x: (x.position, x.id))
                         ] if (enrolled or lsn.is_free_preview) else [],
@@ -357,13 +396,33 @@ def list_my_enrollments(
             ))
         db.commit()
 
-    return (db.query(Enrollment)
+    enrollments = (db.query(Enrollment)
               .filter(Enrollment.user_id == user.id,
                       Enrollment.revoked_at.is_(None),
                       Enrollment.tenant_id == get_current_tenant_id())
               .order_by(Enrollment.last_accessed_at.desc().nullslast(),
                         Enrollment.enrolled_at.desc())
               .all())
+
+    # Course title/slug for the dashboard cards — one query, no N+1.
+    course_ids = {e.course_id for e in enrollments}
+    courses = (
+        {c.id: c for c in db.query(Course).filter(Course.id.in_(course_ids)).all()}
+        if course_ids else {}
+    )
+    out: list[dict] = []
+    for e in enrollments:
+        prog = course_progress(db, e)
+        c = courses.get(e.course_id)
+        out.append({
+            **EnrollmentOut.model_validate(e).model_dump(),
+            "course_title": c.title if c else None,
+            "course_slug": c.slug if c else None,
+            "lessons_completed": prog["lessons_completed"],
+            "lessons_total": prog["lessons_total"],
+            "progress_percent": prog["percent"],
+        })
+    return out
 
 
 @router.post("/courses/{slug}/enroll", response_model=EnrollmentOut, status_code=201)
@@ -905,7 +964,9 @@ def get_session_recording(
                "expires_at": expires_at.isoformat()})
 
     return {
-        "url": rec.file_url,
+        # Token TTL matches the advertised 1-hour expiry so the signed
+        # URL stops working exactly when ``expires_at`` says it does.
+        "url": protected_media_url(rec.file_url, user.id, ttl_seconds=3600),
         "expires_at": expires_at,
         "duration_seconds": rec.duration_seconds,
     }

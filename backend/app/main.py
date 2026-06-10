@@ -203,23 +203,26 @@ app.include_router(api_router, prefix="/api/v1")
 #                     probe within 60s and trips the auto-rollback.
 import os as _os
 import logging as _logging
+import mimetypes as _mimetypes
 from pathlib import Path as _Path
-from fastapi.staticfiles import StaticFiles as _StaticFiles
+from fastapi import Request as _Request
+from fastapi.responses import (
+    FileResponse as _FileResponse, Response as _Response,
+    StreamingResponse as _StreamingResponse,
+)
+from app.core.media_tokens import is_public_image, verify_media_token
 _UPLOAD_ROOT = _Path(_os.environ.get("UPLOAD_ROOT", "/app/uploads"))
 try:
     _UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
-    # ``name="uploads"`` lets us reverse the URL via app.url_path_for;
-    # the admin upload endpoint returns paths relative to this mount.
-    app.mount("/uploads", _StaticFiles(directory=str(_UPLOAD_ROOT)), name="uploads")
 except (OSError, PermissionError) as _e:
     if settings.APP_ENV == "test":
         # CI runner / contributor sandbox: no /app, no write access at
-        # /. The application-level surface that depends on this mount
-        # is exercised by docker-based integration tests, not the
-        # in-process pytest run that imports main here.
+        # /. The application-level surface that depends on this dir is
+        # exercised by docker-based integration tests, not the in-process
+        # pytest run that imports main here.
         _logging.getLogger(__name__).warning(
-            "uploads disabled (APP_ENV=test): could not initialize %s (%s)",
-            _UPLOAD_ROOT, _e,
+            "uploads dir init skipped (APP_ENV=test): could not initialize "
+            "%s (%s)", _UPLOAD_ROOT, _e,
         )
     else:
         # Loud failure in dev / staging / production. The deploy script
@@ -232,6 +235,107 @@ except (OSError, PermissionError) as _e:
             _UPLOAD_ROOT,
         )
         raise
+
+# Resolved once at import — used to confine every served path inside the
+# upload root (defence-in-depth against path traversal).
+try:
+    _UPLOAD_ROOT_RESOLVED = _UPLOAD_ROOT.resolve()
+except OSError:
+    _UPLOAD_ROOT_RESOLVED = _UPLOAD_ROOT
+
+
+@app.get("/uploads/{file_path:path}")
+def serve_upload(file_path: str, request: _Request):
+    """Serve uploaded media with a hard wall around paid content.
+
+    Replaces the old public ``StaticFiles`` mount. Policy:
+
+      * Images (CMS marketing, course/lesson thumbnails) → public, as
+        before.
+      * Everything else (lesson videos, attached PDFs/docs, Zoom
+        recordings) → requires a valid, path-bound, expiring token minted
+        by ``app.core.media_tokens.protected_media_url``. A raw URL copied
+        out of devtools therefore can't be shared with non-payers and
+        stops working once the token expires.
+
+    Misses (missing file, traversal, missing/invalid/wrong-path token)
+    all return an opaque 404 so a probe can't distinguish "file exists
+    but you're not allowed" from "no such file".
+
+    Range requests are honoured by Starlette's ``FileResponse`` (HTTP
+    206), so in-browser video seeking works.
+    """
+    # Confine to UPLOAD_ROOT — reject anything that resolves outside it.
+    candidate = (_UPLOAD_ROOT / file_path).resolve()
+    try:
+        candidate.relative_to(_UPLOAD_ROOT_RESOLVED)
+    except ValueError:
+        return _Response(status_code=404)
+    if not candidate.is_file():
+        return _Response(status_code=404)
+
+    if not is_public_image(file_path):
+        claims = verify_media_token(request.query_params.get("token", ""))
+        # Token must be valid AND bound to exactly this path: a token for
+        # video A can't be replayed to fetch PDF B.
+        if claims is None or claims.get("path") != file_path:
+            return _Response(status_code=404)
+
+    return _serve_file_with_range(candidate, request)
+
+
+def _serve_file_with_range(path: _Path, request: _Request):
+    """Serve ``path`` honouring HTTP ``Range`` so the browser can seek
+    inside a video.
+
+    Starlette's ``FileResponse`` (this version) doesn't emit 206 /
+    ``Accept-Ranges`` on its own, so we parse ``Range`` ourselves: a
+    valid range streams a 206 byte-slice; otherwise we serve the whole
+    file but still advertise ``Accept-Ranges: bytes`` so the player
+    knows seeking is supported.
+    """
+    file_size = path.stat().st_size
+    content_type = (_mimetypes.guess_type(str(path))[0]
+                    or "application/octet-stream")
+    range_header = request.headers.get("range")
+
+    if range_header and range_header.startswith("bytes="):
+        spec = range_header[len("bytes="):].split(",", 1)[0].strip()
+        start_s, _, end_s = spec.partition("-")
+        try:
+            start = int(start_s) if start_s else 0
+            end = int(end_s) if end_s else file_size - 1
+        except ValueError:
+            return _Response(status_code=416,
+                             headers={"Content-Range": f"bytes */{file_size}"})
+        end = min(end, file_size - 1)
+        if start > end or start >= file_size:
+            return _Response(status_code=416,
+                             headers={"Content-Range": f"bytes */{file_size}"})
+        length = end - start + 1
+
+        def _iter():
+            with path.open("rb") as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = f.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        return _StreamingResponse(
+            _iter(), status_code=206, media_type=content_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(length),
+            },
+        )
+
+    return _FileResponse(path, media_type=content_type,
+                         headers={"Accept-Ranges": "bytes"})
 
 
 @app.get("/health")
