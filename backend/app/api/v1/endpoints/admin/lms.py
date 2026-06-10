@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import audit_log
 from app.core.deps import get_admin_user, get_db
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
+from app.core.media_tokens import protected_media_url
 from app.core.tenant import get_current_tenant_id
 from app.models.lms import (
     Chapter, Course, CourseAnnouncement, CourseCategory,
@@ -150,7 +151,8 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/courses/{course_id}/tree")
-def get_course_tree(course_id: int, db: Session = Depends(get_db)):
+def get_course_tree(course_id: int, db: Session = Depends(get_db),
+                    admin: User = Depends(get_admin_user)):
     """Admin curriculum tree for a course — chapters + lessons + files,
     including unpublished/draft rows. Used by /admin/courses/[id] in the
     UI so editing works before the course is published.
@@ -201,8 +203,13 @@ def get_course_tree(course_id: int, db: Session = Depends(get_db)):
                 "lessons": [
                     {
                         **LessonOut.model_validate(lsn).model_dump(mode="json"),
+                        # Sign protected media so the admin's <video>/<a>
+                        # previews work against the token-gated /uploads
+                        # handler (a raw path now 404s without a token).
+                        "video_url": protected_media_url(lsn.video_url, admin.id),
                         "files": [
-                            LessonFileOut.model_validate(f).model_dump(mode="json")
+                            {**LessonFileOut.model_validate(f).model_dump(mode="json"),
+                             "file_url": protected_media_url(f.file_url, admin.id)}
                             for f in files_by_lesson.get(lsn.id, [])
                         ],
                     }
@@ -215,7 +222,8 @@ def get_course_tree(course_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/lessons/{lesson_id}")
-def get_lesson(lesson_id: int, db: Session = Depends(get_db)):
+def get_lesson(lesson_id: int, db: Session = Depends(get_db),
+               admin: User = Depends(get_admin_user)):
     """Admin single-lesson getter. Replaces the previous PATCH-no-op
     hack the frontend was using to load a lesson on first open.
 
@@ -233,17 +241,28 @@ def get_lesson(lesson_id: int, db: Session = Depends(get_db)):
     ch = db.get(Chapter, lsn.chapter_id)
     return {
         **LessonOut.model_validate(lsn).model_dump(mode="json"),
+        "video_url": protected_media_url(lsn.video_url, admin.id),
         "course_id": ch.course_id if ch else None,
     }
 
 
-@router.get("/lessons/{lesson_id}/files", response_model=list[LessonFileOut])
-def list_lesson_files(lesson_id: int, db: Session = Depends(get_db)):
-    """Admin lesson-files listing — for the editor's Attached Files panel."""
-    return (db.query(LessonFile).filter(
+@router.get("/lessons/{lesson_id}/files")
+def list_lesson_files(lesson_id: int, db: Session = Depends(get_db),
+                      admin: User = Depends(get_admin_user)):
+    """Admin lesson-files listing — for the editor's Attached Files panel.
+
+    ``file_url`` is signed so the editor's download/preview links work
+    against the token-gated /uploads handler.
+    """
+    files = (db.query(LessonFile).filter(
         LessonFile.lesson_id == lesson_id,
         LessonFile.tenant_id == get_current_tenant_id(),
     ).order_by(LessonFile.position, LessonFile.id).all())
+    return [
+        {**LessonFileOut.model_validate(f).model_dump(mode="json"),
+         "file_url": protected_media_url(f.file_url, admin.id)}
+        for f in files
+    ]
 
 
 @router.post("/courses", response_model=CourseOut, status_code=201)

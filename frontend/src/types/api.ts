@@ -606,6 +606,13 @@ export interface EnrollmentOut {
   offer_code_id: number | null;
   created_at: string;
   updated_at: string;
+  // Display extras — present on the learner /lms/me/enrollments payload
+  // (null on admin listings). Power the dashboard "My courses" cards.
+  course_title?: string | null;
+  course_slug?: string | null;
+  lessons_completed?: number | null;
+  lessons_total?: number | null;
+  progress_percent?: number | null;
 }
 export interface EnrollmentGrantIn {
   user_id: number;

@@ -315,6 +315,14 @@ class EnrollmentOut(BaseModel):
     offer_code_id: Optional[int]
     created_at: datetime
     updated_at: datetime
+    # Display extras — populated by the learner-facing list endpoint so the
+    # dashboard "My courses" cards can render a progress bar + link without
+    # an extra round-trip. Optional so admin/ORM serialization stays valid.
+    course_title: Optional[str] = None
+    course_slug: Optional[str] = None
+    lessons_completed: Optional[int] = None
+    lessons_total: Optional[int] = None
+    progress_percent: Optional[int] = None
 
 
 class EnrollmentGrantIn(BaseModel):

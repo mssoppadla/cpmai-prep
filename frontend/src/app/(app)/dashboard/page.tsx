@@ -2,11 +2,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { auth, content as contentApi, exams as examsApi, errMsg } from "@/lib/api";
+import {
+  auth, content as contentApi, exams as examsApi, lmsPublic, errMsg,
+} from "@/lib/api";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import type {
-  AttemptHistoryOut, ExamSetSummaryOut, LandingCopy, UserDashboardOut,
+  AttemptHistoryOut, EnrollmentOut, ExamSetSummaryOut, LandingCopy,
+  UserDashboardOut,
 } from "@/types/api";
 
 const UPSELL_FALLBACK: Pick<LandingCopy, "premium_upsell_title" | "premium_upsell_body"> = {
@@ -148,6 +151,9 @@ export default function LearnerDashboard() {
           )}
         </div>
       </section>
+
+      {/* My courses — enrolled courses with resume + progress */}
+      <MyCoursesSection />
 
       {/* Exam history — past attempts persist; revisit domain insights anytime */}
       <ExamHistorySection />
@@ -338,6 +344,77 @@ function PrivacySection({ email, onAfterDelete }: {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * My courses — the learner's active enrollments with an overall progress
+ * bar (server-computed: completed lessons / published lessons) and a
+ * "Completed" badge. Clicking a card jumps back into the course, where the
+ * lesson player resumes each video from its last saved position.
+ */
+function MyCoursesSection() {
+  const [courses, setCourses] = useState<EnrollmentOut[] | null>(null);
+
+  useEffect(() => {
+    lmsPublic.myEnrollments().then(setCourses).catch(() => setCourses([]));
+  }, []);
+
+  // Resolve quietly; render nothing while loading and nothing if the learner
+  // has no enrolled courses (keeps the dashboard uncluttered for exam-only users).
+  if (courses === null || courses.length === 0) return null;
+
+  return (
+    <section className="max-w-5xl mx-auto px-6 pb-8">
+      <h2 className="text-lg font-semibold text-slate-900 mb-1">
+        Your courses
+      </h2>
+      <p className="text-sm text-slate-500 mb-3">
+        Pick up where you left off — videos resume from where you paused.
+      </p>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        {courses.map((c) => {
+          const pct = c.progress_percent ?? 0;
+          const done = c.completed_at != null;
+          const href = c.course_slug ? `/courses/${c.course_slug}` : "/courses";
+          return (
+            <Link
+              key={c.id}
+              href={href}
+              className="block bg-white rounded-xl border border-slate-200 p-5 hover:border-indigo-300 hover:shadow-sm transition"
+            >
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <h3 className="font-semibold text-slate-900">
+                  {c.course_title ?? "Course"}
+                </h3>
+                {done && (
+                  <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Completed
+                  </span>
+                )}
+              </div>
+              <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${done ? "bg-emerald-500" : "bg-indigo-600"}`}
+                  style={{ width: `${pct}%` }}
+                  role="progressbar"
+                  aria-valuenow={pct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                />
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                <span>
+                  {c.lessons_completed ?? 0} / {c.lessons_total ?? 0} lessons
+                </span>
+                <span className="font-medium text-indigo-600 tabular-nums">{pct}%</span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
     </section>
   );
 }
