@@ -45,7 +45,18 @@ app = FastAPI(
 app.state.limiter = limiter
 
 # Middleware (outermost first)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS or ["*"])
+# Internal docker service hostnames are always allowed in addition to the
+# public ALLOWED_HOSTS: the frontend proxies /uploads/* to this service via a
+# Next.js rewrite (so lesson videos / CMS images served by StaticFiles are
+# reachable behind the "/"→frontend reverse proxy). That proxied request
+# carries Host: backend (the compose service name), which isn't a public
+# domain — without this it 400s "Invalid host header". Only reachable inside
+# the compose network. (Starlette strips the port before matching.)
+_INTERNAL_HOSTS = ["backend", "localhost", "127.0.0.1"]
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=(settings.ALLOWED_HOSTS or ["*"]) + _INTERNAL_HOSTS,
+)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CorrelationMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
