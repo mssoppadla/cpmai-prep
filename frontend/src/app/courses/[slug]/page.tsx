@@ -26,6 +26,9 @@ export default function CourseDetailPage({
   const [me, setMe] = useState<{ id: number } | null | undefined>(undefined);
   const [reviews, setReviews] = useState<CourseReviewOut[]>([]);
   const [announcements, setAnnouncements] = useState<CourseAnnouncementOut[]>([]);
+  const [progress, setProgress] = useState<
+    { percent: number; completed: number; total: number } | null
+  >(null);
   const [err, setErr] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -35,6 +38,19 @@ export default function CourseDetailPage({
       setReviews(await lmsPublic.listReviews(params.slug));
       if (d.is_enrolled) {
         setAnnouncements(await lmsPublic.listAnnouncements(params.slug));
+        // Pull this course's progress from the enrollment list (computed
+        // server-side) so the enrolled CTA can show "X% complete".
+        try {
+          const mine = await lmsPublic.myEnrollments();
+          const enr = mine.find((e) => e.course_id === d.course.id);
+          if (enr) {
+            setProgress({
+              percent: enr.progress_percent ?? 0,
+              completed: enr.lessons_completed ?? 0,
+              total: enr.lessons_total ?? 0,
+            });
+          }
+        } catch { /* progress is best-effort; CTA still renders */ }
       }
     } catch (e) { setErr(errMsg(e)); }
   }, [params.slug]);
@@ -122,53 +138,92 @@ export default function CourseDetailPage({
           </div>
 
           {/* CTA card */}
-          <aside className="bg-white border border-slate-200 rounded-xl p-5 h-fit">
+          <aside className="bg-white border border-slate-200 rounded-xl p-5 h-fit shadow-sm lg:sticky lg:top-6">
             {c.cover_image_url && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={c.cover_image_url} alt="" className="aspect-video w-full object-cover rounded-lg mb-4" />
             )}
-            <div className="text-2xl font-bold text-slate-900 mb-3">
-              {c.enrollment_type === "free"
-                ? "Free"
-                : `${c.currency} ${(c.base_price_paise / 100).toFixed(2)}`}
-            </div>
-            {/* Social-proof signal: only render once we have a count
-                (avoid showing "0 enrolled" pre-load — looks worse than
-                no signal at all). The count comes from the public
-                course detail payload (computed server-side as a single
-                COUNT against enrollments). */}
-            {typeof detail.enrollment_count === "number" && detail.enrollment_count > 0 && (
-              <div className="text-xs text-slate-500 mb-3" aria-live="polite">
-                <strong className="text-slate-700">{detail.enrollment_count.toLocaleString()}</strong>{" "}
-                {detail.enrollment_count === 1 ? "learner" : "learners"} enrolled
-              </div>
-            )}
             {detail.is_enrolled ? (
-              <Link href={firstLessonId ? `/courses/${c.slug}/lessons/${firstLessonId}` : `/courses/${c.slug}`}
-                    className="block w-full text-center px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
-                Continue learning
-              </Link>
-            ) : me === undefined ? (
-              <div className="h-12 bg-slate-100 rounded-lg animate-pulse" />
-            ) : me === null ? (
-              <button onClick={() => router.push(`/login?next=/courses/${c.slug}`)}
-                      data-track="cta:course_sign_in_to_enrol"
-                      className="w-full px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
-                Sign in to enrol
-              </button>
-            ) : c.enrollment_type === "free" ? (
-              <button onClick={selfEnroll}
-                      data-track="cta:course_enrol_free"
-                      className="w-full px-4 py-3 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700">
-                Enrol for free
-              </button>
+              // Enrolled: surface progress, not price. The bar sits directly
+              // above the resume CTA so the next action is obvious.
+              <>
+                {(() => {
+                  const pct = progress?.percent ?? 0;
+                  const done = pct >= 100;
+                  return (
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm font-semibold text-slate-900">
+                          {done ? "Course complete 🎉" : "Your progress"}
+                        </span>
+                        <span className="text-sm font-bold text-indigo-600 tabular-nums">{pct}%</span>
+                      </div>
+                      <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${done ? "bg-emerald-500" : "bg-indigo-600"}`}
+                          style={{ width: `${pct}%` }}
+                          role="progressbar"
+                          aria-valuenow={pct}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1.5">
+                        {progress
+                          ? `${progress.completed} of ${progress.total} lessons complete`
+                          : "Loading progress…"}
+                      </p>
+                    </div>
+                  );
+                })()}
+                <Link href={firstLessonId ? `/courses/${c.slug}/lessons/${firstLessonId}` : `/courses/${c.slug}`}
+                      className="block w-full text-center px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
+                  {progress && progress.completed > 0 ? "Continue learning" : "Start learning"}
+                </Link>
+                <Link href={`/courses/${c.slug}/podcast`}
+                      className="mt-2 flex items-center justify-center gap-2 w-full px-4 py-3 bg-white border border-slate-300 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors">
+                  🎧 Listen as podcast
+                </Link>
+              </>
             ) : (
-              <button
-                onClick={() => router.push("/pricing")}
-                data-track="cta:course_get_access"
-                className="w-full px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
-                Get access
-              </button>
+              <>
+                <div className="text-3xl font-bold text-slate-900 mb-3">
+                  {c.enrollment_type === "free"
+                    ? "Free"
+                    : `${c.currency} ${(c.base_price_paise / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                </div>
+                {/* Social-proof signal: only render once we have a count
+                    (avoid showing "0 enrolled" pre-load — looks worse than
+                    no signal at all). */}
+                {typeof detail.enrollment_count === "number" && detail.enrollment_count > 0 && (
+                  <div className="text-xs text-slate-500 mb-3" aria-live="polite">
+                    <strong className="text-slate-700">{detail.enrollment_count.toLocaleString()}</strong>{" "}
+                    {detail.enrollment_count === 1 ? "learner" : "learners"} enrolled
+                  </div>
+                )}
+                {me === undefined ? (
+                  <div className="h-12 bg-slate-100 rounded-lg animate-pulse" />
+                ) : me === null ? (
+                  <button onClick={() => router.push(`/login?next=/courses/${c.slug}`)}
+                          data-track="cta:course_sign_in_to_enrol"
+                          className="w-full px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
+                    Sign in to enrol
+                  </button>
+                ) : c.enrollment_type === "free" ? (
+                  <button onClick={selfEnroll}
+                          data-track="cta:course_enrol_free"
+                          className="w-full px-4 py-3 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 shadow-sm transition-colors">
+                    Enrol for free
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => router.push("/pricing")}
+                    data-track="cta:course_get_access"
+                    className="w-full px-4 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
+                    Get access
+                  </button>
+                )}
+              </>
             )}
             {c.target_audience && (
               <p className="text-xs text-slate-500 mt-4 leading-relaxed">{c.target_audience}</p>

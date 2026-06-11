@@ -323,6 +323,15 @@ class EnrollmentOut(BaseModel):
     lessons_completed: Optional[int] = None
     lessons_total: Optional[int] = None
     progress_percent: Optional[int] = None
+    # "Listen as podcast" resume pointer.
+    podcast_lesson_id: Optional[int] = None
+    podcast_position_seconds: Optional[int] = None
+
+
+class PodcastPointerIn(BaseModel):
+    """Save the podcast resume pointer (which track + how far in)."""
+    lesson_id: Optional[int] = None
+    position_seconds: Optional[int] = Field(default=None, ge=0)
 
 
 class EnrollmentGrantIn(BaseModel):

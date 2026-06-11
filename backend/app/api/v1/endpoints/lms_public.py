@@ -42,7 +42,8 @@ from app.schemas.lms import (
     CourseAnnouncementOut, CoursePublicOut, CourseReviewOut,
     CourseReviewUpsertIn, EnrollmentOut, LessonFileOut, LessonNoteOut,
     LessonNoteUpsertIn, LessonProgressOut, LessonProgressUpdateIn,
-    LessonPublicOut, QuizAttemptOut, QuizAttemptSubmitIn, QuizQuestionOut,
+    LessonPublicOut, PodcastPointerIn, QuizAttemptOut, QuizAttemptSubmitIn,
+    QuizQuestionOut,
 )
 from app.schemas.zoom import (
     SignedRecordingPlaybackOut, ZoomSDKTokenOut, ZoomSessionPublicOut,
@@ -520,6 +521,31 @@ def update_progress(
     recalculate_completion(db, e)
     db.commit()
     return p
+
+
+@router.put("/enrollments/{enrollment_id}/podcast", response_model=EnrollmentOut)
+def update_podcast_pointer(
+    enrollment_id: int,
+    payload: PodcastPointerIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Persist the "listen as podcast" resume pointer (track + position).
+
+    Tracked on the enrollment, separate from per-lesson video position,
+    so the audio playthrough resumes where the learner stopped — across
+    devices.
+    """
+    e = db.get(Enrollment, enrollment_id)
+    if not e or e.user_id != user.id or e.revoked_at is not None:
+        raise NotFoundError("Enrollment not found")
+    if payload.lesson_id is not None:
+        e.podcast_lesson_id = payload.lesson_id
+    if payload.position_seconds is not None:
+        e.podcast_position_seconds = payload.position_seconds
+    e.last_accessed_at = datetime.now(timezone.utc)
+    db.commit(); db.refresh(e)
+    return e
 
 
 # ============================================================ ANNOUNCEMENTS (public-read)

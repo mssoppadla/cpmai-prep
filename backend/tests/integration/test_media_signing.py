@@ -126,3 +126,36 @@ def test_my_enrollments_zero_progress_when_nothing_done(
     assert row["lessons_total"] == 1
     assert row["lessons_completed"] == 0
     assert row["progress_percent"] == 0
+
+
+def test_podcast_pointer_save_and_read(
+    client, db, user, course, chapter, video_lesson, enrollment,
+):
+    # Save the podcast resume pointer…
+    r = client.put(
+        f"{PUB}/enrollments/{enrollment.id}/podcast",
+        headers=auth_header(client, user.email),
+        json={"lesson_id": video_lesson.id, "position_seconds": 12},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["podcast_lesson_id"] == video_lesson.id
+    assert r.json()["podcast_position_seconds"] == 12
+
+    # …and it round-trips on the enrollments list (cross-device resume).
+    me = client.get(f"{PUB}/me/enrollments",
+                    headers=auth_header(client, user.email))
+    row = next(e for e in me.json() if e["course_id"] == course.id)
+    assert row["podcast_lesson_id"] == video_lesson.id
+    assert row["podcast_position_seconds"] == 12
+
+
+def test_podcast_pointer_rejects_other_users_enrollment(
+    client, db, user, admin, course, chapter, video_lesson, enrollment,
+):
+    # admin is not the owner of `enrollment` → 404 (opaque)
+    r = client.put(
+        f"{PUB}/enrollments/{enrollment.id}/podcast",
+        headers=auth_header(client, admin.email),
+        json={"lesson_id": video_lesson.id, "position_seconds": 5},
+    )
+    assert r.status_code == 404
