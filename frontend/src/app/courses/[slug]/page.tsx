@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { GraduationCap } from "lucide-react";
 import { lmsPublic, auth, errMsg } from "@/lib/api";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
@@ -139,9 +140,13 @@ export default function CourseDetailPage({
 
           {/* CTA card */}
           <aside className="bg-white border border-slate-200 rounded-xl p-5 h-fit shadow-sm lg:sticky lg:top-6">
-            {c.cover_image_url && (
+            {c.cover_image_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={c.cover_image_url} alt="" className="aspect-video w-full object-cover rounded-lg mb-4" />
+            ) : (
+              <div className="aspect-video w-full rounded-lg mb-4 bg-gradient-to-br from-indigo-100 to-purple-100 grid place-items-center text-indigo-300">
+                <GraduationCap size={44} />
+              </div>
             )}
             {detail.is_enrolled ? (
               // Enrolled: surface progress, not price. The bar sits directly

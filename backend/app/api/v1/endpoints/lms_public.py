@@ -251,6 +251,35 @@ def list_public_courses(
         for link, cat in rows:
             cat_map.setdefault(link.course_id, []).append(cat)
 
+    # First free-preview VIDEO lesson per course → powers the catalog's
+    # "play preview" button. Free previews are anonymous-accessible by
+    # design, so the uploaded-media URL is signed with user_id=0 (external
+    # URLs like YouTube pass through unchanged).
+    preview_by_course: dict[int, tuple[int, str | None]] = {}
+    if course_ids:
+        for lsn, cid in (
+            db.query(Lesson, Chapter.course_id)
+              .join(Chapter, Lesson.chapter_id == Chapter.id)
+              .filter(Chapter.course_id.in_(course_ids),
+                      Chapter.is_published.is_(True),
+                      Chapter.is_deleted.is_(False),
+                      Lesson.is_published.is_(True),
+                      Lesson.is_deleted.is_(False),
+                      Lesson.is_free_preview.is_(True),
+                      Lesson.lesson_type == "video",
+                      Lesson.video_url.isnot(None))
+              .order_by(Chapter.position, Lesson.position, Lesson.id)
+              .all()
+        ):
+            preview_by_course.setdefault(cid, (lsn.id, lsn.video_url))
+
+    def _preview(cid: int) -> dict:
+        if cid not in preview_by_course:
+            return {"preview_lesson_id": None, "preview_video_url": None}
+        lid, url = preview_by_course[cid]
+        return {"preview_lesson_id": lid,
+                "preview_video_url": protected_media_url(url, 0)}
+
     return [
         {
             **CoursePublicOut.model_validate(c).model_dump(mode="json"),
@@ -258,6 +287,7 @@ def list_public_courses(
                 {"id": cc.id, "slug": cc.slug, "name": cc.name}
                 for cc in cat_map.get(c.id, [])
             ],
+            **_preview(c.id),
         }
         for c in courses
     ]
