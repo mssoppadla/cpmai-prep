@@ -127,6 +127,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const [user, setUser] = useState<UserOut | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Mobile nav drawer. The sidebar is a persistent rail on desktop (lg+)
+  // but an off-canvas drawer on phones/tablets so the content gets the
+  // full width instead of being squeezed (which clipped wide tables).
+  const [navOpen, setNavOpen] = useState(false);
+
+  // Close the drawer whenever the route changes, so tapping a nav item
+  // navigates AND dismisses the overlay in one go.
+  useEffect(() => { setNavOpen(false); }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,10 +174,49 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      <aside className="w-60 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
-        <div className="p-4 border-b border-slate-200">
-          <div className="font-bold text-slate-900">CPMAI Prep</div>
-          <div className="text-xs text-slate-500">Admin Console</div>
+      {/* Mobile top bar — only on < lg. Holds the hamburger so the nav
+          drawer can be opened; the persistent sidebar is hidden here. */}
+      <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-white border-b border-slate-200 flex items-center gap-2 px-3">
+        <button
+          onClick={() => setNavOpen(true)}
+          aria-label="Open admin menu"
+          className="p-2 rounded-md text-slate-700 hover:bg-slate-100"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round">
+            <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" />
+          </svg>
+        </button>
+        <span className="font-bold text-slate-900">CPMAI Prep</span>
+        <span className="text-xs text-slate-400">Admin</span>
+      </div>
+
+      {/* Backdrop behind the drawer (mobile only, when open). */}
+      {navOpen && (
+        <div className="lg:hidden fixed inset-0 z-40 bg-slate-900/50"
+             onClick={() => setNavOpen(false)} aria-hidden />
+      )}
+
+      <aside className={`bg-white border-r border-slate-200 flex flex-col
+                         fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-200
+                         lg:static lg:z-auto lg:w-60 lg:flex-shrink-0 lg:translate-x-0
+                         ${navOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <div className="font-bold text-slate-900">CPMAI Prep</div>
+            <div className="text-xs text-slate-500">Admin Console</div>
+          </div>
+          {/* Close button — drawer only (mobile). */}
+          <button
+            onClick={() => setNavOpen(false)}
+            aria-label="Close menu"
+            className="lg:hidden p-1.5 rounded-md text-slate-500 hover:bg-slate-100"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round">
+              <line x1="6" y1="6" x2="18" y2="18" /><line x1="6" y1="18" x2="18" y2="6" />
+            </svg>
+          </button>
         </div>
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {/* Dashboard sits above groups — always one click away. */}
@@ -205,7 +252,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto">{children}</main>
+      {/* pt-14 clears the fixed mobile top bar; min-w-0 lets wide tables
+          shrink/scroll inside instead of forcing the layout wider. */}
+      <main className="flex-1 min-w-0 overflow-auto pt-14 lg:pt-0">{children}</main>
     </div>
   );
 }

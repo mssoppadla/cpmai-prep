@@ -126,7 +126,7 @@ export default function AdminUsersPage() {
   }, [rows]);
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 sm:p-8 max-w-6xl">
       <header className="flex items-end justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Users</h1>
@@ -190,8 +190,8 @@ export default function AdminUsersPage() {
           No users match the filter.
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <table className="w-full">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+          <table className="w-full min-w-[800px]">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                 <th className="px-4 py-3">User</th>
