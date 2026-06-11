@@ -41,6 +41,42 @@ function lessonTypeIcon(type: string): string {
 }
 
 
+type LessonStatus = "completed" | "in_progress" | "not_started";
+
+/** Derive a lesson's status from its progress row:
+ *  completed  → has completed_at
+ *  in_progress → started (or has a saved video position) but not done
+ *  not_started → no progress yet. */
+function lessonStatus(p: LessonProgressOut | null | undefined): LessonStatus {
+  if (!p) return "not_started";
+  if (p.completed_at) return "completed";
+  if (p.started_at || (p.last_position_seconds ?? 0) > 0) return "in_progress";
+  return "not_started";
+}
+
+/** Small status bullet used in the contents sidebar. */
+function StatusDot({ status }: { status: LessonStatus }) {
+  if (status === "completed") {
+    return (
+      <span className="grid place-items-center w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] font-bold shrink-0"
+            aria-label="Completed" title="Completed">✓</span>
+    );
+  }
+  if (status === "in_progress") {
+    return (
+      <span className="grid place-items-center w-4 h-4 rounded-full border-2 border-amber-500 shrink-0"
+            aria-label="In progress" title="In progress">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+      </span>
+    );
+  }
+  return (
+    <span className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0"
+          aria-label="Not started" title="Not started" />
+  );
+}
+
+
 export default function LessonPlayerPage({
   params,
 }: { params: { slug: string; lid: string } }) {
@@ -161,79 +197,100 @@ export default function LessonPlayerPage({
     );
   }
 
-  // Calculate completion bullet for sidebar items
-  const isCompleted = (lid: number) => progress[lid]?.completed_at != null;
+  // Overall course progress for the sidebar header (completed / total lessons).
+  const completedCount = allLessons.filter((l) => progress[l.id]?.completed_at).length;
+  const overallPct = allLessons.length
+    ? Math.round((completedCount / allLessons.length) * 100) : 0;
 
   return (
     <>
       <SiteHeader />
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen bg-slate-50">
         {/* ============ Left sidebar: contents ============ */}
-        <aside className={`${sidebarOpen ? "w-72" : "w-12"} shrink-0 bg-white border-r border-slate-200 transition-all`}>
-          <div className="sticky top-0 px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-            {sidebarOpen && <span className="font-semibold text-slate-900 text-sm">Contents</span>}
+        <aside className={`${sidebarOpen ? "w-80" : "w-12"} shrink-0 bg-white border-r border-slate-200 transition-all`}>
+          <div className="sticky top-0 z-10 px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between">
+            {sidebarOpen && <span className="font-semibold text-slate-900 text-sm">Course content</span>}
             <button onClick={() => setSidebarOpen((o) => !o)}
-                    className="p-1 rounded hover:bg-slate-200"
+                    className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500"
                     aria-label="Toggle sidebar">
               <span className="text-xs">{sidebarOpen ? "◀" : "▶"}</span>
             </button>
           </div>
           {sidebarOpen && (
-            <nav className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
-              {detail.chapters.map((ch, ci) => (
-                <div key={ch.id}>
-                  <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 text-sm font-medium flex items-center gap-2">
-                    <span className="text-slate-500 font-mono text-xs">{ci + 1}</span>
-                    <span className="text-slate-900">{ch.title}</span>
-                    {ch.is_mandatory && (
-                      <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700 rounded">
-                        Mandatory
-                      </span>
-                    )}
-                  </div>
-                  <ul>
-                    {ch.lessons.map((l, li) => {
-                      const active = l.id === lessonId;
-                      const completed = isCompleted(l.id);
-                      const canOpen = detail.is_enrolled || l.is_free_preview;
-                      return (
-                        <li key={l.id}>
-                          {canOpen ? (
-                            <Link href={`/courses/${params.slug}/lessons/${l.id}`}
-                                  className={`flex items-start gap-2 px-4 py-2 text-sm border-l-2 ${
-                                    active
-                                      ? "border-indigo-600 bg-indigo-50"
-                                      : "border-transparent hover:bg-slate-50"
-                                  }`}>
-                              <span className={completed ? "text-indigo-600" : "text-slate-300"}>
-                                {completed ? "●" : "○"}
-                              </span>
-                              <span className="text-slate-400">{lessonTypeIcon(l.lesson_type)}</span>
-                              <span className="flex-1 leading-snug">
-                                <span className="text-slate-500 font-mono text-xs">{ci + 1}.{li + 1}: </span>
-                                <span className={active ? "font-medium text-indigo-900" : "text-slate-900"}>
-                                  {l.title}
-                                </span>
-                                {l.is_mandatory && (
-                                  <span className="ml-1 px-1 py-0.5 text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700 rounded">
-                                    Mandatory
-                                  </span>
-                                )}
-                              </span>
-                            </Link>
-                          ) : (
-                            <div className="flex items-start gap-2 px-4 py-2 text-sm text-slate-400">
-                              <span>🔒</span>
-                              <span>{ci + 1}.{li + 1}: {l.title}</span>
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
+            <>
+              {/* Overall progress */}
+              <div className="px-4 py-3 border-b border-slate-200">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-medium text-slate-600">
+                    {completedCount} of {allLessons.length} complete
+                  </span>
+                  <span className="text-xs font-bold text-indigo-600 tabular-nums">{overallPct}%</span>
                 </div>
-              ))}
-            </nav>
+                <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                  <div className="h-full rounded-full bg-indigo-600 transition-all duration-500"
+                       style={{ width: `${overallPct}%` }} />
+                </div>
+              </div>
+              <nav className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 180px)" }}>
+                {detail.chapters.map((ch, ci) => {
+                  const chDone = ch.lessons.filter((l) => progress[l.id]?.completed_at).length;
+                  return (
+                    <div key={ch.id}>
+                      <div className="px-4 py-2.5 bg-slate-50 border-y border-slate-200 text-sm flex items-center gap-2">
+                        <span className="text-slate-400 font-mono text-xs">{ci + 1}</span>
+                        <span className="font-semibold text-slate-900 flex-1 leading-snug">{ch.title}</span>
+                        {ch.is_mandatory && (
+                          <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700 rounded">
+                            Mandatory
+                          </span>
+                        )}
+                        <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+                          {chDone}/{ch.lessons.length}
+                        </span>
+                      </div>
+                      <ul>
+                        {ch.lessons.map((l, li) => {
+                          const active = l.id === lessonId;
+                          const status = lessonStatus(progress[l.id]);
+                          const canOpen = detail.is_enrolled || l.is_free_preview;
+                          return (
+                            <li key={l.id}>
+                              {canOpen ? (
+                                <Link href={`/courses/${params.slug}/lessons/${l.id}`}
+                                      className={`flex items-center gap-3 px-4 py-2.5 text-sm border-l-2 transition-colors ${
+                                        active
+                                          ? "border-indigo-600 bg-indigo-50"
+                                          : "border-transparent hover:bg-slate-50"
+                                      }`}>
+                                  <StatusDot status={status} />
+                                  <span className="text-slate-400 text-xs w-4 text-center shrink-0">{lessonTypeIcon(l.lesson_type)}</span>
+                                  <span className="flex-1 leading-snug">
+                                    <span className={`${active ? "font-semibold text-indigo-900" : status === "completed" ? "text-slate-500" : "text-slate-800"}`}>
+                                      {l.title}
+                                    </span>
+                                    {l.is_free_preview && !detail.is_enrolled && (
+                                      <span className="ml-1.5 px-1 py-0.5 text-[9px] font-bold uppercase bg-emerald-100 text-emerald-700 rounded">
+                                        Preview
+                                      </span>
+                                    )}
+                                  </span>
+                                </Link>
+                              ) : (
+                                <div className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-400">
+                                  <span className="w-4 h-4 grid place-items-center shrink-0 text-xs">🔒</span>
+                                  <span className="text-slate-400 text-xs w-4 text-center shrink-0">{lessonTypeIcon(l.lesson_type)}</span>
+                                  <span className="flex-1 leading-snug">{l.title}</span>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </nav>
+            </>
           )}
         </aside>
 
@@ -288,11 +345,13 @@ export default function LessonPlayerPage({
 
           {/* Body */}
           <div className="px-6 py-6 max-w-4xl mx-auto">
-            <LessonBody lesson={current} progress={progress[current.id] ?? null}
-                        enrollmentId={enrollmentId}
-                        onMarkComplete={markComplete}
-                        onProgressUpdate={(p) => setProgress((prev) => ({ ...prev, [current.id]: p }))}
-                        slug={params.slug} />
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+              <LessonBody lesson={current} progress={progress[current.id] ?? null}
+                          enrollmentId={enrollmentId}
+                          onMarkComplete={markComplete}
+                          onProgressUpdate={(p) => setProgress((prev) => ({ ...prev, [current.id]: p }))}
+                          slug={params.slug} />
+            </div>
 
             {/* Files */}
             {"files" in current && (current as LessonInTree & { files?: unknown[] }).files

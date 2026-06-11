@@ -227,6 +227,14 @@ class Enrollment(Base):
     payment_id    = Column(Integer, ForeignKey("payments.id",     ondelete="SET NULL"))
     offer_code_id = Column(Integer, ForeignKey("offer_codes.id",  ondelete="SET NULL"))
 
+    # "Listen as podcast" resume pointer — which lesson the learner was on
+    # and how far into it (seconds), tracked separately from per-lesson
+    # video position so audio and video resume don't clobber each other.
+    # Plain nullable ints (no FK / no server_default) keep the migration
+    # drift-clean; the app resolves a missing/deleted lesson gracefully.
+    podcast_lesson_id        = Column(Integer)
+    podcast_position_seconds = Column(Integer)
+
     created_at = Column(DateTime(timezone=True),
                         server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True),

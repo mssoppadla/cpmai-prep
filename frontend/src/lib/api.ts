@@ -651,6 +651,15 @@ export const lmsPublic = {
       { method: "PUT", json: p, authed: true });
     return data;
   },
+  async savePodcastPointer(
+    enrollmentId: number,
+    p: { lesson_id?: number | null; position_seconds?: number | null },
+  ): Promise<EnrollmentOut> {
+    const { data } = await request<EnrollmentOut>(
+      `/lms/enrollments/${enrollmentId}/podcast`,
+      { method: "PUT", json: p, authed: true });
+    return data;
+  },
   async listAnnouncements(slug: string): Promise<CourseAnnouncementOut[]> {
     const { data } = await request<CourseAnnouncementOut[]>(
       `/lms/courses/${encodeURIComponent(slug)}/announcements`, { authed: true });

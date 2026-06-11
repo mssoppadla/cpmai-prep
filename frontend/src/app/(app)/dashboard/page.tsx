@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -432,6 +432,24 @@ function ExamHistorySection() {
     examsApi.listAttempts().then(setAttempts).catch(() => setAttempts([]));
   }, []);
 
+  // Collapse to the single most-recent attempt per exam set (a domain-practice
+  // run is treated as its own "set" so it doesn't hide the full-set result).
+  // Keeps the list readable when a learner has retried a set many times.
+  const latest = useMemo(() => {
+    if (!attempts) return [];
+    const byKey = new Map<string, AttemptHistoryOut>();
+    for (const a of attempts) {
+      const key = `${a.exam_set_slug ?? a.exam_set_name ?? "set"}::${a.practice_domain ?? ""}`;
+      const prev = byKey.get(key);
+      if (!prev || new Date(a.submitted_at) > new Date(prev.submitted_at)) {
+        byKey.set(key, a);
+      }
+    }
+    return [...byKey.values()].sort(
+      (x, y) => +new Date(y.submitted_at) - +new Date(x.submitted_at),
+    );
+  }, [attempts]);
+
   if (attempts === null) return null; // resolve quietly; no flash
 
   return (
@@ -440,18 +458,18 @@ function ExamHistorySection() {
         Your exam history
       </h2>
       <p className="text-sm text-slate-500 mb-3">
-        Revisit any past attempt to see which domains you scored high or low on,
-        and where to focus next.
+        Your most recent attempt for each set — revisit it to see which domains
+        you scored high or low on, and where to focus next.
       </p>
 
-      {attempts.length === 0 ? (
+      {latest.length === 0 ? (
         <p className="text-sm text-slate-500 bg-white border border-slate-200 rounded-xl p-5">
           No completed exams yet — finish a set and your result will appear here,
           so you can come back to your domain breakdown anytime.
         </p>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-          {attempts.map((a) => {
+          {latest.map((a) => {
             const dt = new Date(a.submitted_at);
             const mins = Math.floor(a.time_taken_seconds / 60);
             const secs = a.time_taken_seconds % 60;

@@ -613,6 +613,9 @@ export interface EnrollmentOut {
   lessons_completed?: number | null;
   lessons_total?: number | null;
   progress_percent?: number | null;
+  // "Listen as podcast" resume pointer.
+  podcast_lesson_id?: number | null;
+  podcast_position_seconds?: number | null;
 }
 export interface EnrollmentGrantIn {
   user_id: number;
