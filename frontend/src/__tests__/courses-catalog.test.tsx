@@ -98,4 +98,29 @@ describe("CoursesCatalogPage", () => {
       expect(screen.getByText(/INR 999\.00/)).toBeInTheDocument();
     });
   });
+
+  it("shows a preview play button and opens the lightbox on click", async () => {
+    mockListCourses.mockResolvedValueOnce([{
+      ...sample,
+      preview_video_url: "/uploads/1/2026/06/demo.mp4?token=tok",
+      preview_lesson_id: 5,
+    }]);
+    render(<CoursesCatalogPage />);
+    const btn = await screen.findByLabelText(/Play free preview/i);
+    expect(btn).toBeInTheDocument();
+    fireEvent.click(btn);
+    // The lightbox mounts a <video> pointing at the signed preview URL.
+    await waitFor(() => {
+      const v = document.querySelector("video");
+      expect(v?.getAttribute("src")).toContain("demo.mp4");
+    });
+  });
+
+  it("links the thumbnail to the course when there is no preview", async () => {
+    mockListCourses.mockResolvedValueOnce([sample]);
+    render(<CoursesCatalogPage />);
+    await waitFor(() => expect(screen.getByText("Intro to Python")).toBeInTheDocument());
+    // No preview → no play button.
+    expect(screen.queryByLabelText(/Play free preview/i)).not.toBeInTheDocument();
+  });
 });

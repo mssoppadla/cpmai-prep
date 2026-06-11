@@ -149,6 +149,27 @@ def test_podcast_pointer_save_and_read(
     assert row["podcast_position_seconds"] == 12
 
 
+def test_catalog_exposes_free_preview_video(client, db, course, chapter, video_lesson):
+    # Mark the uploaded video lesson as a free preview…
+    video_lesson.is_free_preview = True
+    db.commit()
+    r = client.get(f"{PUB}/courses")
+    assert r.status_code == 200, r.text
+    row = next(c for c in r.json() if c["slug"] == course.slug)
+    assert row["preview_lesson_id"] == video_lesson.id
+    # …and the catalog hands back a signed, anonymous-playable preview URL.
+    assert (row["preview_video_url"] or "").startswith(
+        "/uploads/1/2026/06/abc-intro.mp4?token=")
+
+
+def test_catalog_no_preview_when_lesson_not_free(client, db, course, chapter, video_lesson):
+    # video_lesson defaults to is_free_preview=False → no preview on the card.
+    r = client.get(f"{PUB}/courses")
+    row = next(c for c in r.json() if c["slug"] == course.slug)
+    assert row["preview_video_url"] is None
+    assert row["preview_lesson_id"] is None
+
+
 def test_podcast_pointer_rejects_other_users_enrollment(
     client, db, user, admin, course, chapter, video_lesson, enrollment,
 ):

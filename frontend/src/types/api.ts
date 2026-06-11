@@ -464,6 +464,10 @@ export interface CoursePublicOut {
   lead_instructor_id: number | null;
   discussion_url: string | null;
   display_order: number;
+  // Catalog-only: first free-preview video lesson (signed URL), for the
+  // "play preview" button on course cards. Null when no free preview.
+  preview_video_url?: string | null;
+  preview_lesson_id?: number | null;
 }
 export interface CourseCreateIn {
   slug: string;
