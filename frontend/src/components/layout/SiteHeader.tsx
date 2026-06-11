@@ -65,7 +65,7 @@ function destinationFor(role: UserOut["role"]): string {
   return role === "admin" || role === "super_admin" ? "/admin" : "/dashboard";
 }
 
-export type ActiveNav = "home" | "exams" | "faqs" | "pricing" | null;
+export type ActiveNav = "home" | "courses" | "exams" | "faqs" | "pricing" | null;
 
 export function SiteHeader({ active = null }: { active?: ActiveNav }) {
   const router = useRouter();
@@ -146,6 +146,7 @@ export function SiteHeader({ active = null }: { active?: ActiveNav }) {
         {/* Nav — desktop. Static items first, then any CMS-published
          *  nav items in admin-defined order. */}
         <nav className="hidden sm:flex items-center gap-1 ml-2">
+          {navLink("courses", "/courses", "Courses")}
           {navLink("exams", "/exams", "Mock Exams")}
           {navLink("faqs",  "/#faq-heading", "FAQs")}
           {site.show_pricing_link &&
@@ -235,6 +236,7 @@ export function SiteHeader({ active = null }: { active?: ActiveNav }) {
       {menuOpen && (
         <div className="sm:hidden border-t border-slate-200 bg-white">
           <nav className="max-w-6xl mx-auto px-4 py-2 flex flex-col gap-1">
+            {navLink("courses", "/courses", "Courses")}
             {navLink("exams", "/exams", "Mock Exams")}
             {navLink("faqs",  "/#faq-heading", "FAQs")}
             {site.show_pricing_link &&
