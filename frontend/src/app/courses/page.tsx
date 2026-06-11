@@ -62,7 +62,7 @@ export default function CoursesCatalogPage() {
 
   return (
     <>
-      <SiteHeader />
+      <SiteHeader active="courses" />
       <main className="min-h-screen max-w-6xl mx-auto px-6 py-10">
         <header className="mb-8">
           <h1 className="text-4xl font-bold text-slate-900 mb-2">Courses</h1>
