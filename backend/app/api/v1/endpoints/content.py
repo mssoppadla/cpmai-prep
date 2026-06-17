@@ -207,6 +207,47 @@ def landing_copy():
             "Realistic mock exams · AI-powered coaching · Detailed answer "
             "reasoning for every question across all 6 CPMAI phases.",
         ),
+        # "Two steps to ace the exam" section under the hero — surfaces
+        # both product lines (courses + mock exams). All copy is admin-
+        # editable so the framing (e.g. "two ways" vs "two steps"), the
+        # card titles/descriptions, and the CTA labels can change without
+        # a redeploy. The card LINKS (/courses, /exams) stay in code.
+        "paths_heading": settings_store.get_str(
+            "landing.paths_heading",
+            "Two steps to ace the exam",
+        ),
+        "paths_subtitle": settings_store.get_str(
+            "landing.paths_subtitle",
+            "First build deep understanding with structured courses, then "
+            "prove you're exam-ready with realistic mock exams. Work through "
+            "both to maximise your score.",
+        ),
+        "paths_course_title": settings_store.get_str(
+            "landing.paths_course_title",
+            "Step 1 · Structured courses",
+        ),
+        "paths_course_body": settings_store.get_str(
+            "landing.paths_course_body",
+            "Step-by-step lessons across all 6 CPMAI phases — video, "
+            "downloadable resources, and a listen-anywhere podcast.",
+        ),
+        "paths_course_cta": settings_store.get_str(
+            "landing.paths_course_cta",
+            "Browse courses",
+        ),
+        "paths_exam_title": settings_store.get_str(
+            "landing.paths_exam_title",
+            "Step 2 · Mock exams",
+        ),
+        "paths_exam_body": settings_store.get_str(
+            "landing.paths_exam_body",
+            "Realistic, PMI-standard practice exams with per-question "
+            "explanations and domain-level score breakdowns.",
+        ),
+        "paths_exam_cta": settings_store.get_str(
+            "landing.paths_exam_cta",
+            "Try a mock exam",
+        ),
         # Banner shown on /exams when the visitor is NOT signed in.
         # Plain-text (not HTML) — frontend renders with the same styling
         # as before; admins can change the wording but not the markup.

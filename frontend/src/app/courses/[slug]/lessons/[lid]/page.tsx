@@ -22,6 +22,10 @@ import { useRouter } from "next/navigation";
 import { lmsPublic, errMsg } from "@/lib/api";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import RenderBlocks from "@/components/cms/RenderBlocks";
+import {
+  Check, Circle, CircleDot, Play, FileText, ListChecks, HelpCircle,
+  Lock, ChevronLeft, ChevronRight,
+} from "lucide-react";
 import type {
   CourseDetailPublicOut, LessonProgressOut, QuizQuestionOut,
   QuizAttemptOut, QuizAttemptAnswerIn, LessonNoteOut,
@@ -31,13 +35,14 @@ import type {
 type LessonInTree = CourseDetailPublicOut["chapters"][number]["lessons"][number];
 
 
-function lessonTypeIcon(type: string): string {
-  switch (type) {
-    case "video":     return "▶";
-    case "quiz":      return "✓";
-    case "checklist": return "☑";
-    default:          return "📄";
-  }
+/** Muted, crisp lesson-type glyph (Lucide — avoids emoji-presentation
+ *  glyphs like "▶" that render as loud colour emoji on Windows). */
+function TypeIcon({ type, className = "" }: { type: string; className?: string }) {
+  const cls = `shrink-0 ${className}`;
+  if (type === "quiz")      return <HelpCircle size={14} className={cls} />;
+  if (type === "checklist") return <ListChecks size={14} className={cls} />;
+  if (type === "video")     return <Play size={14} className={cls} />;
+  return <FileText size={14} className={cls} />;
 }
 
 
@@ -54,26 +59,22 @@ function lessonStatus(p: LessonProgressOut | null | undefined): LessonStatus {
   return "not_started";
 }
 
-/** Small status bullet used in the contents sidebar. */
-function StatusDot({ status }: { status: LessonStatus }) {
+/** Status indicator used in the contents sidebar. */
+function StatusIcon({ status }: { status: LessonStatus }) {
   if (status === "completed") {
     return (
-      <span className="grid place-items-center w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] font-bold shrink-0"
-            aria-label="Completed" title="Completed">✓</span>
-    );
-  }
-  if (status === "in_progress") {
-    return (
-      <span className="grid place-items-center w-4 h-4 rounded-full border-2 border-amber-500 shrink-0"
-            aria-label="In progress" title="In progress">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+      <span className="grid place-items-center w-[18px] h-[18px] rounded-full bg-emerald-500 shrink-0"
+            aria-label="Completed" title="Completed">
+        <Check size={12} strokeWidth={3} className="text-white" />
       </span>
     );
   }
-  return (
-    <span className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0"
-          aria-label="Not started" title="Not started" />
-  );
+  if (status === "in_progress") {
+    return <CircleDot size={18} strokeWidth={2} className="text-amber-500 shrink-0"
+                      aria-label="In progress" />;
+  }
+  return <Circle size={18} strokeWidth={2} className="text-slate-300 shrink-0"
+                 aria-label="Not started" />;
 }
 
 
@@ -208,12 +209,12 @@ export default function LessonPlayerPage({
       <div className="flex min-h-screen bg-slate-50">
         {/* ============ Left sidebar: contents ============ */}
         <aside className={`${sidebarOpen ? "w-80" : "w-12"} shrink-0 bg-white border-r border-slate-200 transition-all`}>
-          <div className="sticky top-0 z-10 px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between">
-            {sidebarOpen && <span className="font-semibold text-slate-900 text-sm">Course content</span>}
+          <div className="sticky top-0 z-10 px-4 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between">
+            {sidebarOpen && <span className="font-semibold text-slate-900 text-sm tracking-tight">Course content</span>}
             <button onClick={() => setSidebarOpen((o) => !o)}
-                    className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500"
-                    aria-label="Toggle sidebar">
-              <span className="text-xs">{sidebarOpen ? "◀" : "▶"}</span>
+                    className="grid place-items-center w-7 h-7 rounded-md hover:bg-slate-100 text-slate-500"
+                    aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}>
+              {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
             </button>
           </div>
           {sidebarOpen && (
@@ -231,54 +232,62 @@ export default function LessonPlayerPage({
                        style={{ width: `${overallPct}%` }} />
                 </div>
               </div>
-              <nav className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 180px)" }}>
+              <nav className="overflow-y-auto py-2" style={{ maxHeight: "calc(100vh - 190px)" }}>
                 {detail.chapters.map((ch, ci) => {
                   const chDone = ch.lessons.filter((l) => progress[l.id]?.completed_at).length;
+                  const chAllDone = ch.lessons.length > 0 && chDone === ch.lessons.length;
                   return (
-                    <div key={ch.id}>
-                      <div className="px-4 py-2.5 bg-slate-50 border-y border-slate-200 text-sm flex items-center gap-2">
-                        <span className="text-slate-400 font-mono text-xs">{ci + 1}</span>
-                        <span className="font-semibold text-slate-900 flex-1 leading-snug">{ch.title}</span>
-                        {ch.is_mandatory && (
-                          <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700 rounded">
-                            Mandatory
+                    <div key={ch.id} className="mb-1">
+                      {/* Chapter header */}
+                      <div className="px-4 pt-3 pb-1.5">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <h3 className="text-[13px] font-semibold text-slate-900 leading-snug">
+                            <span className="text-slate-400 font-normal mr-1.5">{ci + 1}.</span>
+                            {ch.title}
+                          </h3>
+                          <span className={`text-[11px] tabular-nums shrink-0 ${
+                            chAllDone ? "text-emerald-600 font-semibold" : "text-slate-400"
+                          }`}>
+                            {chDone}/{ch.lessons.length}
                           </span>
+                        </div>
+                        {ch.is_mandatory && (
+                          <span className="text-[10px] uppercase tracking-wide text-slate-400">Mandatory</span>
                         )}
-                        <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
-                          {chDone}/{ch.lessons.length}
-                        </span>
                       </div>
-                      <ul>
-                        {ch.lessons.map((l, li) => {
+                      {/* Lessons */}
+                      <ul className="px-2 space-y-0.5">
+                        {ch.lessons.map((l) => {
                           const active = l.id === lessonId;
                           const status = lessonStatus(progress[l.id]);
                           const canOpen = detail.is_enrolled || l.is_free_preview;
+                          const titleCls = active
+                            ? "font-medium text-indigo-900"
+                            : status === "completed" ? "text-slate-400" : "text-slate-700";
                           return (
                             <li key={l.id}>
                               {canOpen ? (
                                 <Link href={`/courses/${params.slug}/lessons/${l.id}`}
-                                      className={`flex items-center gap-3 px-4 py-2.5 text-sm border-l-2 transition-colors ${
-                                        active
-                                          ? "border-indigo-600 bg-indigo-50"
-                                          : "border-transparent hover:bg-slate-50"
+                                      className={`group relative flex items-center gap-2.5 rounded-lg pl-3 pr-2 py-2 text-sm transition-colors ${
+                                        active ? "bg-indigo-50" : "hover:bg-slate-100/70"
                                       }`}>
-                                  <StatusDot status={status} />
-                                  <span className="text-slate-400 text-xs w-4 text-center shrink-0">{lessonTypeIcon(l.lesson_type)}</span>
-                                  <span className="flex-1 leading-snug">
-                                    <span className={`${active ? "font-semibold text-indigo-900" : status === "completed" ? "text-slate-500" : "text-slate-800"}`}>
-                                      {l.title}
+                                  {active && (
+                                    <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-indigo-600" />
+                                  )}
+                                  <StatusIcon status={status} />
+                                  <TypeIcon type={l.lesson_type}
+                                            className={active ? "text-indigo-400" : "text-slate-400"} />
+                                  <span className={`flex-1 leading-snug ${titleCls}`}>{l.title}</span>
+                                  {l.is_free_preview && !detail.is_enrolled && (
+                                    <span className="text-[9px] font-semibold uppercase tracking-wide text-emerald-600 shrink-0">
+                                      Preview
                                     </span>
-                                    {l.is_free_preview && !detail.is_enrolled && (
-                                      <span className="ml-1.5 px-1 py-0.5 text-[9px] font-bold uppercase bg-emerald-100 text-emerald-700 rounded">
-                                        Preview
-                                      </span>
-                                    )}
-                                  </span>
+                                  )}
                                 </Link>
                               ) : (
-                                <div className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-400">
-                                  <span className="w-4 h-4 grid place-items-center shrink-0 text-xs">🔒</span>
-                                  <span className="text-slate-400 text-xs w-4 text-center shrink-0">{lessonTypeIcon(l.lesson_type)}</span>
+                                <div className="flex items-center gap-2.5 rounded-lg pl-3 pr-2 py-2 text-sm text-slate-400">
+                                  <Lock size={16} className="shrink-0 text-slate-300" />
+                                  <TypeIcon type={l.lesson_type} className="text-slate-300" />
                                   <span className="flex-1 leading-snug">{l.title}</span>
                                 </div>
                               )}

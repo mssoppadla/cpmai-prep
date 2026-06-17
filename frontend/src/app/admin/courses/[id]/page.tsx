@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { admin, errMsg } from "@/lib/api";
+import { admin, errMsg, absoluteUploadUrl } from "@/lib/api";
 import type {
   ChapterOut, CourseOut, CourseUpdateIn, LessonOut, LessonType,
   EnrollmentOut, CourseAnnouncementOut, CourseCategoryOut,
@@ -46,6 +46,7 @@ export default function CourseEditorPage({
   const [meta, setMeta] = useState<CourseUpdateIn | null>(null);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [err, setErr] = useState<string | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
 
   // ----------------------------------------------------- load
 
@@ -78,6 +79,7 @@ export default function CourseEditorPage({
         estimated_hours: course.estimated_hours,
         completion_threshold_percent: course.completion_threshold_percent,
         discussion_url: course.discussion_url,
+        cover_image_url: course.cover_image_url,
         is_published: course.is_published,
       });
     }
@@ -251,6 +253,19 @@ export default function CourseEditorPage({
 
   const onMeta = (patch: CourseUpdateIn) => setMeta((m) => (m ? { ...m, ...patch } : m));
 
+  async function onCoverFile(file: File) {
+    setCoverBusy(true);
+    setErr(null);
+    try {
+      const { url } = await admin.uploads.file(file);  // returns "/uploads/...": an image, public
+      onMeta({ cover_image_url: url });                 // autosave picks it up (debounced)
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setCoverBusy(false);
+    }
+  }
+
   return (
     <div className="p-8 max-w-7xl">
       <header className="flex items-center justify-between mb-6">
@@ -366,6 +381,37 @@ export default function CourseEditorPage({
                   Each lesson&apos;s &quot;Ask Questions&quot; tab uses this URL by default.
                   Individual lessons can override their own URL if needed.
                 </p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Cover image (catalog thumbnail)
+                </label>
+                <div className="flex items-start gap-4">
+                  <div className="w-40 aspect-video rounded-lg border border-slate-200 overflow-hidden bg-slate-50 grid place-items-center shrink-0">
+                    {meta.cover_image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={absoluteUploadUrl(meta.cover_image_url)} alt="Cover preview"
+                           className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-3xl" aria-hidden>🎓</span>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <input type="file" accept="image/*"
+                           onChange={(e) => { const f = e.target.files?.[0]; if (f) void onCoverFile(f); }}
+                           className="block text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      Shown on the courses catalog and course page. Recommended 16:9 (e.g. 1280×720).
+                      {coverBusy && <span className="ml-2 text-slate-400">Uploading…</span>}
+                    </p>
+                    {meta.cover_image_url && (
+                      <button type="button" onClick={() => onMeta({ cover_image_url: null })}
+                              className="mt-2 text-xs text-rose-600 hover:underline">
+                        Remove cover image
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
               <label className="sm:col-span-2 flex items-center gap-2 mt-2">
                 <input type="checkbox" checked={meta.is_published ?? false}

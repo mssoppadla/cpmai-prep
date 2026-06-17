@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { PlayCircle, X, GraduationCap } from "lucide-react";
 import { lmsPublic, errMsg } from "@/lib/api";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
@@ -21,6 +22,17 @@ function difficultyBadge(d: CourseDifficulty): string {
   }
 }
 
+function isYouTube(url: string): boolean {
+  return /youtube\.com|youtu\.be/.test(url);
+}
+function ytId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("/")[0] || null;
+    return u.searchParams.get("v");
+  } catch { return null; }
+}
+
 
 type CourseWithCategories = CoursePublicOut & {
   categories: Array<{ id: number; slug: string; name: string }>;
@@ -33,6 +45,7 @@ export default function CoursesCatalogPage() {
   const [err, setErr] = useState<string | null>(null);
   const [difficultyFilter, setDifficultyFilter] = useState<CourseDifficulty | "">("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
+  const [previewing, setPreviewing] = useState<CourseWithCategories | null>(null);
 
   // One-time fetch of categories for the filter chips. Categories are
   // a nice-to-have for filtering, not load-critical, so a failure here
@@ -62,7 +75,7 @@ export default function CoursesCatalogPage() {
 
   return (
     <>
-      <SiteHeader />
+      <SiteHeader active="courses" />
       <main className="min-h-screen max-w-6xl mx-auto px-6 py-10">
         <header className="mb-8">
           <h1 className="text-4xl font-bold text-slate-900 mb-2">Courses</h1>
@@ -125,17 +138,41 @@ export default function CoursesCatalogPage() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {rows.map((c) => (
-              <Link key={c.id} href={`/courses/${c.slug}`}
-                    className="block bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md hover:border-indigo-300 transition">
-                {c.cover_image_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.cover_image_url} alt="" className="aspect-video w-full object-cover" />
-                ) : (
-                  <div className="aspect-video w-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-5xl">
-                    🎓
-                  </div>
-                )}
-                <div className="p-4">
+              <div key={c.id}
+                   className="group flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md hover:border-indigo-300 transition">
+                {/* Thumbnail: cover image (or clean fallback). If a free-
+                    preview video exists, the whole thumbnail plays it; else
+                    it links through to the course. */}
+                <div className="relative aspect-video w-full bg-gradient-to-br from-indigo-100 to-purple-100">
+                  {c.cover_image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.cover_image_url} alt=""
+                         className="absolute inset-0 w-full h-full object-cover" />
+                  ) : (
+                    <span className="absolute inset-0 grid place-items-center text-indigo-300">
+                      <GraduationCap size={48} />
+                    </span>
+                  )}
+                  {c.preview_video_url ? (
+                    <>
+                      <span className="pointer-events-none absolute top-2 left-2 z-10 px-2 py-0.5 rounded-full bg-white/90 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 shadow-sm">
+                        Free preview
+                      </span>
+                      <button type="button" onClick={() => setPreviewing(c)}
+                              aria-label={`Play free preview of ${c.title}`}
+                              className="absolute inset-0 z-10 grid place-items-center bg-black/0 hover:bg-black/20 transition">
+                        <span className="grid place-items-center w-14 h-14 rounded-full bg-white/90 text-indigo-700 shadow-lg group-hover:scale-105 transition">
+                          <PlayCircle size={32} />
+                        </span>
+                      </button>
+                    </>
+                  ) : (
+                    <Link href={`/courses/${c.slug}`} className="absolute inset-0"
+                          aria-label={`View ${c.title}`} />
+                  )}
+                </div>
+                {/* Body links to the course */}
+                <Link href={`/courses/${c.slug}`} className="block p-4 flex-1">
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${difficultyBadge(c.difficulty)}`}>
                       {c.difficulty}
@@ -161,12 +198,49 @@ export default function CoursesCatalogPage() {
                       ? "Free"
                       : `${c.currency} ${(c.base_price_paise / 100).toFixed(2)}`}
                   </div>
-                </div>
-              </Link>
+                </Link>
+              </div>
             ))}
           </div>
         )}
       </main>
+
+      {/* Free-preview lightbox */}
+      {previewing?.preview_video_url && (
+        <div role="dialog" aria-modal="true" aria-label="Course preview"
+             className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+             onClick={() => setPreviewing(null)}>
+          <div className="relative w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setPreviewing(null)} aria-label="Close preview"
+                    className="absolute -top-9 right-0 text-white/80 hover:text-white">
+              <X size={26} />
+            </button>
+            <div className="aspect-video w-full bg-black rounded-xl overflow-hidden shadow-2xl">
+              {isYouTube(previewing.preview_video_url) ? (
+                <iframe
+                  src={`https://www.youtube-nocookie.com/embed/${ytId(previewing.preview_video_url)}?rel=0&autoplay=1`}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  title={`${previewing.title} preview`}
+                />
+              ) : (
+                // eslint-disable-next-line jsx-a11y/media-has-caption
+                <video src={previewing.preview_video_url} controls autoPlay
+                       className="w-full h-full bg-black" />
+              )}
+            </div>
+            <div className="mt-3 text-center">
+              <div className="text-sm font-semibold text-white">{previewing.title}</div>
+              <Link href={`/courses/${previewing.slug}`}
+                    className="text-xs text-indigo-300 hover:underline">
+                View full course →
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       <SiteFooter />
     </>
   );

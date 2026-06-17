@@ -450,6 +450,17 @@ EDITABLE: dict[str, Callable] = {
     # supporting sentence) both live here.
     "landing.hero_headline":             _short_str(200),
     "landing.hero_subtitle":             _short_str(500),
+    # "Two steps to ace the exam" section under the hero. Heading +
+    # subtitle + both cards' titles/descriptions/CTA labels are all
+    # editable so the framing and copy can change without a redeploy.
+    "landing.paths_heading":             _short_str(120),
+    "landing.paths_subtitle":            _short_str(400),
+    "landing.paths_course_title":        _short_str(120),
+    "landing.paths_course_body":         _short_str(400),
+    "landing.paths_course_cta":          _short_str(60),
+    "landing.paths_exam_title":          _short_str(120),
+    "landing.paths_exam_body":           _short_str(400),
+    "landing.paths_exam_cta":            _short_str(60),
     # Exams page anonymous-state banner. Plain text (not markdown),
     # rendered with the same indigo-50 banner styling as before — only
     # the wording changes.
