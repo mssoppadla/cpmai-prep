@@ -833,6 +833,7 @@ export interface SiteChrome {
   threads_url: string;
   tiktok_url: string;
   github_url: string;
+  reddit_url: string;
   copyright_text: string;
   show_pricing_link: boolean;
   /** Subtitle shown under "CPMAI Assistant" in the chat-widget header. */
@@ -1144,6 +1145,32 @@ export interface OfferCodeUpdate {
   is_active?: boolean;
 }
 
+// ── Email templates (lead → auto-offer reply) ──────────────────────────
+export interface EmailTemplateOut {
+  id: number;
+  /** Lead source/intent the template serves; null = default fallback. */
+  source: string | null;
+  subject: string;
+  html_body: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailTemplateCreate {
+  source?: string | null;
+  subject: string;
+  html_body: string;
+  is_active?: boolean;
+}
+
+export interface EmailTemplateUpdate {
+  source?: string | null;
+  subject?: string;
+  html_body?: string;
+  is_active?: boolean;
+}
+
 export interface PriceQuoteOut {
   plan_id: number;
   plan_slug: string;
@@ -1221,6 +1248,9 @@ export interface CurrencyOption {
 }
 export interface CurrenciesOut {
   options: CurrencyOption[];
+  /** GeoIP-derived default the picker should pre-select (India → INR,
+   *  else USD). Optional for back-compat with older mocks/responses. */
+  suggested_currency?: string;
 }
 
 // ---------- Assistant ------------------------------------------------------

@@ -145,6 +145,36 @@ def test_list_currencies_with_no_live_rates_only_shows_inr(client, db, monkeypat
     assert codes == ["INR"]
 
 
+def test_currencies_suggested_defaults_usd(client, db, monkeypatch):
+    """No GeoIP match (testclient / private IP) → default suggestion is
+    USD when it's chargeable."""
+    _mock_fx_live(monkeypatch, rates={"USD": 83.33})
+    r = client.get("/api/v1/pricing/currencies")
+    assert r.json()["suggested_currency"] == "USD"
+
+
+def test_currencies_suggested_falls_back_to_inr(client, db, monkeypatch):
+    """Fresh deploy (INR-only picker): suggestion falls back to INR since
+    USD isn't chargeable yet."""
+    _mock_fx_live(monkeypatch, rates={})
+    r = client.get("/api/v1/pricing/currencies")
+    assert r.json()["suggested_currency"] == "INR"
+
+
+def test_currencies_suggested_inr_for_india(client, db, monkeypatch):
+    """Visitor geolocated to India → INR is suggested even though USD is
+    available."""
+    _mock_fx_live(monkeypatch, rates={"USD": 83.33})
+    import app.api.v1.endpoints.pricing as pep
+
+    class _Geo:
+        country = "IN"
+    monkeypatch.setattr(pep, "extract_client_ip", lambda req: "1.2.3.4")
+    monkeypatch.setattr(pep, "geo_lookup", lambda ip: _Geo())
+    r = client.get("/api/v1/pricing/currencies")
+    assert r.json()["suggested_currency"] == "INR"
+
+
 def test_quote_with_usd_currency_breaks_out_markup(client, db, monkeypatch):
     """End-to-end: POST /pricing/quote with currency=USD includes
     the broken-out markup line + skips Indian GST."""

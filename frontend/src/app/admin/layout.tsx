@@ -92,9 +92,10 @@ const GROUPS: NavGroupDef[] = [
     icon: "📣",
     defaultExpanded: false,
     items: [
-      { href: "/admin/campaigns",    label: "Campaigns", badge: "NEW" },
-      { href: "/admin/social-queue", label: "Social queue", badge: "NEW" },
-      { href: "/admin/leads",        label: "Contacts (also in People)", indent: true },
+      { href: "/admin/campaigns",       label: "Campaigns", badge: "NEW" },
+      { href: "/admin/social-queue",    label: "Social queue", badge: "NEW" },
+      { href: "/admin/email-templates", label: "Email Templates", badge: "NEW" },
+      { href: "/admin/leads",           label: "Contacts (also in People)", indent: true },
     ],
   },
   {

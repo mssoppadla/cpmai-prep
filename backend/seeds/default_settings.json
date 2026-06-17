@@ -314,6 +314,46 @@
     "description": "Supporting paragraph under the H1 on the public landing page. Bullet-style sentence with middle-dots works well; mobile wraps OK up to ~140 chars."
   },
   {
+    "key": "landing.paths_heading",
+    "value": "Two steps to ace the exam",
+    "description": "Heading of the prep-paths section under the hero. Reframe freely (e.g. 'Two ways to prepare')."
+  },
+  {
+    "key": "landing.paths_subtitle",
+    "value": "First build deep understanding with structured courses, then prove you're exam-ready with realistic mock exams. Work through both to maximise your score.",
+    "description": "Supporting sentence under the prep-paths heading. Frame as a sequence ('first… then…') to nudge visitors through both steps."
+  },
+  {
+    "key": "landing.paths_course_title",
+    "value": "Step 1 · Structured courses",
+    "description": "Title of the first prep-path card (links to /courses)."
+  },
+  {
+    "key": "landing.paths_course_body",
+    "value": "Step-by-step lessons across all 6 CPMAI phases — video, downloadable resources, and a listen-anywhere podcast.",
+    "description": "Description text on the first (courses) prep-path card."
+  },
+  {
+    "key": "landing.paths_course_cta",
+    "value": "Browse courses",
+    "description": "Call-to-action label on the first (courses) prep-path card."
+  },
+  {
+    "key": "landing.paths_exam_title",
+    "value": "Step 2 · Mock exams",
+    "description": "Title of the second prep-path card (links to /exams)."
+  },
+  {
+    "key": "landing.paths_exam_body",
+    "value": "Realistic, PMI-standard practice exams with per-question explanations and domain-level score breakdowns.",
+    "description": "Description text on the second (mock exams) prep-path card."
+  },
+  {
+    "key": "landing.paths_exam_cta",
+    "value": "Try a mock exam",
+    "description": "Call-to-action label on the second (mock exams) prep-path card."
+  },
+  {
     "key": "exams.anonymous_banner",
     "value": "You're not signed in. Free sets are open — start one anonymously and you'll see your result immediately (just not saved to a dashboard). Sign in to save attempts; subscribe to unlock premium sets.",
     "description": "Banner shown on /exams when the visitor is NOT signed in. Plain text only — frontend renders the same indigo-50 styling regardless of length."
@@ -491,5 +531,66 @@
     "key": "tracking.rollup_enabled",
     "value": false,
     "description": "When true, /admin/insights/* dashboard endpoints prefer the pre-aggregated visitor_insights_daily rollup over live aggregation against journey_events. Flip ON only once the nightly rollup job has produced enough days of data to keep the dashboard accurate."
+  },
+  {
+    "key": "site.reddit_url",
+    "value": "",
+    "description": "Reddit profile/community URL (full https:// link). Empty hides the Reddit icon in the footer + landing 'connect with me' block."
+  },
+  {
+    "key": "landing.connect_heading",
+    "value": "Connect with me",
+    "description": "Heading above the social links shown below the landing-page lead-capture CTA. Empty hides just the label; the icons still render if any site.*_url is set."
+  },
+  {
+    "key": "email.automation_enabled",
+    "value": false,
+    "description": "Master switch for the lead → auto-offer reply email. When false, no transactional email is sent on landing-form sign-up. Turn ON only after SMTP creds + a default template + email.auto_offer_code are configured."
+  },
+  {
+    "key": "email.smtp_host",
+    "value": "smtp.hostinger.com",
+    "description": "SMTP server hostname for outbound mail. Hostinger default is smtp.hostinger.com."
+  },
+  {
+    "key": "email.smtp_port",
+    "value": 465,
+    "description": "SMTP port. 465 = implicit SSL (set email.smtp_use_ssl=true); 587 = STARTTLS (set email.smtp_use_ssl=false)."
+  },
+  {
+    "key": "email.smtp_use_ssl",
+    "value": true,
+    "description": "Use implicit SSL (SMTP_SSL) on connect. True for port 465 (Hostinger); false to use STARTTLS on 587."
+  },
+  {
+    "key": "email.smtp_username",
+    "value": "contact@cpmaiexamprep.com",
+    "description": "SMTP login username — the Hostinger mailbox address."
+  },
+  {
+    "key": "email.smtp_password",
+    "value": "",
+    "description": "SMTP password for the mailbox. Stored masked (last 4 shown). Set via the Runtime Settings secret input; never round-trips in plaintext after first save.",
+    "is_secret": true
+  },
+  {
+    "key": "email.from_address",
+    "value": "contact@cpmaiexamprep.com",
+    "description": "From address on outbound emails. Should match the authenticated mailbox to pass SPF/DKIM."
+  },
+  {
+    "key": "email.from_name",
+    "value": "CPMAI Exam Prep",
+    "description": "Display name shown alongside the From address in the recipient's inbox."
+  },
+  {
+    "key": "email.auto_offer_code",
+    "value": "",
+    "description": "The admin-enabled offer code advertised in the auto-reply email ({{offer_code}}). Must match an active code in /admin/offer-codes; its 24h validity (valid_until) is managed there. Empty = send the email without a code."
+  },
+  {
+    "key": "email.enroll_url",
+    "value": "",
+    "description": "CTA link target in the auto-reply email ({{enroll_url}}) — e.g. the pricing/checkout page. Empty falls back to the site root."
   }
 ]

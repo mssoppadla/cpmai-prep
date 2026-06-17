@@ -99,6 +99,7 @@ def site_chrome():
         "threads_url":   settings_store.get_str("site.threads_url",   ""),
         "tiktok_url":    settings_store.get_str("site.tiktok_url",    ""),
         "github_url":    settings_store.get_str("site.github_url",    ""),
+        "reddit_url":    settings_store.get_str("site.reddit_url",    ""),
         "copyright_text": settings_store.get_str(
             "site.copyright_text",
             "© 2026 CPMAI Prep. All rights reserved.",
@@ -177,6 +178,13 @@ def landing_copy():
             "landing.lead_post_submit_route",
             "/exams",
         ),
+        # Heading for the "connect with me" social block under the
+        # landing CTA. The social URLs themselves come from /content/site
+        # (site.*_url). Empty heading hides just the label, not the icons.
+        "connect_heading": settings_store.get_str(
+            "landing.connect_heading",
+            "Connect with me",
+        ),
         "premium_upsell_title": settings_store.get_str(
             "landing.premium_upsell_title",
             "Get the full bank",
@@ -198,6 +206,47 @@ def landing_copy():
             "landing.hero_subtitle",
             "Realistic mock exams · AI-powered coaching · Detailed answer "
             "reasoning for every question across all 6 CPMAI phases.",
+        ),
+        # "Two steps to ace the exam" section under the hero — surfaces
+        # both product lines (courses + mock exams). All copy is admin-
+        # editable so the framing (e.g. "two ways" vs "two steps"), the
+        # card titles/descriptions, and the CTA labels can change without
+        # a redeploy. The card LINKS (/courses, /exams) stay in code.
+        "paths_heading": settings_store.get_str(
+            "landing.paths_heading",
+            "Two steps to ace the exam",
+        ),
+        "paths_subtitle": settings_store.get_str(
+            "landing.paths_subtitle",
+            "First build deep understanding with structured courses, then "
+            "prove you're exam-ready with realistic mock exams. Work through "
+            "both to maximise your score.",
+        ),
+        "paths_course_title": settings_store.get_str(
+            "landing.paths_course_title",
+            "Step 1 · Structured courses",
+        ),
+        "paths_course_body": settings_store.get_str(
+            "landing.paths_course_body",
+            "Step-by-step lessons across all 6 CPMAI phases — video, "
+            "downloadable resources, and a listen-anywhere podcast.",
+        ),
+        "paths_course_cta": settings_store.get_str(
+            "landing.paths_course_cta",
+            "Browse courses",
+        ),
+        "paths_exam_title": settings_store.get_str(
+            "landing.paths_exam_title",
+            "Step 2 · Mock exams",
+        ),
+        "paths_exam_body": settings_store.get_str(
+            "landing.paths_exam_body",
+            "Realistic, PMI-standard practice exams with per-question "
+            "explanations and domain-level score breakdowns.",
+        ),
+        "paths_exam_cta": settings_store.get_str(
+            "landing.paths_exam_cta",
+            "Try a mock exam",
         ),
         # Banner shown on /exams when the visitor is NOT signed in.
         # Plain-text (not HTML) — frontend renders with the same styling

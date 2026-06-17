@@ -30,6 +30,7 @@ from app.core.database import SessionLocal  # noqa: E402
 from app.core.security import hash_password, verify_password  # noqa: E402
 
 import app.models  # noqa: E402, F401  -- triggers SQLAlchemy registration
+from app.models.email_template import EmailTemplate  # noqa: E402
 from app.models.exam_set import ExamSet, ExamSetQuestion  # noqa: E402
 from app.models.faq import FaqItem  # noqa: E402
 from app.models.question import Difficulty, Question, QuestionOption  # noqa: E402
@@ -98,6 +99,47 @@ def seed_faqs(db) -> int:
         ))
     db.commit()
     return len(rows)
+
+
+_DEFAULT_EMAIL_TEMPLATE_BODY = (
+    '<div style="font-family: Arial, sans-serif; color: #1e293b; '
+    'line-height: 1.6;">\n'
+    "  <p>Hi {{name}},</p>\n"
+    "  <p>Thanks for signing up for the free CPMAI mock exam! 🎉</p>\n"
+    "  <p>As a welcome, here's an exclusive offer to enroll in the full "
+    "<strong>course + exam bundle</strong>:</p>\n"
+    '  <p style="font-size: 22px; font-weight: bold; color: #4f46e5; '
+    'background: #eef2ff; padding: 12px 16px; border-radius: 8px; '
+    'display: inline-block;">{{offer_code}}</p>\n'
+    '  <p style="color: #b91c1c;"><strong>Hurry — this code is active for '
+    "24 hours (until {{offer_valid_until}}).</strong></p>\n"
+    '  <p><a href="{{enroll_url}}" style="background: #4f46e5; color: #fff; '
+    'padding: 12px 20px; border-radius: 8px; text-decoration: none; '
+    'font-weight: bold;">Enroll now &rarr;</a></p>\n'
+    "  <p>See you inside,<br/>The {{brand_name}} team</p>\n"
+    "</div>"
+)
+
+
+def seed_email_templates(db) -> int:
+    """Insert a default lead → auto-offer email template only if the
+    table is empty. Fresh-only rule (same as FAQs): once an admin has
+    authored a template via /admin/email-templates this seeder no-ops.
+
+    The default row (source = NULL) is the fallback used when no
+    source-specific active template matches, so the automation always
+    has something to send once SMTP + the offer code are configured.
+    """
+    if db.query(EmailTemplate).first():
+        return 0
+    db.add(EmailTemplate(
+        source=None,
+        subject="Your CPMAI welcome offer (24 hours only) 🎁",
+        html_body=_DEFAULT_EMAIL_TEMPLATE_BODY,
+        is_active=True,
+    ))
+    db.commit()
+    return 1
 
 
 def seed_super_admin(db) -> str | None:
@@ -225,6 +267,10 @@ def main() -> None:
         n_faqs = seed_faqs(db)
         print(f"  faqs: {n_faqs} added "
               f"({db.query(FaqItem).count()} total)")
+
+        n_email_tpl = seed_email_templates(db)
+        print(f"  email_templates: {n_email_tpl} added "
+              f"({db.query(EmailTemplate).count()} total)")
 
         admin_email = seed_super_admin(db)
         if admin_email:

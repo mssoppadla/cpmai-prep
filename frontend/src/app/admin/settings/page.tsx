@@ -18,6 +18,7 @@ import type { SettingOut } from "@/types/api";
 const GROUP_ORDER: readonly string[] = [
   "site",        // brand/footer/header copy
   "landing",     // landing-page hero + lead capture
+  "email",       // transactional email (lead → auto-offer SMTP)
   "exams",       // /exams banners
   "assistant",   // assistant behavior + handler prompts
   "chat",        // daily caps + cooldowns
@@ -35,6 +36,7 @@ const GROUP_ORDER: readonly string[] = [
 const GROUP_LABEL: Record<string, string> = {
   site:       "Site chrome",
   landing:    "Landing page",
+  email:      "Email (auto-offer)",
   exams:      "Exams page",
   assistant:  "AI assistant",
   chat:       "Chat limits",

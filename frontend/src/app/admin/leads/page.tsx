@@ -4,7 +4,9 @@
  * (signed up via password or Google).
  *
  * One row stream sorted by created_at desc. Filter by kind to focus on
- * just leads or just users. Notes editor is available for lead rows.
+ * just leads or just users. The internal-notes editor is available for
+ * every row — leads AND signed-up users (notes persist to the matching
+ * table via admin.leads.updateNotes / admin.users.updateNotes).
  */
 import { useEffect, useMemo, useState } from "react";
 import { admin, auth, errMsg } from "@/lib/api";
@@ -90,9 +92,13 @@ export default function ContactsPage() {
     }
   }
 
-  async function saveNotes(id: number) {
+  async function saveNotes(row: ContactRow) {
     try {
-      await admin.leads.updateNotes(id, notes);
+      // Notes live on different tables for the two contact kinds —
+      // route to the matching endpoint (both share the same {notes}
+      // payload shape).
+      if (row.kind === "user") await admin.users.updateNotes(row.id, notes);
+      else                     await admin.leads.updateNotes(row.id, notes);
       setEditing(null);
       setNotes("");
       await reload();
@@ -267,12 +273,12 @@ export default function ContactsPage() {
                     canDelete={canDelete}
                     onToggle={() => {
                       if (isOpen) { setEditing(null); setNotes(""); return; }
-                      // Notes only apply to leads
-                      if (r.kind !== "lead") return;
+                      // Internal notes apply to every contact (leads AND
+                      // signed-up users) — expand any row to edit them.
                       setEditing(key);
                       setNotes(r.notes ?? "");
                     }}
-                    onSaveNotes={() => saveNotes(r.id)}
+                    onSaveNotes={() => saveNotes(r)}
                     onDelete={() => deleteRow(r)}
                     onCancel={() => { setEditing(null); setNotes(""); }}
                   />
@@ -308,7 +314,7 @@ function Row({
   return (
     <>
       <tr
-        className={`hover:bg-slate-50 ${row.kind === "lead" ? "cursor-pointer" : ""} ${
+        className={`hover:bg-slate-50 cursor-pointer ${
           isDeleted ? "opacity-50" : ""
         }`}
         onClick={onToggle}
@@ -408,11 +414,16 @@ function Row({
           )}
         </td>
       </tr>
-      {isOpen && row.kind === "lead" && (
+      {isOpen && (
         <tr className="bg-slate-50">
           <td colSpan={9} className="px-4 py-4">
             <div className="text-xs font-semibold text-slate-700 mb-2">
               Internal notes (admin-only)
+              {row.kind === "user" && (
+                <span className="ml-2 font-normal text-slate-400">
+                  · {row.email}
+                </span>
+              )}
             </div>
             <textarea
               value={notes}

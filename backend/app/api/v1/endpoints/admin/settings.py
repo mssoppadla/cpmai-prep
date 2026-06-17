@@ -138,7 +138,14 @@ _ZOOM_SECRET_KEYS = frozenset({
     "zoom.oauth_client_secret",
     "zoom.webhook_secret_token",
 })
-SECRET_KEYS: frozenset[str] = frozenset(_GEOIP_SECRET_KEYS) | _ZOOM_SECRET_KEYS
+# SMTP password — masked in GET /admin/settings so the Hostinger
+# mailbox credential never round-trips the wire in plaintext after first
+# save. Same last-4-visible masking + audit-on-PATCH pattern as the
+# GeoIP / Zoom secrets.
+_EMAIL_SECRET_KEYS = frozenset({"email.smtp_password"})
+SECRET_KEYS: frozenset[str] = (
+    frozenset(_GEOIP_SECRET_KEYS) | _ZOOM_SECRET_KEYS | _EMAIL_SECRET_KEYS
+)
 
 
 # Validator for ints stored as JSON-number or JSON-string. Settings
@@ -434,6 +441,8 @@ EDITABLE: dict[str, Callable] = {
     "landing.lead_section_heading":      _short_str(200),
     "landing.lead_cta_text":             _short_str(80),
     "landing.lead_post_submit_route":    _short_str(200),
+    # Heading for the landing-page "connect with me" social block.
+    "landing.connect_heading":           _optional_str(120),
     "landing.premium_upsell_title":      _short_str(120),
     "landing.premium_upsell_body":       _short_str(500),
     # Public landing-page hero. Bigger limits than the marketing-copy
@@ -441,6 +450,17 @@ EDITABLE: dict[str, Callable] = {
     # supporting sentence) both live here.
     "landing.hero_headline":             _short_str(200),
     "landing.hero_subtitle":             _short_str(500),
+    # "Two steps to ace the exam" section under the hero. Heading +
+    # subtitle + both cards' titles/descriptions/CTA labels are all
+    # editable so the framing and copy can change without a redeploy.
+    "landing.paths_heading":             _short_str(120),
+    "landing.paths_subtitle":            _short_str(400),
+    "landing.paths_course_title":        _short_str(120),
+    "landing.paths_course_body":         _short_str(400),
+    "landing.paths_course_cta":          _short_str(60),
+    "landing.paths_exam_title":          _short_str(120),
+    "landing.paths_exam_body":           _short_str(400),
+    "landing.paths_exam_cta":            _short_str(60),
     # Exams page anonymous-state banner. Plain text (not markdown),
     # rendered with the same indigo-50 banner styling as before — only
     # the wording changes.
@@ -460,6 +480,7 @@ EDITABLE: dict[str, Callable] = {
     "site.threads_url":                  _optional_url(),
     "site.tiktok_url":                   _optional_url(),
     "site.github_url":                   _optional_url(),
+    "site.reddit_url":                   _optional_url(),
     # Dedicated privacy contact (Privacy Policy page links here; falls
     # back server-side to support_email if empty). Public contact phone
     # (optional; empty hides the link).
@@ -523,6 +544,24 @@ EDITABLE: dict[str, Callable] = {
     # journey_events. Flip ON once the nightly job (PR VI-8) has
     # produced enough days of rollup to keep dashboards accurate.
     "tracking.rollup_enabled":           _bool,
+    # ── Transactional email (lead → auto-offer reply via Hostinger SMTP) ──
+    # All runtime-editable so SMTP creds rotate without a redeploy. The
+    # password is masked in GET responses (see SECRET_KEYS below). The
+    # mailer (app/services/email/mailer.py) reads these at send time.
+    "email.automation_enabled":          _bool,
+    "email.smtp_host":                   _optional_str(256),
+    "email.smtp_port":                   _int_str_in(1, 65535),
+    "email.smtp_use_ssl":                _bool,
+    "email.smtp_username":               _optional_str(256),
+    "email.smtp_password":               _optional_str(512),
+    "email.from_address":                _optional_email(240),
+    "email.from_name":                   _optional_str(120),
+    # The admin-enabled shared offer code advertised in the auto-reply.
+    # Its 24h validity is managed on the OfferCode row (valid_until) via
+    # /admin/offer-codes — this setting just names which code to embed.
+    "email.auto_offer_code":             _optional_str(48),
+    # CTA link target in the email body (e.g. the pricing/checkout page).
+    "email.enroll_url":                  _optional_url(500),
 }
 
 
