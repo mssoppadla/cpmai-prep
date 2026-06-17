@@ -54,6 +54,24 @@ const FALLBACK_LANDING = {
   hero_subtitle:
     "Realistic mock exams · AI-powered coaching · Detailed answer " +
     "reasoning for every question across all 6 CPMAI phases.",
+  // "Two steps to ace the exam" prep-paths section. All copy is admin-
+  // editable via /admin/settings (landing.paths_*); these fallbacks are
+  // only used when /content/landing is unreachable at render time.
+  paths_heading: "Two steps to ace the exam",
+  paths_subtitle:
+    "First build deep understanding with structured courses, then prove " +
+    "you're exam-ready with realistic mock exams. Work through both to " +
+    "maximise your score.",
+  paths_course_title: "Step 1 · Structured courses",
+  paths_course_body:
+    "Step-by-step lessons across all 6 CPMAI phases — video, downloadable " +
+    "resources, and a listen-anywhere podcast.",
+  paths_course_cta: "Browse courses",
+  paths_exam_title: "Step 2 · Mock exams",
+  paths_exam_body:
+    "Realistic, PMI-standard practice exams with per-question explanations " +
+    "and domain-level score breakdowns.",
+  paths_exam_cta: "Try a mock exam",
 };
 
 async function fetchJson<T>(path: string, fallback: T): Promise<T> {
@@ -155,11 +173,10 @@ export default async function Landing() {
                  className="max-w-5xl mx-auto px-4 sm:px-6 pb-14 sm:pb-16">
           <h2 id="paths-heading"
               className="text-xl sm:text-2xl font-bold text-slate-900 text-center">
-            Two ways to prepare
+            {landing.paths_heading}
           </h2>
           <p className="mt-2 text-center text-slate-600 text-sm sm:text-base max-w-2xl mx-auto">
-            Build deep understanding with structured courses, then prove you&apos;re
-            exam-ready with realistic mock exams.
+            {landing.paths_subtitle}
           </p>
           <div className="mt-8 grid sm:grid-cols-2 gap-4 sm:gap-5">
             <Link href="/courses"
@@ -167,13 +184,12 @@ export default async function Landing() {
               <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 grid place-items-center">
                 <GraduationCap size={22} />
               </div>
-              <h3 className="mt-4 text-lg font-semibold text-slate-900">Structured courses</h3>
+              <h3 className="mt-4 text-lg font-semibold text-slate-900">{landing.paths_course_title}</h3>
               <p className="mt-1.5 text-sm text-slate-600 leading-relaxed">
-                Step-by-step lessons across all 6 CPMAI phases — video, downloadable
-                resources, and a listen-anywhere podcast.
+                {landing.paths_course_body}
               </p>
               <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 group-hover:gap-2.5 transition-all">
-                Browse courses <ArrowRight size={16} />
+                {landing.paths_course_cta} <ArrowRight size={16} />
               </span>
             </Link>
             <Link href="/exams"
@@ -181,13 +197,12 @@ export default async function Landing() {
               <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 grid place-items-center">
                 <ClipboardCheck size={22} />
               </div>
-              <h3 className="mt-4 text-lg font-semibold text-slate-900">Mock exams</h3>
+              <h3 className="mt-4 text-lg font-semibold text-slate-900">{landing.paths_exam_title}</h3>
               <p className="mt-1.5 text-sm text-slate-600 leading-relaxed">
-                Realistic, PMI-standard practice exams with per-question explanations
-                and domain-level score breakdowns.
+                {landing.paths_exam_body}
               </p>
               <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700 group-hover:gap-2.5 transition-all">
-                Try a mock exam <ArrowRight size={16} />
+                {landing.paths_exam_cta} <ArrowRight size={16} />
               </span>
             </Link>
           </div>
