@@ -34,6 +34,7 @@ import type {
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
   PlanPublicOut, PlanAdminOut, PlanCreate, PlanUpdate,
   OfferCodeAdminOut, OfferCodeCreate, OfferCodeUpdate,
+  EmailTemplateOut, EmailTemplateCreate, EmailTemplateUpdate,
   PriceQuoteOut, CreateOrderIn, CreateOrderOut, CurrenciesOut,
   VerifyPaymentIn, VerifyPaymentOut,
   PayPalCaptureIn, PayPalCaptureOut,
@@ -1748,6 +1749,15 @@ export const admin = {
       await request(`/admin/users/${userId}`,
         { method: "DELETE", authed: true });
     },
+    /** Set or clear a user's admin-only internal notes. Mirrors
+     *  ``leads.updateNotes`` so the Contacts feed can edit notes on
+     *  user rows too. */
+    async updateNotes(userId: number, notes: string) {
+      const { data } = await request<UserAdminOut>(
+        `/admin/users/${userId}/notes`,
+        { method: "PATCH", json: { notes }, authed: true });
+      return data;
+    },
     /** Override the user's daily chat-message cap. `null` clears the
      *  override and falls back to the global `chat.daily_limit.authenticated`
      *  setting; a number sets it to exactly that many messages/day. */
@@ -1799,6 +1809,35 @@ export const admin = {
     async delete(id: number): Promise<void> {
       await request(`/admin/offer-codes/${id}`,
         { method: "DELETE", authed: true });
+    },
+  },
+  emailTemplates: {
+    async list(): Promise<EmailTemplateOut[]> {
+      const { data } = await request<EmailTemplateOut[]>(
+        "/admin/email-templates", { authed: true });
+      return data;
+    },
+    async create(p: EmailTemplateCreate): Promise<EmailTemplateOut> {
+      const { data } = await request<EmailTemplateOut>(
+        "/admin/email-templates", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: EmailTemplateUpdate): Promise<EmailTemplateOut> {
+      const { data } = await request<EmailTemplateOut>(
+        `/admin/email-templates/${id}`,
+        { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async delete(id: number): Promise<void> {
+      await request(`/admin/email-templates/${id}`,
+        { method: "DELETE", authed: true });
+    },
+    /** Send a rendered preview to the admin (or `to` override). */
+    async test(id: number, to?: string): Promise<{ sent: boolean; to: string }> {
+      const { data } = await request<{ sent: boolean; to: string }>(
+        `/admin/email-templates/${id}/test`,
+        { method: "POST", json: { to: to ?? null }, authed: true });
+      return data;
     },
   },
   chatHistory: {

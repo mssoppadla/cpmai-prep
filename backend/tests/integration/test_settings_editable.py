@@ -124,6 +124,7 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "landing.lead_section_heading":      "Start with our free CPMAI study guide",
     "landing.lead_cta_text":             "Get the free guide",
     "landing.lead_post_submit_route":    "/exams",
+    "landing.connect_heading":           "Connect with me",
     "landing.premium_upsell_title":      "Get the full bank",
     "landing.premium_upsell_body":       "Unlock everything for one year.",
     "landing.hero_headline":             "Pass the CPMAI cert first try",
@@ -141,6 +142,7 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "site.threads_url":                  "https://threads.net/@example",
     "site.tiktok_url":                   "https://tiktok.com/@example",
     "site.github_url":                   "https://github.com/example",
+    "site.reddit_url":                   "https://www.reddit.com/user/example",
     "site.privacy_email":                "privacy@cpmaiexamprep.com",
     "site.contact_phone":                "+1-555-0100",
     "site.copyright_text":               "© 2026 CPMAI Prep.",
@@ -173,6 +175,18 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "tracking.enabled":                  False,
     "tracking.sample_rate":              0.5,
     "tracking.rollup_enabled":           True,
+    # email.* — transactional lead → auto-offer reply (Hostinger SMTP).
+    # smtp_password is secret: the round-trip test checks the masked echo.
+    "email.automation_enabled":          False,
+    "email.smtp_host":                   "smtp.hostinger.com",
+    "email.smtp_port":                   465,
+    "email.smtp_use_ssl":                True,
+    "email.smtp_username":               "contact@cpmaiexamprep.com",
+    "email.smtp_password":               "super-secret-mailbox-pw",
+    "email.from_address":                "contact@cpmaiexamprep.com",
+    "email.from_name":                   "CPMAI Exam Prep",
+    "email.auto_offer_code":             "WELCOME20",
+    "email.enroll_url":                  "https://cpmaiexamprep.com/pricing",
 }
 
 
@@ -250,7 +264,7 @@ def test_site_support_email_rejects_non_email():
 @pytest.mark.parametrize("key", [
     "site.linkedin_url", "site.youtube_url", "site.twitter_url",
     "site.instagram_url", "site.facebook_url", "site.threads_url",
-    "site.tiktok_url", "site.github_url",
+    "site.tiktok_url", "site.github_url", "site.reddit_url",
 ])
 def test_site_urls_accept_empty_or_https(key):
     assert EDITABLE[key]("")

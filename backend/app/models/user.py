@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Enum as SQLEnum
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -49,6 +49,10 @@ class User(Base):
     # NULL). Financial rows (payments, subscriptions) are retained for
     # tax-law compliance.
     deleted_at         = Column(DateTime(timezone=True), nullable=True)
+    # Admin-only free-text notes, surfaced + editable in the Contacts feed
+    # (/admin/leads). Parallels ``Lead.notes`` so operators can jot
+    # follow-up details on signed-up users too. Never shown to the user.
+    notes              = Column(Text)
     created_at         = Column(DateTime(timezone=True), server_default=func.now())
     updated_at         = Column(DateTime(timezone=True),
                                 server_default=func.now(), onupdate=func.now())

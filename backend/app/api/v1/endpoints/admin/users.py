@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from app.core.deps import get_db, get_super_admin_user
+from app.core.deps import get_db, get_admin_user, get_super_admin_user
 from app.core.exceptions import AppError, NotFoundError
 from app.core.audit import audit_log
 from app.core.security import hash_password
@@ -171,6 +171,36 @@ def set_chat_limit_override(user_id: int, payload: _ChatLimitOverrideIn,
     audit_log(db, admin.id, "user.chat_limit_override_set",
               {"target_user_id": user_id, "from": old,
                "to": payload.daily_chat_limit_override})
+    sub = (db.query(Subscription)
+           .filter_by(user_id=u.id, status="active").first())
+    return _to_admin_out(u, sub)
+
+
+class _NotesIn(BaseModel):
+    """Admin-only internal notes. Empty string clears them."""
+    notes: str = Field(default="", max_length=20000)
+
+
+@router.patch("/{user_id}/notes", response_model=UserAdminOut)
+def update_notes(user_id: int, payload: _NotesIn,
+                 db: Session = Depends(get_db),
+                 admin: User = Depends(get_admin_user)):
+    """Set or clear a user's admin-only internal notes.
+
+    Mirrors the lead notes endpoint (``PATCH /admin/leads/{id}/notes``)
+    so the unified Contacts feed can edit notes on any row — landing-form
+    leads AND signed-up users alike. Plain ``get_admin_user`` gate (not
+    super-admin): jotting follow-up notes is routine operator work, same
+    bar as editing a lead.
+    """
+    u = db.get(User, user_id)
+    if not u:
+        raise NotFoundError()
+    u.notes = payload.notes
+    db.commit()
+    db.refresh(u)
+    audit_log(db, admin.id, "user.notes_updated",
+              {"target_user_id": user_id})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
     return _to_admin_out(u, sub)

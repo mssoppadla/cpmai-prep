@@ -5,9 +5,10 @@ endpoint in payments.py is what actually charges money; this layer is
 purely for displaying prices.
 """
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from app.core.deps import get_db
+from app.services.geoip import extract_client_ip, lookup as geo_lookup
 from app.models.plan import Plan
 from app.schemas.plan import PlanPublicOut
 from app.schemas.pricing import PriceQuoteOut, QuoteRequestIn
@@ -61,12 +62,18 @@ class CurrenciesOut(BaseModel):
     Surfaces only chargeable currencies (INR + those with live rates
     or admin overrides). The frontend populates the dropdown from this
     list directly.
+
+    ``suggested_currency`` is the default the picker should pre-select,
+    derived from the visitor's GeoIP country: India → INR (canonical,
+    GST applies), everyone else → USD. Always one of the codes in
+    ``options`` (falls back to USD/INR when geo is unavailable).
     """
     options: list[CurrencyOption]
+    suggested_currency: str = "USD"
 
 
 @router.get("/currencies", response_model=CurrenciesOut)
-def list_currencies():
+def list_currencies(request: Request):
     """Return the currencies the /pricing picker should show.
 
     The set is derived from the FX service's status:
@@ -103,4 +110,18 @@ def list_currencies():
     # INR is the canonical first option — ensure it's at the top even
     # if the status enumeration ordered it differently.
     options.sort(key=lambda o: (o.code != "INR", o.code))
-    return CurrenciesOut(options=options)
+
+    # Default the picker by GeoIP: India → INR (canonical, GST applies);
+    # everyone else → USD. Fail-open (private IP / no mmdb / miss all
+    # resolve to None → USD). Never suggest a code the picker won't show.
+    available = {o.code for o in options}
+    client_ip = extract_client_ip(request)
+    geo = geo_lookup(client_ip) if client_ip else None
+    country = (geo.country if geo else "") or ""
+    if country.upper() == "IN" and "INR" in available:
+        suggested = "INR"
+    elif "USD" in available:
+        suggested = "USD"
+    else:
+        suggested = options[0].code if options else "INR"
+    return CurrenciesOut(options=options, suggested_currency=suggested)

@@ -99,6 +99,7 @@ def site_chrome():
         "threads_url":   settings_store.get_str("site.threads_url",   ""),
         "tiktok_url":    settings_store.get_str("site.tiktok_url",    ""),
         "github_url":    settings_store.get_str("site.github_url",    ""),
+        "reddit_url":    settings_store.get_str("site.reddit_url",    ""),
         "copyright_text": settings_store.get_str(
             "site.copyright_text",
             "© 2026 CPMAI Prep. All rights reserved.",
@@ -176,6 +177,13 @@ def landing_copy():
         "lead_post_submit_route": settings_store.get_str(
             "landing.lead_post_submit_route",
             "/exams",
+        ),
+        # Heading for the "connect with me" social block under the
+        # landing CTA. The social URLs themselves come from /content/site
+        # (site.*_url). Empty heading hides just the label, not the icons.
+        "connect_heading": settings_store.get_str(
+            "landing.connect_heading",
+            "Connect with me",
         ),
         "premium_upsell_title": settings_store.get_str(
             "landing.premium_upsell_title",

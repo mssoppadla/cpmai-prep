@@ -64,27 +64,52 @@ function formatMinor(minor: number, symbol: string): string {
 
 
 /**
- * Country → preferred currency mapping. Mirrors what the backend would
- * default to if it had logic — but the backend doesn't pre-fill, so
- * this map lives client-side. Admin can shadow these defaults by
- * reordering `pricing.supported_currencies` in settings if needed.
+ * Convert an INR-minor amount (paise) into a quote's display currency,
+ * proportionally to the backend's OWN subtotal conversion. Using the
+ * backend ratio (display_subtotal_minor / subtotal_paise) — rather than
+ * re-deriving the FX rate client-side — guarantees the per-line amounts
+ * sum to exactly the subtotal/total the backend quoted (no drift, no
+ * client-side pricing math on the charged amount). Returns null when we
+ * can't convert (no quote, unsupported currency, or zero/absent subtotal).
+ */
+function inrToDisplayMinor(inrPaise: number, q: PriceQuoteOut | null): number | null {
+  if (!q || !q.display_currency_supported) return null;
+  const sub = q.subtotal_paise;
+  const disp = q.display_subtotal_minor;
+  if (!sub || sub <= 0 || disp == null) return null;
+  return Math.round(inrPaise * (disp / sub));
+}
+
+
+/**
+ * Format an INR-paise line in the active display currency. INR → ₹ direct;
+ * any other currency → proportional conversion via the active quote. Falls
+ * back to ₹ when conversion data isn't available yet, so a line never
+ * renders blank while a quote is loading.
+ */
+function lineMoney(inrPaise: number, q: PriceQuoteOut | null,
+                   currency: string, symbol: string): string {
+  if (currency === "INR") return `₹${(inrPaise / 100).toFixed(2)}`;
+  const disp = inrToDisplayMinor(inrPaise, q);
+  if (disp == null) return `₹${(inrPaise / 100).toFixed(2)}`;
+  return formatMinor(disp, symbol);
+}
+
+
+/**
+ * Default currency for a country: India → INR (canonical price, GST
+ * applies), everyone else → USD. This is the CLIENT-side fallback used
+ * for signed-in users' account country; the primary signal is the
+ * backend's GeoIP-derived `suggested_currency` (which also covers anon
+ * visitors, whose location we can't see client-side).
  */
 function preferredCurrencyForCountry(
   country: string | null | undefined,
   available: string[],
 ): string {
   const c = (country || "").toUpperCase();
-  const has = (code: string) => available.includes(code);
-  if (c === "IN" && has("INR")) return "INR";
-  if (["US", "CA", "MX"].includes(c) && has("USD")) return "USD";
-  if (c === "GB" && has("GBP")) return "GBP";
-  if (c === "SG" && has("SGD")) return "SGD";
-  if (c === "AE" && has("AED")) return "AED";
-  // EU member states default to EUR if we support it.
-  const EU = ["DE","FR","IT","ES","NL","BE","AT","IE","PT","FI",
-              "GR","SK","SI","LT","LV","EE","LU","MT","CY","HR"];
-  if (EU.includes(c) && has("EUR")) return "EUR";
-  if (has("USD")) return "USD";
+  if (c === "IN" && available.includes("INR")) return "INR";
+  if (available.includes("USD")) return "USD";
   return available[0] || "INR";
 }
 
@@ -101,6 +126,9 @@ export default function PricingPage() {
   // checkout currency.
   const [currencyOptions, setCurrencyOptions] = useState<CurrencyOption[]>([]);
   const [currency, setCurrency] = useState<string>("INR");
+  // Backend GeoIP-derived default (India → INR, else USD). Drives the
+  // initial picker selection so anon Indian visitors get INR too.
+  const [suggestedCurrency, setSuggestedCurrency] = useState<string | null>(null);
   const [currencyInitialised, setCurrencyInitialised] = useState(false);
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
@@ -131,6 +159,7 @@ export default function PricingPage() {
         setCurrencyOptions(opts.length > 0 ? opts : [
           { code: "INR", symbol: "₹", has_fx_rate: true },
         ]);
+        if (r?.suggested_currency) setSuggestedCurrency(r.suggested_currency);
       } catch (e) {
         // Non-fatal — fall back to INR-only.
         console.warn("[pricing] currencies fetch failed", e);
@@ -157,9 +186,14 @@ export default function PricingPage() {
     if (!authChecked) return;
     const available = currencyOptions.filter(o => o.has_fx_rate).map(o => o.code);
     if (available.length === 0) return;
-    setCurrency(preferredCurrencyForCountry(user?.country, available));
+    // Prefer the backend's GeoIP suggestion (India → INR, else USD);
+    // fall back to the signed-in user's account country, then USD.
+    const def = (suggestedCurrency && available.includes(suggestedCurrency))
+      ? suggestedCurrency
+      : preferredCurrencyForCountry(user?.country, available);
+    setCurrency(def);
     setCurrencyInitialised(true);
-  }, [currencyInitialised, currencyOptions, authChecked, user]);
+  }, [currencyInitialised, currencyOptions, authChecked, user, suggestedCurrency]);
 
   // Default to the first plan once loaded.
   useEffect(() => {
@@ -370,10 +404,13 @@ export default function PricingPage() {
             <div className="space-y-3">
               {plans.map(p => {
                 const selected = p.slug === selectedSlug;
-                const planQuote = perPlanQuotes[p.slug];
-                const showConverted = currency !== "INR"
-                  && planQuote
-                  && planQuote.display_currency_supported;
+                const planQuote = perPlanQuotes[p.slug] ?? null;
+                // Every amount on the card renders in the selected
+                // currency (INR → ₹ direct; else converted via the
+                // plan's quote). Falls back to ₹ until the quote loads.
+                const cardMoney = (paise: number) =>
+                  lineMoney(paise, planQuote, currency,
+                            currentCurrencyOption.symbol);
                 return (
                   <button key={p.id} onClick={() => setSelectedSlug(p.slug)}
                     data-track={`cta:select_plan:${p.slug}`}
@@ -390,29 +427,22 @@ export default function PricingPage() {
                     {p.description && (
                       <p className="text-sm text-slate-600 mt-1">{p.description}</p>
                     )}
-                    {/* Dual-amount row. Always shows INR canonical; if
-                        a non-INR currency is selected, the converted
-                        amount sits to the right of the INR price. */}
+                    {/* Price row — all in the selected currency. Shows the
+                        discounted price with the base struck through when a
+                        plan discount exists. */}
                     <div className="mt-3 flex items-baseline gap-3 flex-wrap">
                       {p.discount_price_paise != null ? (
                         <>
                           <span className="text-2xl font-bold text-slate-900">
-                            ₹{(p.discount_price_paise / 100).toFixed(2)}
+                            {cardMoney(p.discount_price_paise)}
                           </span>
                           <span className="text-sm text-slate-400 line-through">
-                            ₹{(p.base_price_paise / 100).toFixed(2)}
+                            {cardMoney(p.base_price_paise)}
                           </span>
                         </>
                       ) : (
                         <span className="text-2xl font-bold text-slate-900">
-                          ₹{(p.base_price_paise / 100).toFixed(2)}
-                        </span>
-                      )}
-                      {showConverted && (
-                        <span className="text-lg font-semibold text-indigo-700"
-                              title={`@ ₹${planQuote.display_fx_rate?.toFixed(2)} per 1 ${currency}`}>
-                          ≈ {formatMinor(planQuote.display_amount_minor,
-                                          currentCurrencyOption.symbol)}
+                          {cardMoney(p.base_price_paise)}
                         </span>
                       )}
                       <span className="text-sm text-slate-500">
@@ -457,7 +487,8 @@ export default function PricingPage() {
                     )}
                     {quote?.offer_applied && (
                       <div className="mt-1 text-xs text-emerald-700">
-                        Offer applied — saving ₹{(quote.offer_discount_paise / 100).toFixed(2)}.
+                        Offer applied — saving {lineMoney(quote.offer_discount_paise,
+                          quote, currency, currentCurrencyOption.symbol)}.
                       </div>
                     )}
                   </label>
@@ -473,15 +504,19 @@ export default function PricingPage() {
                   </label>
 
                   <div className="border-t border-slate-200 pt-3 text-sm space-y-1">
-                    <Row label="Base" value={`₹${(selectedPlan.base_price_paise / 100).toFixed(2)}`} />
+                    <Row label="Base"
+                         value={lineMoney(selectedPlan.base_price_paise,
+                           quote, currency, currentCurrencyOption.symbol)} />
                     {selectedPlan.discount_price_paise != null && (
                       <Row label="Plan discount"
-                           value={`-₹${((selectedPlan.base_price_paise - selectedPlan.discount_price_paise) / 100).toFixed(2)}`}
+                           value={`-${lineMoney(selectedPlan.base_price_paise - selectedPlan.discount_price_paise,
+                             quote, currency, currentCurrencyOption.symbol)}`}
                            muted />
                     )}
                     {quote?.offer_applied && (
                       <Row label={`Offer (${quote.offer_code})`}
-                           value={`-₹${(quote.offer_discount_paise / 100).toFixed(2)}`}
+                           value={`-${lineMoney(quote.offer_discount_paise,
+                             quote, currency, currentCurrencyOption.symbol)}`}
                            muted />
                     )}
                     {/* GST line ONLY when the selected currency is INR.
@@ -555,12 +590,7 @@ export default function PricingPage() {
                             </div>
                             {quote.display_fx_rate_raw && (
                               <div className="italic">
-                                Live ECB FX: 1 {currency} = ₹{quote.display_fx_rate_raw.toFixed(2)}
-                                {quote.display_fx_source === "stale" && (
-                                  <span className="text-amber-600 not-italic">
-                                    {" "}(may be stale)
-                                  </span>
-                                )}
+                                Exchange rate: 1 {currency} = ₹{quote.display_fx_rate_raw.toFixed(2)}
                               </div>
                             )}
                             {quote.display_fx_source === "override" && (

@@ -21,6 +21,7 @@
 import type { ContentPagePublicOut, SiteChrome } from "@/types/api";
 import { JsonLd, organizationSchema, courseSchema, faqSchema } from "@/components/seo/JsonLd";
 import { LeadCaptureForm } from "@/components/lead/LeadCaptureForm";
+import { LandingConnect } from "@/components/layout/LandingConnect";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import RenderBlocks from "@/components/cms/RenderBlocks";
@@ -45,6 +46,8 @@ const FALLBACK_LANDING = {
   lead_section_heading: "Start with our free CPMAI study guide",
   lead_cta_text: "Get the free guide",
   lead_post_submit_route: "/exams",
+  // Heading for the "connect with me" social block below the CTA.
+  connect_heading: "Connect with me",
   // Hero copy fallbacks — used when /content/landing is unreachable
   // at build/render time. Kept in sync with the seeded defaults so
   // the page never shows a blank H1.
@@ -159,6 +162,12 @@ export default async function Landing() {
             postSubmitRoute={landing.lead_post_submit_route}
           />
         </section>
+
+        {/* Configurable "connect with me" social links below the CTA.
+            Driven by the admin-editable site.*_url settings + the
+            landing.connect_heading copy. Hidden entirely when no social
+            URLs are set. */}
+        <LandingConnect site={chrome} heading={landing.connect_heading} />
 
         <section aria-labelledby="faq-heading"
                  className="max-w-3xl mx-auto px-4 sm:px-6 pb-20 sm:pb-24">

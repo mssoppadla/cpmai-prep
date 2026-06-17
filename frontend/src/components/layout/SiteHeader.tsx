@@ -47,6 +47,7 @@ const SITE_FALLBACK: SiteChrome = {
   threads_url: "",
   tiktok_url: "",
   github_url: "",
+  reddit_url: "",
   copyright_text: "© 2026 CPMAI Prep. All rights reserved.",
   show_pricing_link: true,
   assistant_widget_subtitle: "Grounded in our FAQ, pricing & question explanations",
