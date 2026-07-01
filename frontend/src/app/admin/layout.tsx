@@ -70,6 +70,7 @@ const GROUPS: NavGroupDef[] = [
     defaultExpanded: true,
     items: [
       { href: "/admin/users",                  label: "Users" },
+      { href: "/admin/user-insights",          label: "User Insights", badge: "NEW" },
       { href: "/admin/leads",                  label: "Contacts" },
       { href: "/admin/chat-history",           label: "Chat History" },
       { href: "/admin/chat-history/flagged",   label: "Flagged Turns", indent: true },

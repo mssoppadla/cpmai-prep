@@ -13,6 +13,7 @@ import { admin, auth, errMsg } from "@/lib/api";
 import { leadTier } from "@/types/api";
 import type { ContactRow, LeadTier, UserOut } from "@/types/api";
 import { countryAndCity } from "@/lib/country-flag";
+import { linkedinHref } from "@/lib/linkedin";
 
 export default function ContactsPage() {
   const [rows, setRows] = useState<ContactRow[] | null>(null);
@@ -324,6 +325,13 @@ function Row({
             isDeleted ? "line-through" : ""
           }`}>{row.email}</div>
           {row.name && <div className="text-xs text-slate-500">{row.name}</div>}
+          {row.kind === "lead" && row.linkedin_id && (
+            <div className="text-xs text-slate-500 mt-0.5">
+              in:{" "}
+              <a href={linkedinHref(row.linkedin_id)} target="_blank" rel="noopener noreferrer"
+                 className="text-indigo-600 hover:underline break-all">{row.linkedin_id}</a>
+            </div>
+          )}
           {row.kind === "lead" && row.converted_user_id && (
             <span className="text-xs text-emerald-700 font-medium">✓ converted</span>
           )}

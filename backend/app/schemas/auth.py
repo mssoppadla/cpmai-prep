@@ -89,6 +89,12 @@ class UserAdminOut(UserOut):
     # NULL = falls back to global chat.daily_limit.authenticated setting.
     # Admin sets via PATCH /admin/users/{id}/chat-limit.
     daily_chat_limit_override: int | None = None
+    # Contact details the user left on a landing lead (matched by email),
+    # surfaced read-only so an admin sees how to reach them. Nullable when
+    # there's no matching lead / the field wasn't provided. Existing WhatsApp
+    # numbers are preserved and surfaced here (country_code + number).
+    linkedin_id: str | None = None
+    whatsapp: str | None = None
 
 
 class SubscriptionSummary(BaseModel):

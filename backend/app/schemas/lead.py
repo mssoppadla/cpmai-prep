@@ -19,6 +19,7 @@ class LeadCreateIn(BaseModel):
     # WhatsApp opt-in (community lead magnet)
     country_code: str | None = None        # e.g. "+91"
     whatsapp_number: str | None = None     # local part
+    linkedin_id: str | None = None         # LinkedIn id/URL (serve better + share docs)
     company: str | None = None
     role: str | None = None
     source: LeadSource
@@ -40,6 +41,7 @@ class LeadAdminOut(BaseModel):
     email: str
     name: str | None
     phone: str | None
+    linkedin_id: str | None = None
     source: LeadSource
     utm_source: str | None
     utm_campaign: str | None
@@ -72,6 +74,7 @@ class ContactRow(BaseModel):
 
     # Lead-specific (None for users)
     source: str | None = None    # LeadSource value
+    linkedin_id: str | None = None   # LinkedIn id/URL left on the landing form
     utm_campaign: str | None = None
     consent_marketing: bool | None = None
     notes: str | None = None

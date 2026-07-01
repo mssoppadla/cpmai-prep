@@ -4,7 +4,7 @@
  */
 import type {
   ApiErrorBody, AuthTokens, LoginIn, SignupIn, RefreshIn,
-  UserOut, UserAdminOut, UserDashboardOut, ExamSetSummaryOut, ExamSetAdminIn,
+  UserOut, UserAdminOut, UserInsights, UserDashboardOut, ExamSetSummaryOut, ExamSetAdminIn,
   ExamAttemptOut, AnswerIn, SubmitAttemptOut, DomainOut, AttemptHistoryOut,
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
@@ -1730,6 +1730,13 @@ export const admin = {
     }) {
       const { data } = await request<UserAdminOut[]>(
         `/admin/users${qs(p)}`, { authed: true });
+      return data;
+    },
+    /** Per-user analytics: exam attempts/scores, time-per-course-part, quiz
+     *  attempts, recent activity. Powers the admin "User Insights" page. */
+    async insights(userId: number): Promise<UserInsights> {
+      const { data } = await request<UserInsights>(
+        `/admin/users/${userId}/insights`, { authed: true });
       return data;
     },
     async changeRole(userId: number, role: string) {
