@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { admin, errMsg } from "@/lib/api";
 import type { UserAdminOut, UserInsights } from "@/types/api";
 import { linkedinHref } from "@/lib/linkedin";
+import { ActivityWindowFilter, toIsoUtc } from "@/components/admin/ActivityWindowFilter";
 
 function fmtDuration(sec: number): string {
   if (!sec) return "0m";
@@ -23,6 +24,7 @@ function fmtDate(s: string | null): string {
  */
 export default function AdminUserInsightsPage() {
   const [q, setQ] = useState("");
+  const [win, setWin] = useState({ from: "", to: "" });
   const [results, setResults] = useState<UserAdminOut[]>([]);
   const [selected, setSelected] = useState<UserAdminOut | null>(null);
   const [data, setData] = useState<UserInsights | null>(null);
@@ -33,12 +35,15 @@ export default function AdminUserInsightsPage() {
     let cancel = false;
     (async () => {
       try {
-        const list = await admin.users.list({ q: q || undefined, limit: 20 });
+        const list = await admin.users.list({
+          q: q || undefined, limit: 20,
+          active_from: toIsoUtc(win.from), active_to: toIsoUtc(win.to),
+        });
         if (!cancel) setResults(list);
       } catch (e) { if (!cancel) setErr(errMsg(e)); }
     })();
     return () => { cancel = true; };
-  }, [q]);
+  }, [q, win.from, win.to]);
 
   async function pick(u: UserAdminOut) {
     setSelected(u); setData(null); setErr(null); setLoading(true);
@@ -67,6 +72,13 @@ export default function AdminUserInsightsPage() {
           className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
                      focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
         />
+        <div className="mt-2">
+          <ActivityWindowFilter from={win.from} to={win.to}
+                                onChange={(from, to) => setWin({ from, to })} />
+          <p className="mt-1 text-xs text-slate-400">
+            Narrows the list to users who logged in or performed an activity in the window.
+          </p>
+        </div>
         <div className="mt-2 max-h-56 overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-lg">
           {results.length === 0 && (
             <div className="px-3 py-3 text-sm text-slate-400">No users match.</div>

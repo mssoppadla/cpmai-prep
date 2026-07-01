@@ -1,12 +1,13 @@
 """Admin-only leads management — and unified Contacts feed."""
 import csv, io
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_admin_user
 from app.core.exceptions import NotFoundError
 from app.core.audit import audit_log
+from app.api.v1.endpoints.admin.users import active_user_ids, user_activity_window
 from app.models.lead import Lead
 from app.models.subscription import Subscription
 from app.models.user import User
@@ -59,6 +60,12 @@ def list_contacts(db: Session = Depends(get_db),
                                   "Default false — admins normally want "
                                   "the active-contacts view.",
                   ),
+                  active_from: datetime | None = Query(
+                      None, description="Only contacts active at/after this time: users who "
+                                        "logged in OR performed an activity; leads submitted "
+                                        "in the window (ISO 8601)."),
+                  active_to: datetime | None = Query(
+                      None, description="…at/before this time."),
                   limit: int = Query(200, le=500), offset: int = 0):
     """Unified feed of leads (landing-form submissions) + users
     (sign-ups via password or Google).
@@ -78,6 +85,11 @@ def list_contacts(db: Session = Depends(get_db),
             lq = lq.filter(
                 (Lead.email.ilike(f"%{q}%")) | (Lead.name.ilike(f"%{q}%"))
             )
+        # A lead's "activity" is submitting the form — filter by when it came in.
+        if active_from is not None:
+            lq = lq.filter(Lead.created_at >= active_from)
+        if active_to is not None:
+            lq = lq.filter(Lead.created_at <= active_to)
         for L in lq.all():
             rows.append(ContactRow(
                 kind="lead", id=L.id,
@@ -102,6 +114,9 @@ def list_contacts(db: Session = Depends(get_db),
             uq = uq.filter(
                 (User.email.ilike(f"%{q}%")) | (User.name.ilike(f"%{q}%"))
             )
+        if active_from is not None or active_to is not None:
+            uq = uq.filter(user_activity_window(
+                active_from, active_to, active_user_ids(db, active_from, active_to)))
         users = uq.all()
         if users:
             sub_ids = {s.user_id for s in db.query(Subscription)
