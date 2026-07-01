@@ -5,6 +5,7 @@ import type { UserAdminOut, UserRole } from "@/types/api";
 import { countryAndCity, countryFlag } from "@/lib/country-flag";
 import { UserSubscriptionsPanel } from "@/components/admin/UserSubscriptionsPanel";
 import { linkedinHref } from "@/lib/linkedin";
+import { ActivityWindowFilter, toIsoUtc } from "@/components/admin/ActivityWindowFilter";
 
 /**
  * Admin user list — filterable view of every user (Google + password).
@@ -18,7 +19,8 @@ export default function AdminUsersPage() {
   const [me, setMe] = useState<{ role: UserRole } | null>(null);
   const [filter, setFilter] = useState<{
     q: string; role: string; method: "" | "google" | "password" | "both";
-  }>({ q: "", role: "", method: "" });
+    active_from: string; active_to: string;
+  }>({ q: "", role: "", method: "", active_from: "", active_to: "" });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Inline subscription panel — only one user expanded at a time so the
@@ -33,6 +35,8 @@ export default function AdminUsersPage() {
       if (filter.q) params.q = filter.q;
       if (filter.role) params.role = filter.role;
       if (filter.method) params.method = filter.method;
+      const af = toIsoUtc(filter.active_from); if (af) params.active_from = af;
+      const at = toIsoUtc(filter.active_to);   if (at) params.active_to = at;
       const data = await admin.users.list(params as any);
       setRows(data);
     } catch (e) {
@@ -169,6 +173,10 @@ export default function AdminUsersPage() {
           <option value="password">Password set</option>
           <option value="both">Both</option>
         </select>
+        <ActivityWindowFilter
+          from={filter.active_from} to={filter.active_to}
+          onChange={(from, to) => setFilter({ ...filter, active_from: from, active_to: to })}
+        />
         <button
           onClick={reload}
           disabled={busy}

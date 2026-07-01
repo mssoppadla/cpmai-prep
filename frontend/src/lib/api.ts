@@ -916,6 +916,7 @@ export const admin = {
     async list(p?: {
       kind?: "lead" | "user"; q?: string;
       include_deleted?: boolean;
+      active_from?: string; active_to?: string;
       limit?: number; offset?: number;
     }) {
       const { data } = await request<ContactRow[]>(
@@ -1726,6 +1727,7 @@ export const admin = {
   users: {
     async list(p?: {
       q?: string; role?: string; method?: "google" | "password" | "both";
+      active_from?: string; active_to?: string;
       limit?: number; offset?: number;
     }) {
       const { data } = await request<UserAdminOut[]>(

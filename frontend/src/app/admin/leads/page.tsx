@@ -14,6 +14,7 @@ import { leadTier } from "@/types/api";
 import type { ContactRow, LeadTier, UserOut } from "@/types/api";
 import { countryAndCity } from "@/lib/country-flag";
 import { linkedinHref } from "@/lib/linkedin";
+import { ActivityWindowFilter, toIsoUtc } from "@/components/admin/ActivityWindowFilter";
 
 export default function ContactsPage() {
   const [rows, setRows] = useState<ContactRow[] | null>(null);
@@ -24,7 +25,8 @@ export default function ContactsPage() {
     // Off by default — operators almost always want active contacts.
     // Toggle on to investigate forensics / audit.
     includeDeleted: boolean;
-  }>({ kind: "", q: "", includeDeleted: false });
+    active_from: string; active_to: string;
+  }>({ kind: "", q: "", includeDeleted: false, active_from: "", active_to: "" });
   // Client-side sort. "recent" preserves the API's created_at-desc
   // ordering. "score" surfaces warmest leads first (with scoreless
   // rows demoted to the bottom).
@@ -42,6 +44,8 @@ export default function ContactsPage() {
       if (filter.kind) params.kind = filter.kind;
       if (filter.q) params.q = filter.q;
       if (filter.includeDeleted) params.include_deleted = true;
+      const af = toIsoUtc(filter.active_from); if (af) params.active_from = af;
+      const at = toIsoUtc(filter.active_to);   if (at) params.active_to = at;
       setRows(await admin.contacts.list(params as any));
     } catch (e) {
       console.error("[admin/contacts] list", e);
@@ -208,6 +212,10 @@ export default function ContactsPage() {
           />
           Show deleted users
         </label>
+        <ActivityWindowFilter
+          from={filter.active_from} to={filter.active_to}
+          onChange={(from, to) => setFilter({ ...filter, active_from: from, active_to: to })}
+        />
         <button
           onClick={reload}
           disabled={busy}

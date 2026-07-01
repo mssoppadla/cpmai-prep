@@ -1,6 +1,7 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, and_, or_
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_admin_user, get_super_admin_user
 from app.core.exceptions import AppError, NotFoundError
@@ -33,6 +34,35 @@ def _lead_contacts(db: Session, emails: list[str]) -> dict[str, dict]:
         if c["whatsapp"] is None and L.whatsapp_number:
             c["whatsapp"] = f"{L.country_code or ''} {L.whatsapp_number}".strip()
     return out
+
+
+def active_user_ids(db: Session, active_from: datetime | None,
+                    active_to: datetime | None) -> set[int] | None:
+    """User ids that PERFORMED AN ACTIVITY (a journey_event) within [from, to].
+    Returns None when no window is given (so callers can skip filtering)."""
+    if active_from is None and active_to is None:
+        return None
+    jq = db.query(JourneyEvent.user_id).filter(JourneyEvent.user_id.isnot(None))
+    if active_from is not None:
+        jq = jq.filter(JourneyEvent.created_at >= active_from)
+    if active_to is not None:
+        jq = jq.filter(JourneyEvent.created_at <= active_to)
+    return {r[0] for r in jq.distinct().all()}
+
+
+def user_activity_window(active_from: datetime | None, active_to: datetime | None,
+                         active_ids: set[int] | None):
+    """A SQLAlchemy condition: the user LOGGED IN during the window OR PERFORMED an activity
+    in it. Use inside a .filter() when a window is supplied."""
+    login = [User.last_login_at.isnot(None)]
+    if active_from is not None:
+        login.append(User.last_login_at >= active_from)
+    if active_to is not None:
+        login.append(User.last_login_at <= active_to)
+    parts = [and_(*login)]
+    if active_ids:
+        parts.append(User.id.in_(active_ids))
+    return or_(*parts)
 
 
 def _to_admin_out(u: User, sub: Subscription | None,
@@ -79,9 +109,18 @@ def list_users(db: Session = Depends(get_db),
                                "see tombstones unless they're investigating "
                                "an audit/abuse case.",
                ),
+               active_from: datetime | None = Query(
+                   None, description="Only users who logged in OR performed an activity "
+                                     "at/after this time (ISO 8601)."),
+               active_to: datetime | None = Query(
+                   None, description="…at/before this time. Together with active_from these "
+                                     "form the activity window."),
                limit: int = Query(50, le=200),
                offset: int = 0):
     query = db.query(User)
+    if active_from is not None or active_to is not None:
+        query = query.filter(user_activity_window(
+            active_from, active_to, active_user_ids(db, active_from, active_to)))
     if not include_deleted:
         # Default: hide soft-deleted users. They stay searchable when
         # the operator explicitly passes include_deleted=true (the
