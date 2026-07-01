@@ -36,6 +36,9 @@ class Lead(Base):
     # WhatsApp number (with country code stored separately for normalization)
     country_code    = Column(String(8))    # e.g. "+91"
     whatsapp_number = Column(String(32))   # local part, e.g. "9876543210"
+    # LinkedIn handle/URL the aspirant leaves so we can serve them better and
+    # share relevant prep documents. Free-form (id or full profile URL).
+    linkedin_id     = Column(String(255))
     company = Column(String(120))
     role    = Column(String(120))
 

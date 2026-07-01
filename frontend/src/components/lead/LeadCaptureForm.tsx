@@ -7,14 +7,20 @@ interface Props {
           "pricing_page" | "exam_preview" | "demo_request";
   cta?: string;
   fields?: Array<
-    "name" | "phone" | "whatsapp" | "company" | "role" | "target_exam_date"
+    "name" | "phone" | "whatsapp" | "linkedin" | "company" | "role" | "target_exam_date"
   >;
+  /** Helper copy under the LinkedIn field — admin-configurable via landing content. */
+  linkedinReason?: string;
   /**
    * Where to send the visitor after a successful submit.
    * If null, the form just shows a "thanks" message in place.
    */
   postSubmitRoute?: string | null;
 }
+
+// Default reason shown under the LinkedIn field when landing content doesn't override it.
+const LINKEDIN_REASON_DEFAULT =
+  "So we can serve you better and share relevant prep documents";
 
 const INPUT_CLS =
   "w-full px-4 py-3 text-base border border-slate-300 rounded-lg " +
@@ -37,7 +43,7 @@ const COUNTRY_CODES: Array<{ value: string; label: string }> = [
 ];
 
 export function LeadCaptureForm({
-  source, cta = "Get started", fields = [], postSubmitRoute,
+  source, cta = "Get started", fields = [], linkedinReason, postSubmitRoute,
 }: Props) {
   const router = useRouter();
   const [state, setState] = useState<"idle" | "submitting" | "ok" | "err">("idle");
@@ -45,6 +51,7 @@ export function LeadCaptureForm({
     email: "", name: "", phone: "",
     country_code: "+91",   // sensible default for the primary audience
     whatsapp_number: "",
+    linkedin_id: "",
     company: "", role: "",
     target_exam_date: "", consent_marketing: false,
   });
@@ -160,6 +167,26 @@ export function LeadCaptureForm({
               aria-label="WhatsApp number"
             />
           </div>
+        </div>
+      )}
+      {fields.includes("linkedin") && (
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            LinkedIn ID{" "}
+            <span className="text-slate-500 font-normal">
+              ({linkedinReason || LINKEDIN_REASON_DEFAULT})
+            </span>
+          </label>
+          <input
+            type="text"
+            inputMode="url"
+            autoComplete="off"
+            placeholder="linkedin.com/in/your-id"
+            value={form.linkedin_id}
+            onChange={(e) => setForm({ ...form, linkedin_id: e.target.value })}
+            className={INPUT_CLS}
+            aria-label="LinkedIn ID"
+          />
         </div>
       )}
       {fields.includes("phone") && (

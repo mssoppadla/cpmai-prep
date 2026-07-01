@@ -48,6 +48,7 @@ const FALLBACK_LANDING = {
   lead_section_heading: "Start with our free CPMAI study guide",
   lead_cta_text: "Get the free guide",
   lead_post_submit_route: "/exams",
+  lead_linkedin_reason: "So we can serve you better and share relevant prep documents",
   // Heading for the "connect with me" social block below the CTA.
   connect_heading: "Connect with me",
   // Hero copy fallbacks — used when /content/landing is unreachable
@@ -219,8 +220,9 @@ export default async function Landing() {
           </h2>
           <LeadCaptureForm
             source="landing_hero"
-            fields={["name", "whatsapp", "target_exam_date"]}
+            fields={["name", "linkedin", "target_exam_date"]}
             cta={landing.lead_cta_text}
+            linkedinReason={landing.lead_linkedin_reason}
             postSubmitRoute={landing.lead_post_submit_route}
           />
         </section>

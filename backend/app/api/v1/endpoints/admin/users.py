@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_admin_user, get_super_admin_user
 from app.core.exceptions import AppError, NotFoundError
@@ -7,12 +8,35 @@ from app.core.audit import audit_log
 from app.core.security import hash_password
 from app.models.subscription import Subscription
 from app.models.user import User, UserRole
+from app.models.lead import Lead
+from app.models.exam_session import ExamSession
+from app.models.exam_set import ExamSet
+from app.models.lms import Course, Chapter, Lesson, Enrollment, LessonProgress, LmsQuizAttempt
+from app.models.journey_event import JourneyEvent
 from app.schemas.auth import UserAdminOut
 
 router = APIRouter()
 
 
-def _to_admin_out(u: User, sub: Subscription | None) -> UserAdminOut:
+def _lead_contacts(db: Session, emails: list[str]) -> dict[str, dict]:
+    """Most-recent LinkedIn id + WhatsApp number a user left on a landing lead, keyed by
+    lower-cased email. Read-only surfacing of already-collected contact info; never mutates."""
+    out: dict[str, dict] = {}
+    wanted = [e.lower() for e in emails if e]
+    if not wanted:
+        return out
+    for L in (db.query(Lead).filter(Lead.email.in_(wanted))
+              .order_by(Lead.created_at.desc()).all()):
+        c = out.setdefault(L.email.lower(), {"linkedin_id": None, "whatsapp": None})
+        if c["linkedin_id"] is None and L.linkedin_id:
+            c["linkedin_id"] = L.linkedin_id
+        if c["whatsapp"] is None and L.whatsapp_number:
+            c["whatsapp"] = f"{L.country_code or ''} {L.whatsapp_number}".strip()
+    return out
+
+
+def _to_admin_out(u: User, sub: Subscription | None,
+                  contact: dict | None = None) -> UserAdminOut:
     """Build the admin-facing user payload, including login-method and
     subscription summary so the admin UI can show everything in one row.
 
@@ -38,6 +62,8 @@ def _to_admin_out(u: User, sub: Subscription | None) -> UserAdminOut:
         has_active_subscription=bool(sub),
         subscription_plan=sub.plan if sub else None,
         daily_chat_limit_override=u.daily_chat_limit_override,
+        linkedin_id=(contact or {}).get("linkedin_id"),
+        whatsapp=(contact or {}).get("whatsapp"),
     )
 
 
@@ -83,7 +109,8 @@ def list_users(db: Session = Depends(get_db),
     subs = {s.user_id: s for s in db.query(Subscription)
             .filter(Subscription.user_id.in_([u.id for u in users]),
                     Subscription.status == "active").all()}
-    return [_to_admin_out(u, subs.get(u.id)) for u in users]
+    contacts = _lead_contacts(db, [u.email for u in users])   # LinkedIn + WhatsApp from leads
+    return [_to_admin_out(u, subs.get(u.id), contacts.get(u.email.lower())) for u in users]
 
 
 @router.get("/{user_id}", response_model=UserAdminOut)
@@ -93,7 +120,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
         raise NotFoundError()
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub)
+    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
 
 
 @router.patch("/{user_id}/role", response_model=UserAdminOut)
@@ -111,7 +138,7 @@ def change_role(user_id: int, role: UserRole,
               {"target_user_id": user_id, "from": old.value, "to": role.value})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub)
+    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
 
 
 class _PasswordResetIn(BaseModel):
@@ -142,7 +169,7 @@ def reset_password(user_id: int, payload: _PasswordResetIn,
               {"target_user_id": user_id, "target_email": u.email})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub)
+    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
 
 
 class _ChatLimitOverrideIn(BaseModel):
@@ -173,7 +200,7 @@ def set_chat_limit_override(user_id: int, payload: _ChatLimitOverrideIn,
                "to": payload.daily_chat_limit_override})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub)
+    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
 
 
 class _NotesIn(BaseModel):
@@ -203,7 +230,7 @@ def update_notes(user_id: int, payload: _NotesIn,
               {"target_user_id": user_id})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub)
+    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
 
 
 @router.delete("/{user_id}", status_code=204)
@@ -264,3 +291,90 @@ def delete_user(user_id: int,
                "email": original_email,
                "was_already_deleted": not applied,
                "mode": "soft_delete"})
+
+
+@router.get("/{user_id}/insights")
+def user_insights(user_id: int, db: Session = Depends(get_db)):
+    """Everything an admin needs to understand ONE user's activity in a single call:
+    exam attempts (count + scores + history), time spent on each part of the course, in-course
+    quiz attempts, and a recent-activity timeline. Pure aggregation of existing tables."""
+    u = db.get(User, user_id)
+    if not u:
+        raise NotFoundError()
+
+    # --- exams: attempt count, scores, per-attempt history ---
+    sessions = (db.query(ExamSession)
+                .filter(ExamSession.user_id == user_id, ExamSession.status == "submitted")
+                .order_by(ExamSession.submitted_at.desc().nullslast()).all())
+    set_names = {s.id: s.name for s in db.query(ExamSet.id, ExamSet.name).all()}
+    attempts = [{
+        "id": s.id,
+        "exam_set": set_names.get(s.exam_set_id),
+        "practice_domain": s.practice_domain,
+        "score": s.score,
+        "passed": s.passed,
+        "time_taken_seconds": s.time_taken_seconds,
+        "submitted_at": s.submitted_at,
+    } for s in sessions]
+    scores = [s.score for s in sessions if s.score is not None]
+    exam = {
+        "attempt_count": len(sessions),
+        "pass_count": sum(1 for s in sessions if s.passed),
+        "best_score": max(scores) if scores else None,
+        "avg_score": round(sum(scores) / len(scores)) if scores else None,
+        "attempts": attempts,
+    }
+
+    # --- courses: time spent on each part (chapter), progress, quiz attempts ---
+    courses = []
+    quiz_attempts = 0
+    for e in db.query(Enrollment).filter(Enrollment.user_id == user_id).all():
+        course = db.get(Course, e.course_id)
+        rows = (db.query(LessonProgress, Chapter)
+                .join(Lesson, LessonProgress.lesson_id == Lesson.id)
+                .join(Chapter, Lesson.chapter_id == Chapter.id)
+                .filter(LessonProgress.enrollment_id == e.id).all())
+        by_chapter: dict[int, dict] = {}
+        completed = 0
+        for lp, chapter in rows:
+            c = by_chapter.setdefault(chapter.id, {
+                "chapter_id": chapter.id, "title": chapter.title, "position": chapter.position,
+                "watch_seconds": 0, "lessons_completed": 0, "lessons_total": 0})
+            c["watch_seconds"] += lp.watch_time_seconds or 0
+            c["lessons_total"] += 1
+            if lp.completed_at:
+                c["lessons_completed"] += 1
+                completed += 1
+        chapters = sorted(by_chapter.values(), key=lambda x: x["position"])
+        total_lessons = (db.query(func.count(Lesson.id))
+                         .join(Chapter, Lesson.chapter_id == Chapter.id)
+                         .filter(Chapter.course_id == e.course_id).scalar()) or 0
+        quiz_attempts += (db.query(func.count(LmsQuizAttempt.id))
+                          .filter(LmsQuizAttempt.enrollment_id == e.id).scalar()) or 0
+        courses.append({
+            "course_id": e.course_id,
+            "course_title": course.title if course else f"Course {e.course_id}",
+            "enrolled_at": e.enrolled_at,
+            "last_accessed_at": e.last_accessed_at,
+            "completed": bool(e.completed_at),
+            "total_watch_seconds": sum(c["watch_seconds"] for c in chapters),
+            "lessons_completed": completed,
+            "lessons_total": total_lessons,
+            "progress_pct": round(100 * completed / total_lessons) if total_lessons else 0,
+            "chapters": chapters,
+        })
+
+    # --- recent activity timeline ---
+    events = (db.query(JourneyEvent).filter(JourneyEvent.user_id == user_id)
+              .order_by(JourneyEvent.created_at.desc()).limit(50).all())
+    activity = [{"event": ev.event, "path": ev.path, "duration_ms": ev.duration_ms,
+                 "created_at": ev.created_at} for ev in events]
+
+    sub = db.query(Subscription).filter_by(user_id=u.id, status="active").first()
+    return {
+        "user": _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower())),
+        "exam": exam,
+        "courses": courses,
+        "quiz_attempts": quiz_attempts,
+        "activity": activity,
+    }

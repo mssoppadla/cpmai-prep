@@ -178,6 +178,11 @@ def landing_copy():
             "landing.lead_post_submit_route",
             "/exams",
         ),
+        # Helper copy under the landing LinkedIn field (admin-configurable).
+        "lead_linkedin_reason": settings_store.get_str(
+            "landing.lead_linkedin_reason",
+            "So we can serve you better and share relevant prep documents",
+        ),
         # Heading for the "connect with me" social block under the
         # landing CTA. The social URLs themselves come from /content/site
         # (site.*_url). Empty heading hides just the label, not the icons.

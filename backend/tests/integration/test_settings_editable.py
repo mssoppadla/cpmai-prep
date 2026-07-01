@@ -124,6 +124,7 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "landing.lead_section_heading":      "Start with our free CPMAI study guide",
     "landing.lead_cta_text":             "Get the free guide",
     "landing.lead_post_submit_route":    "/exams",
+    "landing.lead_linkedin_reason":      "So we can serve you better and share prep docs",
     "landing.connect_heading":           "Connect with me",
     "landing.premium_upsell_title":      "Get the full bank",
     "landing.premium_upsell_body":       "Unlock everything for one year.",

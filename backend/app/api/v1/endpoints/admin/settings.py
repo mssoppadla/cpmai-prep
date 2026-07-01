@@ -441,6 +441,7 @@ EDITABLE: dict[str, Callable] = {
     "landing.lead_section_heading":      _short_str(200),
     "landing.lead_cta_text":             _short_str(80),
     "landing.lead_post_submit_route":    _short_str(200),
+    "landing.lead_linkedin_reason":      _short_str(200),
     # Heading for the landing-page "connect with me" social block.
     "landing.connect_heading":           _optional_str(120),
     "landing.premium_upsell_title":      _short_str(120),

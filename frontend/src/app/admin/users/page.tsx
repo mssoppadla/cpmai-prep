@@ -4,6 +4,7 @@ import { admin, errMsg } from "@/lib/api";
 import type { UserAdminOut, UserRole } from "@/types/api";
 import { countryAndCity, countryFlag } from "@/lib/country-flag";
 import { UserSubscriptionsPanel } from "@/components/admin/UserSubscriptionsPanel";
+import { linkedinHref } from "@/lib/linkedin";
 
 /**
  * Admin user list — filterable view of every user (Google + password).
@@ -216,6 +217,16 @@ export default function AdminUsersPage() {
                       {u.name || <span className="italic text-slate-400">no name</span>}
                     </div>
                     <div className="text-xs text-slate-500">{u.email}</div>
+                    {u.linkedin_id && (
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        in:{" "}
+                        <a href={linkedinHref(u.linkedin_id)} target="_blank" rel="noopener noreferrer"
+                           className="text-indigo-600 hover:underline break-all">{u.linkedin_id}</a>
+                      </div>
+                    )}
+                    {u.whatsapp && (
+                      <div className="text-xs text-slate-500">wa: {u.whatsapp}</div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">

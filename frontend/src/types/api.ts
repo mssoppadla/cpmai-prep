@@ -84,6 +84,37 @@ export interface UserAdminOut extends UserOut {
    *  `chat.daily_limit.authenticated` setting; a number is the explicit
    *  override; `0` blocks chat entirely for this user. */
   daily_chat_limit_override: number | null;
+  /** Contact info the user left on a landing lead (matched by email), read-only.
+   *  `whatsapp` is an already-collected number preserved + surfaced here. */
+  linkedin_id?: string | null;
+  whatsapp?: string | null;
+}
+export interface UserInsightsAttempt {
+  id: number; exam_set: string | null; practice_domain: string | null;
+  score: number | null; passed: boolean | null;
+  time_taken_seconds: number | null; submitted_at: string | null;
+}
+export interface UserInsightsChapter {
+  chapter_id: number; title: string; position: number;
+  watch_seconds: number; lessons_completed: number; lessons_total: number;
+}
+export interface UserInsightsCourse {
+  course_id: number; course_title: string;
+  enrolled_at: string | null; last_accessed_at: string | null;
+  completed: boolean; total_watch_seconds: number;
+  lessons_completed: number; lessons_total: number; progress_pct: number;
+  chapters: UserInsightsChapter[];
+}
+export interface UserInsights {
+  user: UserAdminOut;
+  exam: {
+    attempt_count: number; pass_count: number;
+    best_score: number | null; avg_score: number | null;
+    attempts: UserInsightsAttempt[];
+  };
+  courses: UserInsightsCourse[];
+  quiz_attempts: number;
+  activity: Array<{ event: string; path: string | null; duration_ms: number | null; created_at: string }>;
 }
 export interface SubscriptionSummary {
   active: boolean;
@@ -287,6 +318,7 @@ export interface LeadCreateIn {
   email: string;
   name?: string | null;
   phone?: string | null;
+  linkedin_id?: string | null;
   company?: string | null;
   role?: string | null;
   source: LeadSource;
@@ -802,6 +834,7 @@ export interface LandingCopy {
   lead_section_heading: string;
   lead_cta_text: string;
   lead_post_submit_route: string;
+  lead_linkedin_reason: string;
   premium_upsell_title: string;
   premium_upsell_body: string;
   /** H1 + supporting paragraph on the public landing page. */
@@ -857,6 +890,7 @@ export interface ContactRow {
   created_at: string;
   // lead-only
   source?: string | null;
+  linkedin_id?: string | null;
   utm_campaign?: string | null;
   consent_marketing?: boolean | null;
   notes?: string | null;
@@ -889,6 +923,7 @@ export interface LeadAdminOut {
   email: string;
   name: string | null;
   phone: string | null;
+  linkedin_id?: string | null;
   company: string | null;
   role: string | null;
   source: LeadSource;
