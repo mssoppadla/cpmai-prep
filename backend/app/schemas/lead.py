@@ -92,6 +92,9 @@ class ContactRow(BaseModel):
 
     # User-specific (None for leads)
     role: str | None = None
+    # Alternate email(s) this user left on a lead that differ from their login email (linked by
+    # browser anon_id). Lets admins see both emails on a user contact row. Null when none.
+    alt_emails: list[str] | None = None
     has_google: bool | None = None
     has_password: bool | None = None
     has_active_subscription: bool | None = None

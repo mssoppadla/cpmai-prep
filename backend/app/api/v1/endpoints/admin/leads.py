@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_admin_user
 from app.core.exceptions import NotFoundError
 from app.core.audit import audit_log
-from app.api.v1.endpoints.admin.users import active_user_ids, user_activity_window
+from app.api.v1.endpoints.admin.users import active_user_ids, user_activity_window, _user_lead_info
 from app.models.lead import Lead
 from app.models.subscription import Subscription
 from app.models.user import User
@@ -122,13 +122,16 @@ def list_contacts(db: Session = Depends(get_db),
             sub_ids = {s.user_id for s in db.query(Subscription)
                        .filter(Subscription.user_id.in_([u.id for u in users]),
                                Subscription.status == "active").all()}
+            lead_info = _user_lead_info(db, users)   # alternate emails from linked leads
         else:
             sub_ids = set()
+            lead_info = {}
         for U in users:
             rows.append(ContactRow(
                 kind="user", id=U.id,
                 email=U.email, name=U.name, created_at=U.created_at,
                 role=U.role.value if hasattr(U.role, "value") else str(U.role),
+                alt_emails=((lead_info.get(U.id) or {}).get("alt_emails") or None),
                 # Admin-only notes now exist for users too (migration 0035),
                 # so the Contacts feed surfaces + edits them for every row.
                 notes=U.notes,

@@ -30,7 +30,7 @@ import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
-import { pricing, payments, auth, errMsg } from "@/lib/api";
+import { pricing, payments, auth, content, errMsg } from "@/lib/api";
 import type {
   PlanPublicOut, PriceQuoteOut, UserOut, CreateOrderOut,
   CurrencyOption,
@@ -134,6 +134,14 @@ export default function PricingPage() {
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [offerCode, setOfferCode] = useState("");
   const [referrer, setReferrer] = useState("");
+  // Optional LinkedIn id captured at checkout — same intent as the landing
+  // form (reach out + share prep docs). Upserted onto the buyer's lead so
+  // it surfaces in the admin Users/Contacts screens. The explainer copy is
+  // the admin-editable landing copy (`lead_linkedin_reason`) so both places
+  // say the same thing; falls back to a sensible default when unreachable.
+  const [linkedinId, setLinkedinId] = useState("");
+  const [linkedinReason, setLinkedinReason] = useState(
+    "So we can serve you better and share relevant prep documents");
   const [quote, setQuote] = useState<PriceQuoteOut | null>(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -172,6 +180,14 @@ export default function PricingPage() {
       try { setUser(await auth.me()); }
       catch { setUser(null); }
       finally { setAuthChecked(true); }
+    })();
+    (async () => {
+      // Reuse the admin-editable landing copy for the LinkedIn explainer so
+      // the checkout field says the same thing as the landing form. Best-effort.
+      try {
+        const c = await content.landing();
+        if (c?.lead_linkedin_reason) setLinkedinReason(c.lead_linkedin_reason);
+      } catch { /* keep the default reason */ }
     })();
   }, []);
 
@@ -277,6 +293,7 @@ export default function PricingPage() {
         plan_slug: selectedPlan.slug,
         offer_code: offerCode || null,
         referrer: referrer || null,
+        linkedin_id: linkedinId.trim() || null,
         currency,
       });
     } catch (e) {
@@ -500,6 +517,21 @@ export default function PricingPage() {
                     <input value={referrer}
                            onChange={e => setReferrer(e.target.value)}
                            placeholder="Name or email of who referred you"
+                           className="w-full border border-slate-300 rounded px-3 py-2 text-sm" />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-700 mb-1">
+                      LinkedIn ID (optional)
+                      <span className="block text-[11px] font-normal text-slate-500 mt-0.5">
+                        {linkedinReason}
+                      </span>
+                    </span>
+                    <input value={linkedinId}
+                           onChange={e => setLinkedinId(e.target.value)}
+                           inputMode="url"
+                           autoComplete="off"
+                           placeholder="linkedin.com/in/your-id"
                            className="w-full border border-slate-300 rounded px-3 py-2 text-sm" />
                   </label>
 

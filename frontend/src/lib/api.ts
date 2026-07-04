@@ -1724,6 +1724,16 @@ export const admin = {
         { method: "DELETE", authed: true });
     },
   },
+  exams: {
+    /** Admin support view of any aspirant's exam attempt result — reuses the
+     *  same SubmitAttemptOut the aspirant sees (per-question pass/fail) so the
+     *  admin can guide the candidate on focus areas. Admin-gated on the server. */
+    async getResult(attemptId: number): Promise<SubmitAttemptOut> {
+      const { data } = await request<SubmitAttemptOut>(
+        `/admin/exams/attempts/${attemptId}/result`, { authed: true });
+      return data;
+    },
+  },
   users: {
     async list(p?: {
       q?: string; role?: string; method?: "google" | "password" | "both";

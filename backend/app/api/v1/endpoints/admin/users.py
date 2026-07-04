@@ -19,20 +19,46 @@ from app.schemas.auth import UserAdminOut
 router = APIRouter()
 
 
-def _lead_contacts(db: Session, emails: list[str]) -> dict[str, dict]:
-    """Most-recent LinkedIn id + WhatsApp number a user left on a landing lead, keyed by
-    lower-cased email. Read-only surfacing of already-collected contact info; never mutates."""
-    out: dict[str, dict] = {}
-    wanted = [e.lower() for e in emails if e]
-    if not wanted:
+def _user_lead_info(db: Session, users: list[User]) -> dict[int, dict]:
+    """Per-user contact info from matching landing leads — LinkedIn + WhatsApp + any ALTERNATE
+    email (a lead email that differs from the login email). Leads match by email OR by a browser
+    ``anon_id`` the user was seen with WHILE SIGNED IN (journey_events) — so a lead submitted under
+    one email and a later Google sign-in under a different email are still linked. Read-only; keyed
+    by user id. Never mutates."""
+    out: dict[int, dict] = {u.id: {"linkedin_id": None, "whatsapp": None, "alt_emails": []}
+                            for u in users}
+    if not users:
         return out
-    for L in (db.query(Lead).filter(Lead.email.in_(wanted))
-              .order_by(Lead.created_at.desc()).all()):
-        c = out.setdefault(L.email.lower(), {"linkedin_id": None, "whatsapp": None})
-        if c["linkedin_id"] is None and L.linkedin_id:
-            c["linkedin_id"] = L.linkedin_id
-        if c["whatsapp"] is None and L.whatsapp_number:
-            c["whatsapp"] = f"{L.country_code or ''} {L.whatsapp_number}".strip()
+    email_to_uid = {u.email.lower(): u.id for u in users if u.email}
+    uid_to_email = {u.id: (u.email or "").lower() for u in users}
+    # browser ids each user was seen with while signed in (bridges different emails)
+    anon_to_uids: dict[str, set[int]] = {}
+    for uid, anon in (db.query(JourneyEvent.user_id, JourneyEvent.anon_id)
+                      .filter(JourneyEvent.user_id.in_(list(uid_to_email.keys())),
+                              JourneyEvent.anon_id.isnot(None)).distinct().all()):
+        anon_to_uids.setdefault(anon, set()).add(uid)
+    conds = []
+    if email_to_uid:
+        conds.append(func.lower(Lead.email).in_(list(email_to_uid.keys())))
+    if anon_to_uids:
+        conds.append(Lead.anon_id.in_(list(anon_to_uids.keys())))
+    if not conds:
+        return out
+    for L in db.query(Lead).filter(or_(*conds)).order_by(Lead.created_at.desc()).all():
+        uids: set[int] = set()
+        if L.email and L.email.lower() in email_to_uid:
+            uids.add(email_to_uid[L.email.lower()])
+        if L.anon_id and L.anon_id in anon_to_uids:
+            uids |= anon_to_uids[L.anon_id]
+        for uid in uids:
+            info = out[uid]
+            if info["linkedin_id"] is None and L.linkedin_id:
+                info["linkedin_id"] = L.linkedin_id
+            if info["whatsapp"] is None and L.whatsapp_number:
+                info["whatsapp"] = f"{L.country_code or ''} {L.whatsapp_number}".strip()
+            if (L.email and L.email.lower() != uid_to_email.get(uid)
+                    and L.email not in info["alt_emails"]):
+                info["alt_emails"].append(L.email)
     return out
 
 
@@ -94,6 +120,7 @@ def _to_admin_out(u: User, sub: Subscription | None,
         daily_chat_limit_override=u.daily_chat_limit_override,
         linkedin_id=(contact or {}).get("linkedin_id"),
         whatsapp=(contact or {}).get("whatsapp"),
+        alt_emails=((contact or {}).get("alt_emails") or None),
     )
 
 
@@ -148,8 +175,8 @@ def list_users(db: Session = Depends(get_db),
     subs = {s.user_id: s for s in db.query(Subscription)
             .filter(Subscription.user_id.in_([u.id for u in users]),
                     Subscription.status == "active").all()}
-    contacts = _lead_contacts(db, [u.email for u in users])   # LinkedIn + WhatsApp from leads
-    return [_to_admin_out(u, subs.get(u.id), contacts.get(u.email.lower())) for u in users]
+    info = _user_lead_info(db, users)   # LinkedIn + WhatsApp + alternate emails from leads
+    return [_to_admin_out(u, subs.get(u.id), info.get(u.id)) for u in users]
 
 
 @router.get("/{user_id}", response_model=UserAdminOut)
@@ -159,7 +186,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
         raise NotFoundError()
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
+    return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
 @router.patch("/{user_id}/role", response_model=UserAdminOut)
@@ -177,7 +204,7 @@ def change_role(user_id: int, role: UserRole,
               {"target_user_id": user_id, "from": old.value, "to": role.value})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
+    return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
 class _PasswordResetIn(BaseModel):
@@ -208,7 +235,7 @@ def reset_password(user_id: int, payload: _PasswordResetIn,
               {"target_user_id": user_id, "target_email": u.email})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
+    return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
 class _ChatLimitOverrideIn(BaseModel):
@@ -239,7 +266,7 @@ def set_chat_limit_override(user_id: int, payload: _ChatLimitOverrideIn,
                "to": payload.daily_chat_limit_override})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
+    return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
 class _NotesIn(BaseModel):
@@ -269,7 +296,7 @@ def update_notes(user_id: int, payload: _NotesIn,
               {"target_user_id": user_id})
     sub = (db.query(Subscription)
            .filter_by(user_id=u.id, status="active").first())
-    return _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower()))
+    return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
 @router.delete("/{user_id}", status_code=204)
@@ -411,7 +438,7 @@ def user_insights(user_id: int, db: Session = Depends(get_db)):
 
     sub = db.query(Subscription).filter_by(user_id=u.id, status="active").first()
     return {
-        "user": _to_admin_out(u, sub, _lead_contacts(db, [u.email]).get(u.email.lower())),
+        "user": _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id)),
         "exam": exam,
         "courses": courses,
         "quiz_attempts": quiz_attempts,
