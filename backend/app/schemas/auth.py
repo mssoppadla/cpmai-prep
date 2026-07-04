@@ -95,6 +95,10 @@ class UserAdminOut(UserOut):
     # numbers are preserved and surfaced here (country_code + number).
     linkedin_id: str | None = None
     whatsapp: str | None = None
+    # Alternate email(s) the same person used on a landing lead but which differ from their login
+    # email — e.g. filled the form with a work email, then signed up via Google with a personal one.
+    # Linked by the browser anon_id (journey_events), so admins see both emails. Null when none.
+    alt_emails: list[str] | None = None
 
 
 class SubscriptionSummary(BaseModel):

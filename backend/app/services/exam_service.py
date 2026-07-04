@@ -516,10 +516,12 @@ class ExamService:
             self.db.commit()
 
     def _load_session(self, actor: "User | str | None",
-                      attempt_id: int) -> ExamSession:
+                      attempt_id: int, admin: bool = False) -> ExamSession:
         session = self.db.get(ExamSession, attempt_id)
         if not session:
             raise NotFoundError("Attempt not found.")
+        if admin:
+            return session          # admin support view: any user's attempt (endpoint is admin-gated)
         if isinstance(actor, User):
             if session.user_id != actor.id:
                 raise ForbiddenError()
@@ -636,9 +638,10 @@ class ExamService:
 
     # ---------------------------------------------------------------- result
     def get_result(self, actor: "User | str | None",
-                   attempt_id: int) -> SubmitAttemptOut:
-        """Cold-load a submitted attempt's result. Reconstructs reasoning view."""
-        session = self._load_session(actor, attempt_id)
+                   attempt_id: int, admin: bool = False) -> SubmitAttemptOut:
+        """Cold-load a submitted attempt's result. Reconstructs reasoning view.
+        admin=True (via the admin-gated endpoint) lets a support/admin view ANY user's attempt."""
+        session = self._load_session(actor, attempt_id, admin=admin)
         if session.status != "submitted":
             raise ConflictError(f"Attempt is {session.status}, not submitted.")
 

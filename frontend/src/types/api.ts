@@ -88,6 +88,9 @@ export interface UserAdminOut extends UserOut {
    *  `whatsapp` is an already-collected number preserved + surfaced here. */
   linkedin_id?: string | null;
   whatsapp?: string | null;
+  /** Other email(s) the same person used on a lead that differ from their login email
+   *  (linked by browser anon_id). Null when none. */
+  alt_emails?: string[] | null;
 }
 export interface UserInsightsAttempt {
   id: number; exam_set: string | null; practice_domain: string | null;
@@ -895,6 +898,8 @@ export interface ContactRow {
   consent_marketing?: boolean | null;
   notes?: string | null;
   converted_user_id?: number | null;
+  /** Alternate email(s) a user left on a lead (linked by anon_id), differing from login email. */
+  alt_emails?: string[] | null;
   target_exam_date?: string | null;
   /** Rule-based 0..100 score (lead rows only). `null` for user rows
    *  and for leads created before scoring shipped. */
@@ -1020,6 +1025,8 @@ export interface CreateOrderIn {
   plan_slug: string;
   offer_code?: string | null;
   referrer?: string | null;
+  /** Optional LinkedIn id/URL captured at checkout (same intent as the landing form). */
+  linkedin_id?: string | null;
   /** ISO-4217 code. Default "INR" — pass the user's selected currency
    *  so Razorpay opens the popup in that currency. Unsupported codes
    *  get rejected by the backend (we don't silently fall back when

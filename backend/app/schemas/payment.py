@@ -7,6 +7,9 @@ class CreateOrderIn(BaseModel):
     plan_slug: str = Field(min_length=1, max_length=140)
     offer_code: Optional[str] = Field(default=None, max_length=48)
     referrer: Optional[str] = Field(default=None, max_length=240)
+    # Optional LinkedIn id/URL captured at checkout (same intent as the landing form) so we can
+    # reach out to aspirants who paid. Stored as a lead (admins already surface lead LinkedIn).
+    linkedin_id: Optional[str] = Field(default=None, max_length=255)
     # ISO-4217 currency code the user selected on /pricing. Defaults to
     # INR so existing integrations / production INR flow keep working
     # unchanged. Backend validates against ``pricing.supported_currencies``

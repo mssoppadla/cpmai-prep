@@ -333,6 +333,11 @@ function Row({
             isDeleted ? "line-through" : ""
           }`}>{row.email}</div>
           {row.name && <div className="text-xs text-slate-500">{row.name}</div>}
+          {row.kind === "user" && row.alt_emails?.map((e) => (
+            <div key={e} className="text-xs text-slate-500" title="Also used this email on a landing form">
+              alt: {e}
+            </div>
+          ))}
           {row.kind === "lead" && row.linkedin_id && (
             <div className="text-xs text-slate-500 mt-0.5">
               in:{" "}

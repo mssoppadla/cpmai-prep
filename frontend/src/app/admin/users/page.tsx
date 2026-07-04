@@ -225,6 +225,11 @@ export default function AdminUsersPage() {
                       {u.name || <span className="italic text-slate-400">no name</span>}
                     </div>
                     <div className="text-xs text-slate-500">{u.email}</div>
+                    {u.alt_emails?.map((e) => (
+                      <div key={e} className="text-xs text-slate-500" title="Also used this email on a landing form">
+                        alt: {e}
+                      </div>
+                    ))}
                     {u.linkedin_id && (
                       <div className="text-xs text-slate-500 mt-0.5">
                         in:{" "}

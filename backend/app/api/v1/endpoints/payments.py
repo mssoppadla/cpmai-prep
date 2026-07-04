@@ -37,6 +37,7 @@ from app.core.limiter import limiter
 from app.models.user import User
 from app.models.payment import Payment, WebhookEvent
 from app.models.offer import OfferCode
+from app.models.lead import Lead, LeadSource
 from app.schemas.payment import (
     CreateOrderIn, CreateOrderOut, VerifyPaymentIn, VerifyPaymentOut,
     PayPalCaptureIn, PayPalCaptureOut,
@@ -52,11 +53,26 @@ from app.services.tracking_service import emit_event
 router = APIRouter()
 
 
+def _capture_linkedin_lead(db: Session, email: str | None, linkedin_id: str | None) -> None:
+    """Capture the LinkedIn id an aspirant left at checkout by upserting a lead keyed by their
+    email — so admins already see it on the Users/Contacts screens. Never blocks the order."""
+    linkedin_id = (linkedin_id or "").strip()[:255]
+    if not linkedin_id or not email:
+        return
+    lead = (db.query(Lead).filter(Lead.email == email.lower())
+            .order_by(Lead.created_at.desc()).first())
+    if lead is None:
+        db.add(Lead(email=email.lower(), source=LeadSource.PRICING_PAGE, linkedin_id=linkedin_id))
+    elif not lead.linkedin_id:
+        lead.linkedin_id = linkedin_id
+
+
 @router.post("/orders", response_model=CreateOrderOut, status_code=201)
 def create_order(payload: CreateOrderIn,
                  request: Request,
                  user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):
+    _capture_linkedin_lead(db, user.email, payload.linkedin_id)
     pricing = PricingService(db)
     requested_currency = (payload.currency or "INR").upper()
     quote = pricing.quote(payload.plan_slug, payload.offer_code,

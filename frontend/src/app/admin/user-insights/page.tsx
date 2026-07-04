@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { admin, errMsg } from "@/lib/api";
 import type { UserAdminOut, UserInsights } from "@/types/api";
 import { linkedinHref } from "@/lib/linkedin";
@@ -111,6 +112,11 @@ export default function AdminUserInsightsPage() {
               {data.user.name || data.user.email}
             </div>
             <div className="text-sm text-slate-500">{data.user.email}</div>
+            {data.user.alt_emails?.map((e) => (
+              <div key={e} className="text-xs text-slate-500" title="Also used this email on a landing form">
+                alt: {e}
+              </div>
+            ))}
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
               {data.user.linkedin_id && (
                 <span>in:{" "}
@@ -141,7 +147,8 @@ export default function AdminUserInsightsPage() {
                     <tr>
                       <th className="py-2 pr-3">Exam</th><th className="py-2 pr-3">Domain</th>
                       <th className="py-2 pr-3">Score</th><th className="py-2 pr-3">Result</th>
-                      <th className="py-2 pr-3">Time</th><th className="py-2">When</th>
+                      <th className="py-2 pr-3">Time</th><th className="py-2 pr-3">When</th>
+                      <th className="py-2">Review</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -156,7 +163,13 @@ export default function AdminUserInsightsPage() {
                           </span>
                         </td>
                         <td className="py-2 pr-3">{a.time_taken_seconds ? fmtDuration(a.time_taken_seconds) : "—"}</td>
-                        <td className="py-2 text-slate-500">{fmtDate(a.submitted_at)}</td>
+                        <td className="py-2 pr-3 text-slate-500">{fmtDate(a.submitted_at)}</td>
+                        <td className="py-2">
+                          <Link href={`/admin/user-insights/attempts/${a.id}`}
+                                className="text-indigo-600 hover:underline">
+                            View
+                          </Link>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
