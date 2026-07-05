@@ -22,6 +22,7 @@ from app.services.auth.google_auth import (
 )
 from app.services.geoip import extract_client_ip, lookup as geo_lookup
 from app.services.tracking_service import emit_event
+from app.services.email.automation import enqueue_for_trigger
 
 router = APIRouter()
 
@@ -88,6 +89,9 @@ def signup(payload: SignupIn, request: Request, db: Session = Depends(get_db)):
                anon_id=getattr(request.state, "anon_id", None),
                session_id=getattr(request.state, "session_id", None),
                metadata={"country": user.country})
+    # Lifecycle email automations (fail-soft — never breaks signup).
+    enqueue_for_trigger(db, "user.signup", user,
+                        context_extra={"signup_method": "password"})
     return AuthTokens(access=access, refresh=refresh, user=UserOut.model_validate(user))
 
 
@@ -102,6 +106,8 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
     emit_event(db, "auth.login", user_id=user.id,
                metadata={"method": "password",
                          "country": user.last_login_country})
+    enqueue_for_trigger(db, "user.login", user,
+                        context_extra={"signup_method": "password"})
     return AuthTokens(access=access, refresh=refresh, user=UserOut.model_validate(user))
 
 
@@ -162,6 +168,15 @@ def google_login(payload: GoogleLoginIn, request: Request,
                metadata={"email": user.email,
                          "first_time": bool(prov.get("created")),
                          "country": user.last_login_country})
+
+    # Lifecycle email automations (fail-soft). First-time Google users
+    # fire the signup trigger; linked/returning fire login.
+    if prov.get("created"):
+        enqueue_for_trigger(db, "user.signup", user,
+                            context_extra={"signup_method": "google"})
+    else:
+        enqueue_for_trigger(db, "user.login", user,
+                            context_extra={"signup_method": "google"})
 
     access, refresh = AuthService(db)._issue(user)
     return AuthTokens(access=access, refresh=refresh,

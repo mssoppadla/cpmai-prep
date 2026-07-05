@@ -35,6 +35,9 @@ import type {
   PlanPublicOut, PlanAdminOut, PlanCreate, PlanUpdate,
   OfferCodeAdminOut, OfferCodeCreate, OfferCodeUpdate,
   EmailTemplateOut, EmailTemplateCreate, EmailTemplateUpdate,
+  EmailAutomationOut, EmailAutomationCreate, EmailAutomationUpdate,
+  EmailAutomationCatalog, EmailOutboxRow, EmailOutboxPage,
+  PaymentsAdminPage, PaymentsSummary,
   PriceQuoteOut, CreateOrderIn, CreateOrderOut, CurrenciesOut,
   VerifyPaymentIn, VerifyPaymentOut,
   PayPalCaptureIn, PayPalCaptureOut,
@@ -1856,6 +1859,92 @@ export const admin = {
       const { data } = await request<{ sent: boolean; to: string }>(
         `/admin/email-templates/${id}/test`,
         { method: "POST", json: { to: to ?? null }, authed: true });
+      return data;
+    },
+  },
+  /** Lifecycle email automations — admin-defined mail types + outbox.
+   *  Contract: docs/contracts/email-automation.md. */
+  emailAutomations: {
+    async catalog(): Promise<EmailAutomationCatalog> {
+      const { data } = await request<EmailAutomationCatalog>(
+        "/admin/email-automations/catalog", { authed: true });
+      return data;
+    },
+    async list(): Promise<EmailAutomationOut[]> {
+      const { data } = await request<EmailAutomationOut[]>(
+        "/admin/email-automations", { authed: true });
+      return data;
+    },
+    async create(p: EmailAutomationCreate): Promise<EmailAutomationOut> {
+      const { data } = await request<EmailAutomationOut>(
+        "/admin/email-automations",
+        { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: EmailAutomationUpdate): Promise<EmailAutomationOut> {
+      const { data } = await request<EmailAutomationOut>(
+        `/admin/email-automations/${id}`,
+        { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async delete(id: number): Promise<void> {
+      await request(`/admin/email-automations/${id}`,
+        { method: "DELETE", authed: true });
+    },
+    /** Activity feed (R7): send statuses with dates + reasons. */
+    async outbox(p?: {
+      status?: string; automation_id?: number; user_email?: string;
+      limit?: number; offset?: number;
+    }): Promise<EmailOutboxPage> {
+      const { data } = await request<EmailOutboxPage>(
+        `/admin/email-automations/outbox${qs(p)}`, { authed: true });
+      return data;
+    },
+    async requeue(outboxId: number): Promise<EmailOutboxRow> {
+      const { data } = await request<EmailOutboxRow>(
+        `/admin/email-automations/outbox/${outboxId}/requeue`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    /** Render with sample values + real attachments → admin inbox. */
+    async test(id: number, to?: string): Promise<{ sent: boolean; to: string }> {
+      const { data } = await request<{ sent: boolean; to: string }>(
+        `/admin/email-automations/${id}/test`,
+        { method: "POST", json: { to: to ?? null }, authed: true });
+      return data;
+    },
+    /** REAL SMTP check — surfaces the actual auth/connection error. */
+    async smtpTest(to?: string): Promise<{ ok: boolean; to: string; error: string | null }> {
+      const { data } = await request<{ ok: boolean; to: string; error: string | null }>(
+        `/admin/email-automations/smtp-test`,
+        { method: "POST", json: { to: to ?? null }, authed: true });
+      return data;
+    },
+    /** Manual personalized send to admin-selected users (R9). */
+    async bulkSend(id: number, userIds: number[]): Promise<{
+      queued: number; skipped: Array<{ user_id: number; reason: string }>;
+    }> {
+      const { data } = await request<{
+        queued: number; skipped: Array<{ user_id: number; reason: string }>;
+      }>(
+        `/admin/email-automations/${id}/bulk-send`,
+        { method: "POST", json: { user_ids: userIds }, authed: true });
+      return data;
+    },
+  },
+  /** Payments visibility (R10) — read-only list + summary chips. */
+  payments: {
+    async list(p?: {
+      status?: string; abandoned_hours?: number; user_email?: string;
+      limit?: number; offset?: number;
+    }): Promise<PaymentsAdminPage> {
+      const { data } = await request<PaymentsAdminPage>(
+        `/admin/payments${qs(p)}`, { authed: true });
+      return data;
+    },
+    async summary(): Promise<PaymentsSummary> {
+      const { data } = await request<PaymentsSummary>(
+        `/admin/payments/summary`, { authed: true });
       return data;
     },
   },

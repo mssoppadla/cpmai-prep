@@ -550,6 +550,12 @@ EDITABLE: dict[str, Callable] = {
     # password is masked in GET responses (see SECRET_KEYS below). The
     # mailer (app/services/email/mailer.py) reads these at send time.
     "email.automation_enabled":          _bool,
+    # Master switch for LIFECYCLE automations (signup/payment/exam mail
+    # types managed in /admin/email-automations). Separate from the
+    # lead auto-offer switch above so the two flows pause independently.
+    # While false the outbox dispatcher no-ops: queued rows stay pending
+    # and send when the switch comes back on.
+    "email.lifecycle_enabled":           _bool,
     "email.smtp_host":                   _optional_str(256),
     "email.smtp_port":                   _int_str_in(1, 65535),
     "email.smtp_use_ssl":                _bool,

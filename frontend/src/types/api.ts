@@ -1213,6 +1213,103 @@ export interface EmailTemplateUpdate {
   is_active?: boolean;
 }
 
+/* ─── Lifecycle email automations (/admin/email-automations) ───────────
+   Contract: docs/contracts/email-automation.md. A row = one admin-defined
+   mail type: WHEN trigger IF conditions WAIT delay SEND content. */
+
+export interface EmailAttachment {
+  url: string;          // /uploads/... exactly as /admin/uploads returned
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+}
+
+export interface EmailCondition {
+  type: string;         // catalog key, e.g. "has_active_subscription"
+  [param: string]: unknown;
+}
+
+export interface EmailAutomationOut {
+  id: number;
+  name: string;
+  trigger_key: string;
+  conditions: EmailCondition[];
+  delay_minutes: number;
+  subject: string;
+  html_body: string;
+  attachments: EmailAttachment[];
+  send_policy: "once_per_user" | "replace_pending" | "every_event";
+  cooldown_days: number;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type EmailAutomationCreate = Omit<
+  EmailAutomationOut, "id" | "created_at" | "updated_at">;
+export type EmailAutomationUpdate = Partial<EmailAutomationCreate>;
+
+export interface EmailAutomationCatalog {
+  shared_placeholders: string[];
+  triggers: Array<{
+    key: string; label: string; description: string;
+    placeholders: string[];
+  }>;
+  condition_types: Array<{
+    type: string; label: string; params: Record<string, string>;
+  }>;
+  send_policies: string[];
+  exam_sets: Array<{ id: number; name: string }>;
+  master_switch_on: boolean;
+}
+
+export interface EmailOutboxRow {
+  id: number;
+  automation_id: number | null;
+  automation_name: string | null;
+  user_id: number;
+  user_email: string;
+  to_email: string;
+  status: "pending" | "sent" | "skipped" | "failed" | "cancelled";
+  source: "automation" | "manual";
+  scheduled_at: string | null;
+  sent_at: string | null;
+  attempts: number;
+  last_error: string | null;
+  skip_reason: string | null;
+  created_at: string | null;
+}
+
+export interface EmailOutboxPage {
+  total: number;
+  items: EmailOutboxRow[];
+}
+
+export interface PaymentAdminRow {
+  id: number;
+  user_id: number;
+  user_email: string;
+  user_name: string | null;
+  plan_name: string | null;
+  provider_name: string;
+  provider_order_id: string;
+  amount_paise: number;
+  currency: string;
+  status: "created" | "captured" | "failed" | "refunded";
+  offer_code: string | null;
+  created_at: string | null;
+}
+
+export interface PaymentsAdminPage {
+  total: number;
+  items: PaymentAdminRow[];
+}
+
+export interface PaymentsSummary {
+  by_status: Record<string, number>;
+  abandoned_24h: number;
+}
+
 export interface PriceQuoteOut {
   plan_id: number;
   plan_slug: string;

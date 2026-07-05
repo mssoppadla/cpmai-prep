@@ -548,6 +548,11 @@
     "description": "Master switch for the lead → auto-offer reply email. When false, no transactional email is sent on landing-form sign-up. Turn ON only after SMTP creds + a default template + email.auto_offer_code are configured."
   },
   {
+    "key": "email.lifecycle_enabled",
+    "value": false,
+    "description": "Master switch for lifecycle email automations (the mail types managed in /admin/email-automations: signup nudge, payment received, exam follow-up, …). While OFF the outbox dispatcher pauses — queued mails stay pending and send when switched back ON. Turn ON only after SMTP creds are configured and templates reviewed."
+  },
+  {
     "key": "email.smtp_host",
     "value": "smtp.hostinger.com",
     "description": "SMTP server hostname for outbound mail. Hostinger default is smtp.hostinger.com."
