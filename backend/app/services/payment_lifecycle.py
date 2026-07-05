@@ -114,6 +114,27 @@ def activate_subscription_for_payment(db: Session, payment: Payment) -> Subscrip
                "provider_name": payment.provider_name,
                "order_id": payment.provider_order_id,
                "amount_paise": payment.amount_paise})
+
+    # Lifecycle email automations (fail-soft, idempotent under the
+    # verify-vs-webhook race via the outbox dedup key). Also cancel any
+    # queued "you haven't paid yet" nudges — they no longer apply.
+    from app.models.user import User
+    from app.services.email.automation import (
+        cancel_unpaid_nudges, enqueue_for_trigger,
+    )
+    user = db.get(User, payment.user_id)
+    if user is not None:
+        enqueue_for_trigger(
+            db, "payment.success", user,
+            event_ref=f"pay{payment.id}",
+            context_extra={
+                "plan_name": plan.name,
+                "amount": f"{(payment.amount_paise or 0) / 100:.2f}",
+                "currency": payment.currency,
+                "expires_at": (sub.expires_at.strftime("%d %b %Y")
+                               if sub.expires_at else ""),
+            })
+    cancel_unpaid_nudges(db, payment.user_id)
     return sub
 
 
@@ -150,6 +171,23 @@ def mark_payment_failed(db: Session, payment: Payment) -> None:
     emit_event(db, "payment.failed", user_id=payment.user_id,
                metadata={"provider_name": payment.provider_name,
                           "provider_order_id": payment.provider_order_id})
+
+    # Lifecycle email automations (fail-soft) — the "payment failed,
+    # need help?" nudge, deduped per payment id.
+    from app.models.user import User
+    from app.services.email.automation import enqueue_for_trigger
+    user = db.get(User, payment.user_id)
+    if user is not None:
+        plan = db.get(Plan, payment.plan_id) if payment.plan_id else None
+        enqueue_for_trigger(
+            db, "payment.failed", user,
+            event_ref=f"pay{payment.id}",
+            context_extra={
+                "plan_name": plan.name if plan else "",
+                "amount": f"{(payment.amount_paise or 0) / 100:.2f}",
+                "currency": payment.currency,
+                "provider": payment.provider_name,
+            })
 
 
 def find_payment_for_event(db: Session, event: dict) -> Payment | None:

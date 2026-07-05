@@ -187,6 +187,8 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     # email.* — transactional lead → auto-offer reply (Hostinger SMTP).
     # smtp_password is secret: the round-trip test checks the masked echo.
     "email.automation_enabled":          False,
+    # Lifecycle automations master switch (/admin/email-automations).
+    "email.lifecycle_enabled":           True,
     "email.smtp_host":                   "smtp.hostinger.com",
     "email.smtp_port":                   465,
     "email.smtp_use_ssl":                True,

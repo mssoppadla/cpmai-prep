@@ -142,6 +142,94 @@ def seed_email_templates(db) -> int:
     return 1
 
 
+def seed_email_automations(db) -> int:
+    """Insert the four shipped lifecycle mail types only if the table is
+    empty (fresh-only rule, same as email_templates). Every row ships
+    ``is_active=False`` — nothing sends until the admin reviews the
+    copy, configures SMTP, and flips BOTH the per-type toggle and the
+    ``email.lifecycle_enabled`` master switch.
+
+    Contract: docs/contracts/email-automation.md §0.
+    """
+    from app.models.email_automation import EmailAutomation
+    if db.query(EmailAutomation).first():
+        return 0
+    rows = [
+        EmailAutomation(
+            name="Welcome — signup without payment",
+            trigger_key="user.signup",
+            conditions=[{"type": "has_active_subscription", "value": False}],
+            delay_minutes=20,
+            send_policy="once_per_user",
+            subject="Welcome to {{brand_name}}, {{name}} — your free study kit",
+            html_body=(
+                "<p>Hi {{name}},</p>"
+                "<p>Welcome to {{brand_name}}! Your account is ready.</p>"
+                "<p>To help you get started we've attached free preparation "
+                "material — and when you're ready for full mock exams and "
+                "the complete course, use code <b>{{offer_code}}</b> "
+                "(valid until {{offer_valid_until}}).</p>"
+                "<p><a href=\"{{enroll_url}}\">Explore the full program</a></p>"
+                "<p>— The {{brand_name}} team</p>"
+            ),
+        ),
+        EmailAutomation(
+            name="Payment received",
+            trigger_key="payment.success",
+            conditions=[],
+            delay_minutes=0,
+            send_policy="every_event",
+            subject="Payment received — welcome aboard, {{name}}!",
+            html_body=(
+                "<p>Hi {{name}},</p>"
+                "<p>We've received your payment of {{currency}} {{amount}} "
+                "for <b>{{plan_name}}</b>. Your access is active until "
+                "{{expires_at}}.</p>"
+                "<p><a href=\"{{enroll_url}}\">Start learning now</a></p>"
+                "<p>— The {{brand_name}} team</p>"
+            ),
+        ),
+        EmailAutomation(
+            name="Exam follow-up (2 days)",
+            trigger_key="exam.submitted",
+            conditions=[],
+            delay_minutes=2880,
+            send_policy="replace_pending",
+            subject="{{name}}, how did {{exam_title}} feel? Next steps inside",
+            html_body=(
+                "<p>Hi {{name}},</p>"
+                "<p>Two days ago you {{passed}} <b>{{exam_title}}</b> with a "
+                "score of {{score}}%. Consistent practice is what turns a "
+                "score into a certification.</p>"
+                "<p><a href=\"{{enroll_url}}\">Take your next mock exam</a></p>"
+                "<p>— The {{brand_name}} team</p>"
+            ),
+        ),
+        EmailAutomation(
+            name="Payment failed — need help?",
+            trigger_key="payment.failed",
+            conditions=[],
+            delay_minutes=30,
+            send_policy="every_event",
+            cooldown_days=1,
+            subject="{{name}}, your payment didn't go through — can we help?",
+            html_body=(
+                "<p>Hi {{name}},</p>"
+                "<p>Your payment for <b>{{plan_name}}</b> "
+                "({{currency}} {{amount}}) didn't complete. This usually "
+                "resolves by retrying or using another payment method.</p>"
+                "<p><a href=\"{{enroll_url}}\">Try again</a> — or just reply "
+                "to this email and we'll help you sort it out.</p>"
+                "<p>— The {{brand_name}} team</p>"
+            ),
+        ),
+    ]
+    for r in rows:
+        db.add(r)
+    db.commit()
+    return len(rows)
+
+
 def seed_super_admin(db) -> str | None:
     """Create a super-admin if none exists. Returns the email if created."""
     if db.query(User).filter_by(role=UserRole.SUPER_ADMIN).first():
@@ -271,6 +359,11 @@ def main() -> None:
         n_email_tpl = seed_email_templates(db)
         print(f"  email_templates: {n_email_tpl} added "
               f"({db.query(EmailTemplate).count()} total)")
+
+        from app.models.email_automation import EmailAutomation
+        n_email_auto = seed_email_automations(db)
+        print(f"  email_automations: {n_email_auto} added "
+              f"({db.query(EmailAutomation).count()} total)")
 
         admin_email = seed_super_admin(db)
         if admin_email:

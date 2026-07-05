@@ -83,6 +83,7 @@ const GROUPS: NavGroupDef[] = [
     defaultExpanded: false,
     items: [
       { href: "/admin/plans",       label: "Plans" },
+      { href: "/admin/payments",    label: "Payments", badge: "NEW" },
       { href: "/admin/offer-codes", label: "Offer Codes" },
       { href: "/admin/pricing",     label: "Pricing & FX" },
     ],
@@ -95,7 +96,8 @@ const GROUPS: NavGroupDef[] = [
     items: [
       { href: "/admin/campaigns",       label: "Campaigns", badge: "NEW" },
       { href: "/admin/social-queue",    label: "Social queue", badge: "NEW" },
-      { href: "/admin/email-templates", label: "Email Templates", badge: "NEW" },
+      { href: "/admin/email-automations", label: "Email Automations", badge: "NEW" },
+      { href: "/admin/email-templates", label: "Email Templates" },
       { href: "/admin/leads",           label: "Contacts (also in People)", indent: true },
     ],
   },

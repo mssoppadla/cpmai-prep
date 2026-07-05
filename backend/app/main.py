@@ -164,6 +164,18 @@ def startup():
                 _log.getLogger(__name__).warning(
                     "visitor-insights rollup failed to register: %s", _e,
                 )
+            # Lifecycle email outbox dispatcher + abandoned-payment
+            # sweeper — same shared scheduler, same idempotent
+            # registration discipline. No-ops per tick while the
+            # email.lifecycle_enabled master switch is off.
+            try:
+                from app.services.email.dispatcher import register as _register_email
+                _register_email(_sched)
+            except Exception as _e:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "email dispatcher failed to register: %s", _e,
+                )
 
 
 @app.on_event("shutdown")

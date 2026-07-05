@@ -57,9 +57,16 @@ def _html_to_text(html: str) -> str:
     return text.strip() or "Please view this email in an HTML-capable client."
 
 
-def send_email(to: str, subject: str, html_body: str) -> bool:
+def send_email(to: str, subject: str, html_body: str,
+               attachments: list[dict] | None = None) -> bool:
     """Send a single HTML email. Returns True on success, False on any
-    failure or when SMTP isn't configured yet."""
+    failure or when SMTP isn't configured yet.
+
+    ``attachments``: optional list of ``{path, filename, mime_type}``
+    entries whose paths have ALREADY been verified by
+    app.services.email.attachments.resolve_attachment_paths — this
+    function reads them as-is and never does its own path math.
+    """
     host     = settings_store.get_str("email.smtp_host", "")
     port     = settings_store.get_int("email.smtp_port", 465)
     use_ssl  = settings_store.get_bool("email.smtp_use_ssl", True)
@@ -80,6 +87,22 @@ def send_email(to: str, subject: str, html_body: str) -> bool:
     msg["To"] = to
     msg.set_content(_html_to_text(html_body))
     msg.add_alternative(html_body, subtype="html")
+
+    # Attach pre-verified files (lifecycle automations). A read failure
+    # aborts the send — delivering a mail without the PDF the admin
+    # promised is worse than a visible failure the dispatcher retries.
+    for att in (attachments or []):
+        try:
+            data = open(att["path"], "rb").read()
+        except OSError as e:
+            log.error("email.attachment_read_failed",
+                      path=att.get("path"), error=str(e))
+            return False
+        maintype, _, subtype = (att.get("mime_type")
+                                or "application/octet-stream").partition("/")
+        msg.add_attachment(data, maintype=maintype or "application",
+                           subtype=subtype or "octet-stream",
+                           filename=att.get("filename") or "attachment")
 
     try:
         if use_ssl:

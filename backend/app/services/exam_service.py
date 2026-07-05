@@ -484,6 +484,23 @@ class ExamService:
                              "unanswered": unanswered,
                              "anonymous": actor_user_id is None})
 
+        # Lifecycle email automations (fail-soft; signed-in users only —
+        # anonymous attempts have no email address to write to).
+        if actor_user_id is not None:
+            from app.models.user import User as _User
+            from app.services.email.automation import enqueue_for_trigger
+            _u = self.db.get(_User, actor_user_id)
+            if _u is not None:
+                enqueue_for_trigger(
+                    self.db, "exam.submitted", _u,
+                    event_ref=f"exam{session.id}",
+                    context_extra={
+                        "exam_title": es.name if es else "",
+                        "score": str(score),
+                        "passed": "passed" if passed else "not passed",
+                        "attempt_date": now.strftime("%d %b %Y"),
+                    })
+
         return SubmitAttemptOut(
             id=session.id, score=score, passed=passed,
             correct_count=correct, incorrect_count=incorrect,

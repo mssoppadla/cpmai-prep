@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { admin, errMsg } from "@/lib/api";
-import type { UserAdminOut, UserRole } from "@/types/api";
+import type { EmailAutomationOut, UserAdminOut, UserRole } from "@/types/api";
 import { countryAndCity, countryFlag } from "@/lib/country-flag";
 import { UserSubscriptionsPanel } from "@/components/admin/UserSubscriptionsPanel";
 import { linkedinHref } from "@/lib/linkedin";
@@ -11,8 +11,14 @@ import { ActivityWindowFilter, toIsoUtc } from "@/components/admin/ActivityWindo
  * Admin user list — filterable view of every user (Google + password).
  *
  * Columns: name/email, login methods, role, subscription, last login, joined.
- * Filters: free-text search (email/name), role, login method.
+ * Filters: free-text search (email/name), role, login method, paid plan.
  * Super-admin can change roles inline.
+ *
+ * Bulk email (R9 — docs/contracts/email-automation.md §7): filter, tick
+ * users, "Send email" → pick a mail type → one PERSONALIZED mail per
+ * selected user is queued (each rendered with that user's own name and
+ * details, never a generic blast). Results land in
+ * /admin/email-automations → Activity.
  */
 export default function AdminUsersPage() {
   const [rows, setRows] = useState<UserAdminOut[] | null>(null);
@@ -21,8 +27,15 @@ export default function AdminUsersPage() {
     q: string; role: string; method: "" | "google" | "password" | "both";
     active_from: string; active_to: string;
   }>({ q: "", role: "", method: "", active_from: "", active_to: "" });
+  // Client-side paid/free narrowing — rows already carry
+  // has_active_subscription, no extra backend round-trip needed.
+  const [planFilter, setPlanFilter] = useState<"" | "paid" | "free">("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Bulk-email selection (R9).
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [sendOpen, setSendOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   // Inline subscription panel — only one user expanded at a time so the
   // table doesn't sprawl. Click "Subscriptions" on a row to toggle.
   const [expandedSubsUserId, setExpandedSubsUserId] = useState<number | null>(null);
@@ -130,6 +143,38 @@ export default function AdminUsersPage() {
     };
   }, [rows]);
 
+  // Rows actually shown = server-filtered rows + client paid/free filter.
+  const visibleRows = useMemo(() => {
+    if (!rows) return null;
+    if (planFilter === "paid") return rows.filter(r => r.has_active_subscription);
+    if (planFilter === "free") return rows.filter(r => !r.has_active_subscription);
+    return rows;
+  }, [rows, planFilter]);
+
+  const visibleIds = useMemo(
+    () => new Set((visibleRows ?? []).map(r => r.id)), [visibleRows]);
+  const allVisibleSelected = visibleRows != null && visibleRows.length > 0
+    && visibleRows.every(r => selected.has(r.id));
+
+  function toggleSelect(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelected(prev => {
+      if (allVisibleSelected) {
+        const next = new Set(prev);
+        for (const id of visibleIds) next.delete(id);
+        return next;
+      }
+      return new Set([...prev, ...visibleIds]);
+    });
+  }
+
   return (
     <div className="p-4 sm:p-8 max-w-6xl">
       <header className="flex items-end justify-between mb-6">
@@ -173,6 +218,15 @@ export default function AdminUsersPage() {
           <option value="password">Password set</option>
           <option value="both">Both</option>
         </select>
+        <select
+          value={planFilter}
+          onChange={(e) => setPlanFilter(e.target.value as any)}
+          className="px-3 py-1.5 text-sm border border-slate-300 rounded"
+        >
+          <option value="">Any plan status</option>
+          <option value="paid">Paid (active subscription)</option>
+          <option value="free">Free (no payment)</option>
+        </select>
         <ActivityWindowFilter
           from={filter.active_from} to={filter.active_to}
           onChange={(from, to) => setFilter({ ...filter, active_from: from, active_to: to })}
@@ -186,15 +240,46 @@ export default function AdminUsersPage() {
         </button>
       </div>
 
+      {selected.size > 0 && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 mb-4
+                        flex flex-wrap items-center gap-3">
+          <span className="text-sm text-indigo-900 font-medium">
+            {selected.size} user{selected.size > 1 ? "s" : ""} selected
+          </span>
+          <button
+            onClick={() => setSendOpen(true)}
+            className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded
+                       hover:bg-indigo-700"
+          >
+            Send email…
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-xs text-indigo-700 hover:underline"
+          >
+            Clear selection
+          </button>
+          <span className="text-xs text-indigo-700">
+            Each recipient gets a personalized mail (their own name/details).
+          </span>
+        </div>
+      )}
+
       {err && (
         <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-lg mb-4 text-sm">
           {err}
         </div>
       )}
+      {notice && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800
+                        p-3 rounded-lg mb-4 text-sm">
+          {notice}
+        </div>
+      )}
 
-      {!rows ? (
+      {!visibleRows ? (
         <div className="text-slate-500">Loading…</div>
-      ) : rows.length === 0 ? (
+      ) : visibleRows.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
           No users match the filter.
         </div>
@@ -203,6 +288,11 @@ export default function AdminUsersPage() {
           <table className="w-full min-w-[800px]">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                <th className="px-4 py-3 w-8">
+                  <input type="checkbox" checked={allVisibleSelected}
+                         onChange={toggleSelectAll}
+                         title="Select all visible users" />
+                </th>
                 <th className="px-4 py-3">User</th>
                 <th className="px-4 py-3">Login methods</th>
                 <th className="px-4 py-3">Role</th>
@@ -217,9 +307,13 @@ export default function AdminUsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((u) => (
+              {visibleRows.map((u) => (
                 <Fragment key={u.id}>
                 <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3">
+                    <input type="checkbox" checked={selected.has(u.id)}
+                           onChange={() => toggleSelect(u.id)} />
+                  </td>
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium text-slate-900">
                       {u.name || <span className="italic text-slate-400">no name</span>}
@@ -358,7 +452,7 @@ export default function AdminUsersPage() {
                 </tr>
                 {expandedSubsUserId === u.id && (
                   <tr className="bg-slate-50">
-                    <td colSpan={9} className="p-0">
+                    <td colSpan={10} className="p-0">
                       <UserSubscriptionsPanel
                         userId={u.id}
                         userEmail={u.email}
@@ -372,6 +466,137 @@ export default function AdminUsersPage() {
           </table>
         </div>
       )}
+
+      {sendOpen && (
+        <SendEmailModal
+          userIds={[...selected]}
+          onClose={() => setSendOpen(false)}
+          onSent={(msg) => {
+            setSendOpen(false);
+            setSelected(new Set());
+            setNotice(msg);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Bulk-send modal (R9): pick a mail type, confirm, queue one
+ *  personalized mail per selected user. */
+function SendEmailModal({ userIds, onClose, onSent }: {
+  userIds: number[];
+  onClose: () => void;
+  onSent: (notice: string) => void;
+}) {
+  const [automations, setAutomations] = useState<EmailAutomationOut[] | null>(null);
+  const [automationId, setAutomationId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    admin.emailAutomations.list()
+      .then((rows) => {
+        setAutomations(rows);
+        if (rows.length > 0) setAutomationId(rows[0].id);
+      })
+      .catch((e) => setErr(errMsg(e)));
+  }, []);
+
+  const chosen = automations?.find((a) => a.id === automationId) ?? null;
+
+  async function send() {
+    if (!automationId) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await admin.emailAutomations.bulkSend(automationId, userIds);
+      const skippedNote = r.skipped.length
+        ? ` (${r.skipped.length} skipped: ${r.skipped
+            .map((s) => `#${s.user_id} ${s.reason}`).join(", ")})`
+        : "";
+      onSent(`Queued ${r.queued} personalized email${r.queued === 1 ? "" : "s"}` +
+             `${skippedNote}. Track them in Email Automations → Activity.`);
+    } catch (e) { setErr(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center
+                    bg-slate-900/40 p-4"
+         onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6"
+           onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-slate-900 mb-1">
+          Send email to {userIds.length} user{userIds.length > 1 ? "s" : ""}
+        </h2>
+        <p className="text-sm text-slate-600 mb-4">
+          Each recipient gets the template rendered with <b>their own</b> name
+          and details. Sends go out on the next dispatcher tick (within a
+          minute) while the master switch is ON.
+        </p>
+
+        {err && (
+          <div role="alert" className="bg-rose-50 border border-rose-200
+                                       text-rose-700 p-3 rounded-lg mb-3 text-sm">
+            {err}
+          </div>
+        )}
+
+        {!automations ? (
+          <div className="text-slate-500 text-sm">Loading mail types…</div>
+        ) : automations.length === 0 ? (
+          <div className="text-sm text-slate-600">
+            No mail types exist yet — create one in{" "}
+            <a href="/admin/email-automations"
+               className="text-indigo-600 hover:underline">Email Automations</a>{" "}
+            first.
+          </div>
+        ) : (
+          <>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Mail type (template)
+            </label>
+            <select
+              value={automationId ?? ""}
+              onChange={(e) => setAutomationId(Number(e.target.value))}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded"
+            >
+              {automations.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.attachments.length
+                    ? ` (${a.attachments.length} attachment${a.attachments.length > 1 ? "s" : ""})`
+                    : ""}
+                </option>
+              ))}
+            </select>
+            {chosen && (
+              <p className="text-xs text-slate-500 mt-2">
+                Subject: <i>{chosen.subject}</i>
+                {!chosen.is_active && (
+                  <span className="block text-amber-700 mt-1">
+                    Note: this mail type is currently disabled for automatic
+                    sends — manual sends like this one still go out.
+                  </span>
+                )}
+              </p>
+            )}
+          </>
+        )}
+
+        <div className="mt-5 flex gap-2 justify-end">
+          <button onClick={onClose}
+                  className="px-4 py-2 bg-white text-slate-700 text-sm border
+                             border-slate-300 rounded hover:bg-slate-50">
+            Cancel
+          </button>
+          <button onClick={send}
+                  disabled={busy || !automationId || !automations?.length}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm rounded
+                             hover:bg-indigo-700 disabled:opacity-50">
+            {busy ? "Queueing…" : `Send to ${userIds.length}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

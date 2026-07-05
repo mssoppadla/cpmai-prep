@@ -34,3 +34,4 @@ from app.models.lms import (                                       # noqa
 from app.models.zoom import ZoomSession, Recording                  # noqa
 from app.models.social import Campaign, CampaignRun                  # noqa
 from app.models.email_template import EmailTemplate                  # noqa
+from app.models.email_automation import EmailAutomation, EmailOutbox  # noqa
