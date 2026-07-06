@@ -32,7 +32,8 @@ const PREVIEW_CTX: Record<string, string> = {
   plan_name: "CPMAI Full Prep", amount: "4999.00", currency: "INR",
   expires_at: "31 Dec 2026", provider: "razorpay", hours_since: "3",
   exam_title: "CPMAI Mock Exam 2", score: "82", passed: "passed",
-  attempt_date: "03 Jul 2026",
+  attempt_date: "03 Jul 2026", lead_source: "landing_hero",
+  target_exam_date: "30 Sep 2026", linkedin_id: "linkedin.com/in/sample",
 };
 
 function renderPreview(html: string): string {
@@ -382,6 +383,7 @@ interface FormState {
   send_policy: string;
   cooldown_days: number;
   is_active: boolean;
+  suppression_group: string;
 }
 
 function toForm(a?: EmailAutomationOut): FormState {
@@ -399,6 +401,7 @@ function toForm(a?: EmailAutomationOut): FormState {
     send_policy: a?.send_policy ?? "once_per_user",
     cooldown_days: a?.cooldown_days ?? 0,
     is_active: a?.is_active ?? false,
+    suppression_group: a?.suppression_group ?? "",
   };
 }
 
@@ -414,6 +417,7 @@ function fromForm(f: FormState): EmailAutomationCreate {
     send_policy: f.send_policy as EmailAutomationCreate["send_policy"],
     cooldown_days: f.cooldown_days,
     is_active: f.is_active,
+    suppression_group: f.suppression_group.trim() || null,
   };
 }
 
@@ -497,6 +501,11 @@ function MailTypesTab({ catalog }: { catalog: EmailAutomationCatalog }) {
           busy={busy} isEdit={!!editing}
           onSave={save}
           onCancel={() => { setEditing(null); setForm(null); }}
+          existingGroups={[...new Set(
+            (rows ?? [])
+              .map((a) => a.suppression_group)
+              .filter((g): g is string => !!g),
+          )]}
         />
       )}
 
@@ -536,7 +545,17 @@ function MailTypesTab({ catalog }: { catalog: EmailAutomationCatalog }) {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-700">{fmtDelay(a.delay_minutes)}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{a.send_policy.replace(/_/g, " ")}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {a.send_policy.replace(/_/g, " ")}
+                      {a.suppression_group && (
+                        <span className="block mt-0.5 text-[10px] px-1.5 py-0.5
+                                         rounded bg-violet-50 text-violet-700
+                                         border border-violet-200 w-fit"
+                              title={`Suppression group: at most one mail per person across types in '${a.suppression_group}'`}>
+                          ⛔ {a.suppression_group}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-slate-700">
                       {a.attachments.length || "—"}
                     </td>
@@ -575,12 +594,14 @@ function MailTypesTab({ catalog }: { catalog: EmailAutomationCatalog }) {
   );
 }
 
-function AutomationEditor({ form, setForm, catalog, busy, isEdit, onSave, onCancel }: {
+function AutomationEditor({ form, setForm, catalog, busy, isEdit, onSave, onCancel, existingGroups }: {
   form: FormState;
   setForm: (f: FormState) => void;
   catalog: EmailAutomationCatalog;
   busy: boolean; isEdit: boolean;
   onSave: () => void; onCancel: () => void;
+  /** Suppression groups already used by other mail types (datalist). */
+  existingGroups: string[];
 }) {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
@@ -669,6 +690,20 @@ function AutomationEditor({ form, setForm, catalog, busy, isEdit, onSave, onCanc
                 <option value="google">Google</option>
                 <option value="password">Password</option>
               </select>
+            )}
+            {c.type === "marketing_consent" && (
+              <>
+                <select value={c.value === false ? "false" : "true"}
+                        onChange={(e) => setCondition(i, { value: e.target.value === "true" })}
+                        className="px-2 py-1.5 text-sm border border-slate-300 rounded">
+                  <option value="true">ticked the opt-in checkbox</option>
+                  <option value="false">did NOT tick the opt-in</option>
+                </select>
+                <span className="text-xs text-slate-400">
+                  (applies to landing-form leads; registered users always
+                  count as consented)
+                </span>
+              </>
             )}
             {c.type === "exam_set_submitted" && (
               <>
@@ -764,6 +799,25 @@ function AutomationEditor({ form, setForm, catalog, busy, isEdit, onSave, onCanc
             </p>
           </div>
         )}
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 mb-1">
+            Suppression group (optional)
+          </label>
+          <input value={form.suppression_group} list="suppression-groups"
+                 placeholder="e.g. welcome-kit"
+                 maxLength={64}
+                 onChange={(e) => setForm({ ...form, suppression_group: e.target.value })}
+                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded" />
+          <datalist id="suppression-groups">
+            {existingGroups.map((g) => <option key={g} value={g} />)}
+          </datalist>
+          <p className="text-xs text-slate-500 mt-1">
+            Mail types sharing a group send at most ONE mail per person —
+            whichever fires first wins, the rest are skipped (visible in
+            Activity). Matched by email, so it follows a visitor from the
+            landing form through signup. Blank = no suppression.
+          </p>
+        </div>
       </div>
 
       {/* content */}
@@ -933,6 +987,12 @@ function ActivityTab() {
                 <tr key={r.id} className="hover:bg-slate-50 align-top">
                   <td className="px-4 py-3 text-sm text-slate-900">
                     {r.user_email}
+                    {r.lead_id != null && (
+                      <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded
+                                       bg-amber-50 text-amber-700 border
+                                       border-amber-200"
+                            title="Landing-form lead (no account yet)">lead</span>
+                    )}
                     {r.source === "manual" && (
                       <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded
                                        bg-indigo-50 text-indigo-600 border

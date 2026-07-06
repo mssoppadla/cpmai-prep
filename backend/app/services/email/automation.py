@@ -50,6 +50,16 @@ SHARED_PLACEHOLDERS = (
 )
 
 TRIGGERS: dict[str, dict] = {
+    "lead.captured": {
+        "label": "Landing form submitted",
+        "description": "Fires when a visitor submits the landing-page "
+                       "lead form (\"Get instant access to Mock Exam\") — "
+                       "before they have an account. Combine with the "
+                       "'Marketing consent' condition to respect the "
+                       "opt-in checkbox, and a suppression group to "
+                       "avoid double-welcoming them after signup.",
+        "placeholders": ("lead_source", "target_exam_date", "linkedin_id"),
+    },
     "user.signup": {
         "label": "User signed up",
         "description": "Fires once when an account is created "
@@ -141,6 +151,15 @@ def _days_since_signup(db: Session, user: User, params: dict) -> bool:
     return days < threshold if params.get("op") == "lt" else days > threshold
 
 
+def _marketing_consent(db: Session, user: User, params: dict) -> bool:
+    """USER recipients: lifecycle mail is account-servicing, so a
+    registered user counts as consented — 'consent given' matches, the
+    inverse doesn't. The LEAD path (evaluate_conditions_for_lead) checks
+    the form's actual opt-in checkbox instead; that's where this
+    condition earns its keep."""
+    return bool(params.get("value", True)) is True
+
+
 CONDITION_TYPES: dict[str, dict] = {
     "has_active_subscription": {
         "label": "Payment status",
@@ -162,6 +181,13 @@ CONDITION_TYPES: dict[str, dict] = {
         "label": "Days since signup",
         "evaluator": _days_since_signup,
         "params": {"op": "lt | gt", "days": "int"},
+    },
+    "marketing_consent": {
+        "label": "Marketing consent",
+        "evaluator": _marketing_consent,
+        "params": {"value": "bool — true = ticked the opt-in checkbox. "
+                            "Leads use the form checkbox; registered "
+                            "users always count as consented."},
     },
 }
 
@@ -190,11 +216,81 @@ def evaluate_conditions(db: Session, user: User,
     return True, ""
 
 
-def build_dedup_key(automation: EmailAutomation, user_id: int,
+def evaluate_conditions_for_lead(db: Session, lead,
+                                 conditions: list | None) -> tuple[bool, str]:
+    """AND all condition rows against a LEAD recipient (lead.captured).
+
+    Where a condition is user-shaped, resolve the matching User by
+    email — the person may have signed up after submitting the form.
+    With no matching user the lead is treated as never-signed-up:
+    unpaid, no exams taken, no login method.
+    """
+    matched_user = (db.query(User)
+                    .filter(User.email == (lead.email or "").lower(),
+                            User.deleted_at.is_(None))
+                    .first())
+    for cond in (conditions or []):
+        if not isinstance(cond, dict):
+            return False, "malformed condition row"
+        ctype = cond.get("type")
+        spec = CONDITION_TYPES.get(ctype)
+        if spec is None:
+            return False, f"unknown condition type '{ctype}'"
+        try:
+            ok = _eval_lead_condition(db, lead, matched_user, ctype, cond)
+        except Exception as e:  # noqa: BLE001 — never break the caller
+            log.warning("email.condition_error", type=ctype, error=str(e))
+            return False, f"condition errored: {ctype}"
+        if not ok:
+            return False, f"condition not met: {ctype}"
+    return True, ""
+
+
+def _eval_lead_condition(db: Session, lead, matched_user: User | None,
+                         ctype: str, cond: dict) -> bool:
+    if ctype == "marketing_consent":
+        return bool(lead.consent_marketing) == bool(cond.get("value", True))
+    if ctype == "days_since_signup":
+        # For a lead, "signup" is the form submission.
+        if lead.created_at is None:
+            return True
+        days = (datetime.now(timezone.utc) - lead.created_at).days
+        try:
+            threshold = int(cond.get("days", 0))
+        except (TypeError, ValueError):
+            return True
+        return days < threshold if cond.get("op") == "lt" else days > threshold
+    if matched_user is not None:
+        # They signed up since submitting the form — evaluate for real.
+        return CONDITION_TYPES[ctype]["evaluator"](db, matched_user, cond)
+    # Never signed up: unpaid, no exams, no login method.
+    if ctype == "has_active_subscription":
+        return bool(cond.get("value", True)) is False
+    if ctype == "exam_set_submitted":
+        return bool(cond.get("value", True)) is False
+    if ctype == "signup_method":
+        return False
+    return False  # future condition types default to not-met for leads
+
+
+def lead_recipient_ns(email: str) -> str:
+    """Dedup namespace for a LEAD recipient. Keyed on the EMAIL (hashed
+    to fit the column), not the lead row id: POST /leads inserts a new
+    Lead row on every form submission, so id-keyed dedup would re-send
+    a once-per-user mail each time the same person resubmits."""
+    import hashlib
+    digest = hashlib.md5((email or "").strip().lower().encode()).hexdigest()
+    return f"L{digest[:12]}"
+
+
+def build_dedup_key(automation: EmailAutomation, recipient: int | str,
                     event_ref: str | None) -> str:
     """Per-policy duplicate-send guard (contract §2).
 
-    once_per_user   → one row ever per user+automation.
+    ``recipient``: user id for account holders, ``lead_recipient_ns()``
+    for leads (email-keyed — see that function for why).
+
+    once_per_user   → one row ever per recipient+automation.
     replace_pending → single logical slot; a new event UPDATES the
                       pending row instead of inserting (see enqueue).
     every_event     → unique per triggering event; caller supplies a
@@ -208,7 +304,7 @@ def build_dedup_key(automation: EmailAutomation, user_id: int,
         ref = "latest"
     else:
         ref = event_ref or str(ulid.new())
-    return f"{automation.id}:{user_id}:{ref}"
+    return f"{automation.id}:{recipient}:{ref}"
 
 
 def enqueue_for_trigger(db: Session, trigger_key: str, user: User, *,
@@ -224,7 +320,7 @@ def enqueue_for_trigger(db: Session, trigger_key: str, user: User, *,
     into the outbox row so dispatch doesn't need to re-derive them.
     """
     try:
-        return _enqueue(db, trigger_key, user,
+        return _enqueue(db, trigger_key, user=user, lead=None,
                         event_ref=event_ref,
                         context_extra=context_extra or {})
     except Exception as e:  # noqa: BLE001 — never break the request path
@@ -237,10 +333,40 @@ def enqueue_for_trigger(db: Session, trigger_key: str, user: User, *,
         return 0
 
 
-def _enqueue(db: Session, trigger_key: str, user: User, *,
-             event_ref: str | None, context_extra: dict) -> int:
-    if user is None or not user.email or user.deleted_at is not None:
+def enqueue_for_lead_trigger(db: Session, trigger_key: str, lead, *,
+                             event_ref: str | None = None,
+                             context_extra: dict | None = None) -> int:
+    """Lead-recipient variant of enqueue_for_trigger — used by the
+    landing-form hook (lead.captured). Same fail-soft contract."""
+    try:
+        return _enqueue(db, trigger_key, user=None, lead=lead,
+                        event_ref=event_ref,
+                        context_extra=context_extra or {})
+    except Exception as e:  # noqa: BLE001 — never break the request path
+        log.warning("email.enqueue_failed", trigger=trigger_key,
+                    lead_id=getattr(lead, "id", None), error=str(e))
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         return 0
+
+
+def _enqueue(db: Session, trigger_key: str, *,
+             user: User | None, lead,
+             event_ref: str | None, context_extra: dict) -> int:
+    # Exactly one recipient kind (contract: outbox rows are either-or).
+    if user is not None:
+        if not user.email or user.deleted_at is not None:
+            return 0
+        to_email, recipient_ns = user.email, user.id
+    elif lead is not None:
+        if not lead.email:
+            return 0
+        to_email, recipient_ns = lead.email, lead_recipient_ns(lead.email)
+    else:
+        return 0
+
     now = datetime.now(timezone.utc)
     tenant_id = get_current_tenant_id()
     rows = (db.query(EmailAutomation)
@@ -249,12 +375,16 @@ def _enqueue(db: Session, trigger_key: str, user: User, *,
             .all())
     queued = 0
     for auto in rows:
-        ok, reason = evaluate_conditions(db, user, auto.conditions)
+        if user is not None:
+            ok, reason = evaluate_conditions(db, user, auto.conditions)
+        else:
+            ok, reason = evaluate_conditions_for_lead(db, lead,
+                                                      auto.conditions)
         if not ok:
             log.debug("email.enqueue_skipped", automation_id=auto.id,
-                      user_id=user.id, reason=reason)
+                      recipient=str(recipient_ns), reason=reason)
             continue
-        dedup = build_dedup_key(auto, user.id, event_ref)
+        dedup = build_dedup_key(auto, recipient_ns, event_ref)
         scheduled = now + timedelta(minutes=auto.delay_minutes or 0)
 
         existing = (db.query(EmailOutbox)
@@ -274,22 +404,25 @@ def _enqueue(db: Session, trigger_key: str, user: User, *,
 
         if auto.send_policy == "every_event" and auto.cooldown_days:
             window = now - timedelta(days=auto.cooldown_days)
+            # Email-based (not id-based) so lead resubmissions and the
+            # lead→user transition share one cooldown identity.
             recent = (db.query(EmailOutbox)
                       .filter(EmailOutbox.automation_id == auto.id,
-                              EmailOutbox.user_id == user.id,
+                              EmailOutbox.to_email == to_email,
                               EmailOutbox.status == "sent",
                               EmailOutbox.sent_at >= window)
                       .first())
             if recent is not None:
                 log.debug("email.enqueue_cooldown", automation_id=auto.id,
-                          user_id=user.id)
+                          recipient=str(recipient_ns))
                 continue
 
         db.add(EmailOutbox(
             tenant_id=tenant_id,
             automation_id=auto.id,
-            user_id=user.id,
-            to_email=user.email,
+            user_id=user.id if user is not None else None,
+            lead_id=lead.id if lead is not None else None,
+            to_email=to_email,
             dedup_key=dedup,
             scheduled_at=scheduled,
             status="pending",
@@ -299,7 +432,7 @@ def _enqueue(db: Session, trigger_key: str, user: User, *,
         db.commit()
         queued += 1
         log.info("email.enqueued", automation_id=auto.id,
-                 user_id=user.id, trigger=trigger_key,
+                 recipient=str(recipient_ns), trigger=trigger_key,
                  scheduled_at=scheduled.isoformat())
     return queued
 
