@@ -47,6 +47,9 @@ class EmailAutomationBase(BaseModel):
     send_policy: str = Field(default="once_per_user")
     cooldown_days: int = Field(default=0, ge=0, le=365)
     is_active: bool = False
+    # Mail types sharing a group suppress each other per recipient email
+    # (first-sent-wins). ""/None = no suppression.
+    suppression_group: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("send_policy")
     @classmethod
@@ -54,6 +57,14 @@ class EmailAutomationBase(BaseModel):
         if v not in SEND_POLICIES:
             raise ValueError(f"send_policy must be one of {SEND_POLICIES}")
         return v
+
+    @field_validator("suppression_group")
+    @classmethod
+    def _blank_group_is_none(cls, v):
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
 
 
 class EmailAutomationCreate(EmailAutomationBase):
@@ -76,6 +87,7 @@ class EmailAutomationUpdate(BaseModel):
     send_policy: Optional[str] = None
     cooldown_days: Optional[int] = Field(default=None, ge=0, le=365)
     is_active: Optional[bool] = None
+    suppression_group: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("send_policy")
     @classmethod
@@ -83,6 +95,14 @@ class EmailAutomationUpdate(BaseModel):
         if v is not None and v not in SEND_POLICIES:
             raise ValueError(f"send_policy must be one of {SEND_POLICIES}")
         return v
+
+    @field_validator("suppression_group")
+    @classmethod
+    def _blank_group_is_none(cls, v):
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
 
 
 class EmailAutomationOut(BaseModel):
@@ -97,6 +117,7 @@ class EmailAutomationOut(BaseModel):
     send_policy: str
     cooldown_days: int
     is_active: bool
+    suppression_group: Optional[str] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
@@ -109,9 +130,12 @@ class OutboxRowOut(BaseModel):
     id: int
     automation_id: Optional[int]
     automation_name: Optional[str] = None   # joined label (survives delete)
-    user_id: int
-    # Populated by the endpoint from the joined User row (the ORM outbox
-    # object itself has no user_email attribute).
+    # Recipient: user_id for account holders, lead_id for landing-form
+    # leads (lead.captured) — exactly one is set.
+    user_id: Optional[int] = None
+    lead_id: Optional[int] = None
+    # Populated by the endpoint from the joined User/Lead row (the ORM
+    # outbox object itself has no user_email attribute).
     user_email: str = ""
     to_email: str
     status: str

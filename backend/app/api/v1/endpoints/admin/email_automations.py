@@ -75,6 +75,8 @@ def _sample_ctx(db: Session, admin: User, to: str,
         "expires_at": "31 Dec 2026", "provider": "razorpay",
         "hours_since": "3", "exam_title": "CPMAI Mock Exam 2",
         "score": "82", "passed": "passed", "attempt_date": "03 Jul 2026",
+        "lead_source": "landing_hero", "target_exam_date": "30 Sep 2026",
+        "linkedin_id": "linkedin.com/in/sample",
     }
     for key in TRIGGERS.get(trigger_key, {}).get("placeholders", ()):
         ctx[key] = samples.get(key, f"<{key}>")
@@ -186,8 +188,11 @@ def list_outbox(
     if status is not None and status not in OUTBOX_STATUSES:
         raise ValidationError(
             f"status must be one of {OUTBOX_STATUSES}")
+    # OUTER join User — lead-recipient rows (lead.captured) have no
+    # user_id and must still show in the feed; their address comes from
+    # to_email (snapshotted at enqueue).
     q = (db.query(EmailOutbox, User.email, EmailAutomation.name)
-         .join(User, EmailOutbox.user_id == User.id)
+         .outerjoin(User, EmailOutbox.user_id == User.id)
          .outerjoin(EmailAutomation,
                     EmailOutbox.automation_id == EmailAutomation.id)
          .filter(EmailOutbox.tenant_id == get_current_tenant_id()))
@@ -197,14 +202,17 @@ def list_outbox(
         q = q.filter(EmailOutbox.automation_id == automation_id)
     if user_email:
         like = f"%{user_email.strip().lower()}%"
-        q = q.filter(User.email.ilike(like))
+        # Match either the account email or the snapshotted recipient
+        # address (covers lead rows and since-changed user emails).
+        q = q.filter(User.email.ilike(like)
+                     | EmailOutbox.to_email.ilike(like))
     total = q.count()
     rows = (q.order_by(EmailOutbox.id.desc())
             .offset(offset).limit(limit).all())
     items = []
     for outbox, email, auto_name in rows:
         item = OutboxRowOut.model_validate(outbox)
-        item.user_email = email
+        item.user_email = email or outbox.to_email
         item.automation_name = auto_name
         items.append(item)
     return OutboxPageOut(total=total, items=items)
@@ -228,7 +236,8 @@ def requeue_outbox_row(outbox_id: int,
     row.scheduled_at = datetime.now(timezone.utc)
     db.commit(); db.refresh(row)
     audit_log(db, admin.id, "email_outbox.requeued", {"id": outbox_id})
-    user = db.get(User, row.user_id)
+    # Lead-recipient rows have no user_id — display the snapshot address.
+    user = db.get(User, row.user_id) if row.user_id else None
     out = OutboxRowOut.model_validate(row)
     out.user_email = user.email if user else row.to_email
     return out

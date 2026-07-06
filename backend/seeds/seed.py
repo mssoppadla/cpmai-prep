@@ -143,11 +143,16 @@ def seed_email_templates(db) -> int:
 
 
 def seed_email_automations(db) -> int:
-    """Insert the four shipped lifecycle mail types only if the table is
+    """Insert the five shipped lifecycle mail types only if the table is
     empty (fresh-only rule, same as email_templates). Every row ships
     ``is_active=False`` — nothing sends until the admin reviews the
     copy, configures SMTP, and flips BOTH the per-type toggle and the
     ``email.lifecycle_enabled`` master switch.
+
+    The landing-form and signup welcome mails share suppression group
+    "welcome-kit": whichever fires first for an address wins, the other
+    stays silent — a lead who already got the free-kit mail is not
+    re-welcomed when they sign up minutes later.
 
     Contract: docs/contracts/email-automation.md §0.
     """
@@ -156,11 +161,35 @@ def seed_email_automations(db) -> int:
         return 0
     rows = [
         EmailAutomation(
+            name="Landing form — free mock exam kit",
+            trigger_key="lead.captured",
+            # Respect the form's opt-in checkbox. NOTE: the legacy
+            # lead → auto-offer flow (/admin/email-templates,
+            # email.automation_enabled) serves the same moment — keep
+            # only ONE of the two active to avoid double-mailing.
+            conditions=[{"type": "marketing_consent", "value": True}],
+            delay_minutes=0,
+            send_policy="once_per_user",
+            suppression_group="welcome-kit",
+            subject="{{name}}, your free CPMAI mock exam kit is here",
+            html_body=(
+                "<p>Hi {{name}},</p>"
+                "<p>Thanks for grabbing instant access to the free CPMAI "
+                "mock exam — the attached prep material gets you started "
+                "right away.</p>"
+                "<p>When you're ready for the full program, use code "
+                "<b>{{offer_code}}</b> (valid until {{offer_valid_until}}).</p>"
+                "<p><a href=\"{{enroll_url}}\">Start your mock exam</a></p>"
+                "<p>— The {{brand_name}} team</p>"
+            ),
+        ),
+        EmailAutomation(
             name="Welcome — signup without payment",
             trigger_key="user.signup",
             conditions=[{"type": "has_active_subscription", "value": False}],
             delay_minutes=20,
             send_policy="once_per_user",
+            suppression_group="welcome-kit",
             subject="Welcome to {{brand_name}}, {{name}} — your free study kit",
             html_body=(
                 "<p>Hi {{name}},</p>"

@@ -105,4 +105,21 @@ def submit_lead(payload: LeadCreateIn, request: Request,
     # Auto-reply with the 24h offer code when consent + automation are on.
     # Runs off the request path; never blocks or fails the sign-up.
     _maybe_send_offer_email(db, lead, background_tasks)
+    # Lifecycle email automations (fail-soft): the lead.captured trigger
+    # queues any admin-defined mail types for this landing-form
+    # submission. Dedup is email-keyed, so a resubmitted form doesn't
+    # re-fire once-per-user mail types. Coexists with the legacy
+    # auto-offer above — admins avoid double-mailing by keeping ONE of
+    # the two flows active (or via suppression groups within the engine).
+    from app.services.email.automation import enqueue_for_lead_trigger
+    enqueue_for_lead_trigger(
+        db, "lead.captured", lead,
+        context_extra={
+            "lead_source": (lead.source.value
+                            if hasattr(lead.source, "value")
+                            else str(lead.source or "")),
+            "target_exam_date": (lead.target_exam_date.strftime("%d %b %Y")
+                                 if lead.target_exam_date else ""),
+            "linkedin_id": lead.linkedin_id or "",
+        })
     return LeadCreateOut(id=lead.id, message="Thanks — we'll be in touch shortly.")

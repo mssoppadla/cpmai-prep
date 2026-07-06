@@ -87,6 +87,7 @@ query path indexes.
 
 | Key | Hook location | Extra placeholders |
 |-----|--------------|--------------------|
+| `lead.captured` | `POST /leads` (landing-form submit) — recipient is a LEAD, not a user (§4a) | `lead_source`, `target_exam_date`, `linkedin_id` |
 | `user.signup` | `AuthService.signup` + Google provisioner `created` path | `signup_method` |
 | `user.login` | `AuthService.login` + Google returning path | `signup_method` |
 | `payment.success` | `activate_subscription_for_payment` | `plan_name`, `amount`, `currency`, `expires_at` |
@@ -114,10 +115,42 @@ conditions include unpaid-status.
 | `has_active_subscription` | `value: bool` | active sub = `status='active'` AND (`expires_at` NULL or future) |
 | `signup_method` | `value: google\|password` | `google_id` set / password_hash set |
 | `exam_set_submitted` | `exam_set_id, value: bool` | user has (not) a `submitted` ExamSession for that set |
-| `days_since_signup` | `op: lt\|gt, days` | vs `User.created_at` |
+| `days_since_signup` | `op: lt\|gt, days` | vs `User.created_at` (leads: vs `Lead.created_at`) |
+| `marketing_consent` | `value: bool` | leads: the form's opt-in checkbox; registered users always count as consented |
 
 Unknown condition type in DB → automation is skipped at dispatch with a
 WARN (defensive; API validates on write).
+
+## 4a. Lead recipients (lead.captured)
+
+Outbox rows carry EXACTLY ONE of `user_id` / `lead_id` (enforced at the
+enqueue paths, mirroring ExamSession's user_id/anon_token either-or).
+Lead dedup + every-event cooldowns are EMAIL-keyed
+(`lead_recipient_ns()` — md5 of the lowercased address), because
+`POST /leads` inserts a NEW Lead row per submission; id-keyed dedup
+would re-send once-per-user mails on every resubmit. User-shaped
+conditions evaluated for a lead resolve the matching User by email (the
+person may have signed up since submitting the form); with no matching
+user the lead counts as never-signed-up (unpaid, no exams, no login
+method). Coexistence rule: the legacy lead → auto-offer flow
+(`email_templates` + `email.automation_enabled`) serves the same
+moment — operators keep only ONE of the two flows active.
+
+## 4b. Suppression groups (priority between mail types)
+
+`email_automations.suppression_group` (nullable string): mail types
+sharing a group suppress each other PER RECIPIENT EMAIL — once any
+OTHER automation in the group has a `sent` outbox row for an address,
+this one skips. First-sent-wins; checked at SEND time so the outcome is
+recorded in the Activity feed as `skipped` with reason
+"suppressed — '<name>' already sent <date>". Email-keyed so it follows
+the lead → signed-up-user transition (seeded example: the landing-form
+kit mail and the signup welcome share group `welcome-kit`; whoever got
+the kit mail is not re-welcomed after signing up). Manual bulk sends
+bypass suppression, like they bypass conditions and the per-type
+toggle. Deleted automations drop out of the group check (their outbox
+rows have `automation_id` NULL) — suppression only spans live mail
+types.
 
 ## 5. Dispatcher
 
