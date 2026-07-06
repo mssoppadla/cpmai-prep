@@ -155,6 +155,10 @@ export default function SettingsPage() {
                   <code className="text-xs text-slate-400 font-mono">{name}.*</code>
                 </button>
                 {!isCollapsed && (
+                  /* overflow-x-auto: value cells (URLs, JSON) must scroll
+                     on phones, not clip — see
+                     admin-tables-mobile-scroll.test.ts */
+                  <div className="overflow-x-auto">
                   <table className="w-full">
                     <tbody className="divide-y divide-slate-100">
                       {rows.map(r => {
@@ -212,6 +216,7 @@ export default function SettingsPage() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </section>
             );

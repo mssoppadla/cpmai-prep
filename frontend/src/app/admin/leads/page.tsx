@@ -238,7 +238,7 @@ export default function ContactsPage() {
           No contacts match the filter.
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-xs font-medium text-slate-500 uppercase">

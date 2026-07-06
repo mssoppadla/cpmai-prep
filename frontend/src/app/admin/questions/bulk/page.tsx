@@ -212,7 +212,7 @@ export default function BulkUploadQuestionsPage() {
             </p>
           )}
           {result.errors.length > 0 && (
-            <div className="border border-amber-200 rounded-lg overflow-hidden">
+            <div className="border border-amber-200 rounded-lg overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-amber-50 text-amber-800 text-xs uppercase">
                   <tr>

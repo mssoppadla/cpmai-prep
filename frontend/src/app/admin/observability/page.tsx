@@ -117,6 +117,9 @@ export default function ObservabilityPage() {
         <h3 className="text-sm font-semibold text-slate-700 mt-6 mb-2">
           This application&apos;s share
         </h3>
+        {/* overflow-x-auto: long mono paths must scroll on phones, not
+            clip — see admin-tables-mobile-scroll.test.ts */}
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <tbody className="divide-y divide-slate-100">
             <tr>
@@ -138,6 +141,7 @@ export default function ObservabilityPage() {
             </tr>
           </tbody>
         </table>
+        </div>
         <p className="text-xs text-slate-500 mt-3">
           Backend can&apos;t see the host directly (pg volume, docker images, system logs). Run the
           reclaim commands below via SSH to see the rest.
