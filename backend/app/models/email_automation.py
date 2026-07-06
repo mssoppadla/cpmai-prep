@@ -78,6 +78,15 @@ class EmailAutomation(Base):
     # Per-mail-type admin toggle (R6). Checked at dispatch time too, so
     # flipping OFF also stops already-queued rows (they become skipped).
     is_active = Column(Boolean, nullable=False, default=False, index=True)
+    # Mail types sharing a group name suppress each other PER RECIPIENT
+    # EMAIL: once any automation in the group has a `sent` outbox row
+    # for an address, the others skip (Activity records "suppressed by
+    # <name>"). Email-based so it follows a person across the
+    # lead → signed-up-user transition (landing-form mail sent → the
+    # signup welcome mail in the same group stays silent). NULL/"" = no
+    # suppression. First-sent-wins; manual bulk sends bypass this like
+    # they bypass conditions.
+    suppression_group = Column(String(64), nullable=True, index=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True),
@@ -104,8 +113,14 @@ class EmailOutbox(Base):
                            ForeignKey("email_automations.id",
                                       ondelete="SET NULL"),
                            nullable=True, index=True)
+    # Recipient: EXACTLY ONE of user_id / lead_id is set (enforced in
+    # the enqueue paths, mirroring ExamSession's user_id/anon_token
+    # either-or). user_id = registered account; lead_id = landing-form
+    # submitter with no account yet (lead.captured trigger).
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
-                     nullable=False, index=True)
+                     nullable=True, index=True)
+    lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"),
+                     nullable=True, index=True)
     to_email = Column(String(255), nullable=False)
     # Duplicate-send guard — see automation.build_dedup_key() for the
     # per-policy format. Unique index makes double-enqueue a no-op.

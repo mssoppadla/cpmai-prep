@@ -106,16 +106,27 @@ def _dispatch_one(db: Session, row: EmailOutbox, now: datetime) -> bool:
     from app.core.audit import audit_log
     from app.services.email import mailer
     from app.services.email.attachments import resolve_attachment_paths
-    from app.services.email.automation import evaluate_conditions
+    from app.services.email.automation import (
+        evaluate_conditions, evaluate_conditions_for_lead,
+    )
 
     auto = (db.get(EmailAutomation, row.automation_id)
             if row.automation_id else None)
     if auto is None:
         return _skip(db, row, "automation deleted")
 
-    user = db.get(User, row.user_id)
-    if user is None or user.deleted_at is not None:
+    # Resolve the recipient — a registered user OR a landing-form lead
+    # (lead.captured trigger). Exactly one id is set at enqueue time.
+    user = db.get(User, row.user_id) if row.user_id else None
+    lead = None
+    if user is None and row.lead_id:
+        from app.models.lead import Lead
+        lead = db.get(Lead, row.lead_id)
+    if user is not None and user.deleted_at is not None:
         return _skip(db, row, "user deleted")
+    if user is None and lead is None:
+        return _skip(db, row, "recipient deleted")
+    display_name = user.name if user is not None else lead.name
 
     # Send-time rechecks (contract §2) — automation rows only. Manual
     # bulk sends bypass BOTH the per-type toggle and the conditions:
@@ -126,11 +137,42 @@ def _dispatch_one(db: Session, row: EmailOutbox, now: datetime) -> bool:
     if row.source == "automation":
         if not auto.is_active:
             return _skip(db, row, "mail type disabled by admin")
-        ok, reason = evaluate_conditions(db, user, auto.conditions)
+        if user is not None:
+            ok, reason = evaluate_conditions(db, user, auto.conditions)
+        else:
+            ok, reason = evaluate_conditions_for_lead(db, lead,
+                                                      auto.conditions)
         if not ok:
             return _skip(db, row, reason)
+        # Suppression groups: if ANY other mail type sharing this
+        # automation's group already SENT to this address, this one
+        # stays silent — e.g. the landing-form welcome went out, so the
+        # signup welcome in the same group must not double-mail the
+        # same person. Email-keyed so it follows the lead →
+        # signed-up-user identity change. First-sent-wins; checked at
+        # send time so the outcome lands honestly in the Activity feed
+        # ("suppressed — '<name>' already sent <date>").
+        if auto.suppression_group:
+            prior = (db.query(EmailOutbox, EmailAutomation.name)
+                     .join(EmailAutomation,
+                           EmailOutbox.automation_id == EmailAutomation.id)
+                     .filter(EmailAutomation.suppression_group
+                             == auto.suppression_group,
+                             EmailOutbox.automation_id != auto.id,
+                             EmailOutbox.to_email == row.to_email,
+                             EmailOutbox.status == "sent")
+                     .order_by(EmailOutbox.sent_at)
+                     .first())
+            if prior is not None:
+                prior_row, prior_name = prior
+                when = (prior_row.sent_at.strftime("%d %b %Y %H:%M")
+                        if prior_row.sent_at else "earlier")
+                return _skip(
+                    db, row,
+                    f"suppressed — '{prior_name}' already sent {when} "
+                    f"(group '{auto.suppression_group}')")
 
-    ctx = mailer.build_ctx(db, name=user.name, email=row.to_email)
+    ctx = mailer.build_ctx(db, name=display_name, email=row.to_email)
     ctx.update(row.context or {})
     subject = mailer.render_template(auto.subject, ctx)
     html = mailer.render_template(auto.html_body, ctx)

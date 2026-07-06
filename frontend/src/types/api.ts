@@ -1241,6 +1241,9 @@ export interface EmailAutomationOut {
   send_policy: "once_per_user" | "replace_pending" | "every_event";
   cooldown_days: number;
   is_active: boolean;
+  /** Mail types sharing a group suppress each other per recipient email
+   *  (first-sent-wins). null/"" = no suppression. */
+  suppression_group: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -1267,7 +1270,10 @@ export interface EmailOutboxRow {
   id: number;
   automation_id: number | null;
   automation_name: string | null;
-  user_id: number;
+  /** Recipient: user_id for account holders, lead_id for landing-form
+   *  leads — exactly one is set. */
+  user_id: number | null;
+  lead_id: number | null;
   user_email: string;
   to_email: string;
   status: "pending" | "sent" | "skipped" | "failed" | "cancelled";
