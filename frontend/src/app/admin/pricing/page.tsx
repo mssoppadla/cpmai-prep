@@ -255,7 +255,7 @@ function RatesTableCard({ status }: { status: FXStatusOut | null }) {
           Runtime Settings.
         </p>
       ) : (
-        <div className="overflow-hidden border border-slate-200 rounded">
+        <div className="overflow-x-auto border border-slate-200 rounded">
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
               <tr className="text-left text-xs font-medium text-slate-500 uppercase">

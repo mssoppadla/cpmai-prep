@@ -161,7 +161,7 @@ export default function InsightsPage() {
       {/* ── Top pages ───────────────────────────────────────────── */}
       <section>
         <h2 className="text-sm font-semibold text-slate-700 mb-2">Top pages</h2>
-        <div className="rounded border bg-white overflow-hidden">
+        <div className="rounded border bg-white overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>

@@ -146,7 +146,7 @@ export default function CourseCategoriesPage() {
           No categories yet.
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-left">
               <tr>
