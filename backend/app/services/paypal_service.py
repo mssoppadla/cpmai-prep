@@ -47,8 +47,8 @@ from app.core.exceptions import AppError
 # whole-unit-rounding caveat in pricing_service.py.
 _DECIMALS_PER_MAJOR = 2
 
-# Orders-v2 application_context.landing_page values. Controls what the
-# buyer sees FIRST on PayPal's hosted page:
+# Landing-page preference — what the buyer sees FIRST on PayPal's
+# hosted page:
 #   GUEST_CHECKOUT — card form first ("guest" pay-by-card), with
 #                    "Log in to PayPal" as the secondary option. Our
 #                    default: overseas buyers without PayPal accounts
@@ -57,8 +57,23 @@ _DECIMALS_PER_MAJOR = 2
 #   NO_PREFERENCE  — PayPal decides per buyer context.
 # Admin-overridable via the provider's config JSON (`landing_page`) on
 # /admin/payment-providers — no deploy needed to flip behaviour.
+#
+# WIRE FORMAT TRAP (prod incident 2026-07-09): the LEGACY
+# ``application_context.landing_page`` we send only accepts
+# LOGIN | BILLING | NO_PREFERENCE — sending "GUEST_CHECKOUT" there gets
+# HTTP 400 INVALID_PARAMETER_VALUE and every non-INR payment fails.
+# "GUEST_CHECKOUT" is the NEWER ``payment_source.paypal
+# .experience_context`` spelling of the same card-form-first behaviour.
+# We keep GUEST_CHECKOUT as the admin-facing/config value (it says what
+# it does) and translate to BILLING at the wire boundary. If this
+# provider ever migrates to experience_context, drop the mapping.
 _LANDING_PAGES = ("GUEST_CHECKOUT", "LOGIN", "NO_PREFERENCE")
 _DEFAULT_LANDING_PAGE = "GUEST_CHECKOUT"
+_LANDING_PAGE_WIRE = {
+    "GUEST_CHECKOUT": "BILLING",
+    "LOGIN": "LOGIN",
+    "NO_PREFERENCE": "NO_PREFERENCE",
+}
 
 
 class PayPalProvider:
@@ -104,9 +119,13 @@ class PayPalProvider:
         self._webhook_id = (config or {}).get("webhook_id") or ""
         # Buyer-facing landing page on PayPal's hosted checkout. Unknown
         # config values fall back to the default rather than erroring —
-        # a typo in admin config must not take payments down.
+        # a typo in admin config must not take payments down. "BILLING"
+        # (the legacy wire spelling) is accepted as a synonym of
+        # GUEST_CHECKOUT in case an operator sets the raw API value.
         raw_lp = str((config or {}).get("landing_page") or
                      _DEFAULT_LANDING_PAGE).strip().upper()
+        if raw_lp == "BILLING":
+            raw_lp = "GUEST_CHECKOUT"
         self._landing_page = (raw_lp if raw_lp in _LANDING_PAGES
                               else _DEFAULT_LANDING_PAGE)
 
@@ -226,7 +245,9 @@ class PayPalProvider:
         body["application_context"] = {
             **({"return_url": return_url} if return_url else {}),
             **({"cancel_url": cancel_url} if cancel_url else {}),
-            "landing_page": self._landing_page,
+            # Translated to the LEGACY wire vocabulary — GUEST_CHECKOUT
+            # must go out as BILLING here (see _LANDING_PAGE_WIRE).
+            "landing_page": _LANDING_PAGE_WIRE[self._landing_page],
             # NO_SHIPPING: digital goods, no address needed.
             # PAY_NOW: skip PayPal's "review your order" intermediate.
             "shipping_preference": "NO_SHIPPING",

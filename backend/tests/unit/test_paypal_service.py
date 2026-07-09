@@ -138,10 +138,17 @@ def test_create_order_sends_application_context_when_urls_supplied():
 # ---------------------------------------------------------------------------
 # Guest card checkout — application_context.landing_page.
 #
-# GUEST_CHECKOUT (default) shows the card form FIRST on PayPal's hosted
-# page so overseas buyers without a PayPal account can pay as guests;
-# PayPal-account buyers keep their "Log in" path. Admin-overridable via
-# provider config JSON `landing_page` (/admin/payment-providers).
+# GUEST_CHECKOUT (config value, default) shows the card form FIRST on
+# PayPal's hosted page so overseas buyers without a PayPal account can
+# pay as guests; PayPal-account buyers keep their "Log in" path.
+# Admin-overridable via provider config JSON `landing_page`.
+#
+# WIRE TRAP pinned here (prod incident 2026-07-09): the legacy
+# application_context only accepts LOGIN | BILLING | NO_PREFERENCE.
+# GUEST_CHECKOUT must be TRANSLATED to "BILLING" on the wire — sending
+# it verbatim 400s (INVALID_PARAMETER_VALUE) and fails every non-INR
+# payment. These tests assert the OUTBOUND body, so a regression to the
+# untranslated value fails the suite.
 # ---------------------------------------------------------------------------
 
 def _order_body_capture():
@@ -163,13 +170,13 @@ def _order_body_capture():
 
 @respx.mock
 def test_create_order_defaults_to_guest_checkout_landing():
-    """No config → landing_page=GUEST_CHECKOUT. This is the fix for
-    overseas buyers bouncing off PayPal's login wall."""
+    """No config → card-form-first, which on the LEGACY wire vocabulary
+    is "BILLING" (NEVER "GUEST_CHECKOUT" — that 400s, see wire trap)."""
     captured = _order_body_capture()
     _provider().create_order(amount_minor=900, currency="GBP",
                              return_url="https://x/r", cancel_url="https://x/c")
     assert captured["body"]["application_context"]["landing_page"] \
-        == "GUEST_CHECKOUT"
+        == "BILLING"
 
 
 @respx.mock
@@ -187,14 +194,39 @@ def test_create_order_landing_page_admin_override():
 @respx.mock
 def test_create_order_unknown_landing_page_falls_back_to_default():
     """A typo in admin config must not take payments down — unknown
-    values silently fall back to GUEST_CHECKOUT."""
+    values silently fall back to the default (BILLING on the wire)."""
     captured = _order_body_capture()
     p = PayPalProvider(key_id="A", key_secret="S", mode="test",
                        webhook_id="WH-1", landing_page="CARD_PLZ")
     p.create_order(amount_minor=900, currency="GBP",
                    return_url="https://x/r", cancel_url="https://x/c")
     assert captured["body"]["application_context"]["landing_page"] \
-        == "GUEST_CHECKOUT"
+        == "BILLING"
+
+
+@respx.mock
+def test_create_order_billing_config_synonym():
+    """Operators who set the raw legacy value BILLING get the same
+    card-form-first behaviour (normalized to GUEST_CHECKOUT config,
+    BILLING on the wire)."""
+    captured = _order_body_capture()
+    p = PayPalProvider(key_id="A", key_secret="S", mode="test",
+                       webhook_id="WH-1", landing_page="billing")
+    p.create_order(amount_minor=900, currency="GBP",
+                   return_url="https://x/r", cancel_url="https://x/c")
+    assert captured["body"]["application_context"]["landing_page"] \
+        == "BILLING"
+
+
+def test_wire_map_never_emits_guest_checkout():
+    """Every config value must map to a LEGACY-valid wire value.
+    'GUEST_CHECKOUT' on the wire = 400 on every non-INR payment."""
+    from app.services.paypal_service import (
+        _LANDING_PAGES, _LANDING_PAGE_WIRE,
+    )
+    legacy_valid = {"LOGIN", "BILLING", "NO_PREFERENCE"}
+    for cfg in _LANDING_PAGES:
+        assert _LANDING_PAGE_WIRE[cfg] in legacy_valid
 
 
 @respx.mock
@@ -206,7 +238,7 @@ def test_create_order_sends_application_context_even_without_urls():
     captured = _order_body_capture()
     _provider().create_order(amount_minor=900, currency="GBP")
     ctx = captured["body"]["application_context"]
-    assert ctx["landing_page"] == "GUEST_CHECKOUT"
+    assert ctx["landing_page"] == "BILLING"
     assert "return_url" not in ctx and "cancel_url" not in ctx
     assert ctx["shipping_preference"] == "NO_SHIPPING"
 
