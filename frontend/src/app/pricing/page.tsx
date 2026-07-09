@@ -647,7 +647,14 @@ export default function PricingPage() {
                         ? "Sign in to continue"
                         : (checkoutBusy
                            ? "Creating order…"
-                           : `Pay with Razorpay (${currency})`)}
+                           // Gateway is routed by currency on the backend:
+                           // INR → Razorpay, everything else → PayPal
+                           // (card or PayPal account). The label must
+                           // match, or gateway errors get blamed on the
+                           // wrong provider.
+                           : currency === "INR"
+                             ? "Pay with Razorpay (INR)"
+                             : `Pay ${currency} — card or PayPal`)}
                   </button>
                   {!user && authChecked && (
                     <p className="text-xs text-slate-500 text-center">
