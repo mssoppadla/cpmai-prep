@@ -24,13 +24,19 @@ interface FormState {
    *  in config.webhook_id and used by the backend when forwarding
    *  inbound events to PayPal's verify endpoint. */
   paypal_webhook_id: string;
+  /** PayPal only — what the buyer sees FIRST on PayPal's hosted page.
+   *  Stored in config.landing_page. GUEST_CHECKOUT = card form first
+   *  (guest pay-by-card, no PayPal account needed); LOGIN = PayPal
+   *  login wall first; NO_PREFERENCE = PayPal decides. */
+  paypal_landing_page: string;
   is_enabled: boolean;
 }
 
 const blank: FormState = {
   name: "", provider_type: "razorpay", mode: "test", display_name: "",
   public_key: "", api_secret: "", webhook_secret: "",
-  paypal_webhook_id: "", is_enabled: true,
+  paypal_webhook_id: "", paypal_landing_page: "GUEST_CHECKOUT",
+  is_enabled: true,
 };
 
 /** Modal state for the per-row webhook-signature diagnostic. Holds the
@@ -109,8 +115,11 @@ export default function PaymentProvidersPage() {
     try {
       // PayPal stores webhook_id inside config (not as a top-level
       // secret) because PayPal's webhook auth is cert-based, not HMAC.
+      // landing_page rides along in the same config JSON — the backend
+      // provider reads it at order-create time (guest card checkout).
       const config = form.provider_type === "paypal"
-        ? { webhook_id: form.paypal_webhook_id.trim() }
+        ? { webhook_id: form.paypal_webhook_id.trim(),
+            landing_page: form.paypal_landing_page }
         : undefined;
 
       if (form.id) {
@@ -157,6 +166,8 @@ export default function PaymentProvidersPage() {
       api_secret: "",                // keep existing unless user types new
       webhook_secret: "",
       paypal_webhook_id: ((p.config?.webhook_id as string) ?? ""),
+      paypal_landing_page: ((p.config?.landing_page as string)
+                            ?? "GUEST_CHECKOUT"),
       is_enabled: p.is_enabled,
     });
   }
@@ -284,6 +295,35 @@ export default function PaymentProvidersPage() {
                   order directly after PayPal approval). The only thing
                   you lose is auto-activation on dropped browser tabs.
                   Add the ID later once a webhook is registered.
+                </p>
+              </Field>
+            )}
+            {form.provider_type === "paypal" && (
+              <Field label="Checkout landing page (guest card payments)" full>
+                <select value={form.paypal_landing_page}
+                        onChange={(e) => setForm({
+                          ...form, paypal_landing_page: e.target.value })}
+                        className={input}>
+                  <option value="GUEST_CHECKOUT">
+                    Card form first — guests pay by card without a PayPal
+                    account (recommended)
+                  </option>
+                  <option value="NO_PREFERENCE">
+                    Let PayPal decide per buyer
+                  </option>
+                  <option value="LOGIN">
+                    PayPal login first (previous behaviour)
+                  </option>
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  Controls what overseas buyers see first on PayPal&apos;s
+                  payment page. &quot;Card form first&quot; keeps the
+                  &quot;Log in to PayPal&quot; option available, so
+                  PayPal-account buyers are unaffected. Also make sure the
+                  PayPal <strong>business account</strong> has Account
+                  Settings → Website payments → &quot;PayPal account
+                  optional&quot; = <strong>On</strong>, or PayPal forces
+                  account creation regardless of this setting.
                 </p>
               </Field>
             )}
