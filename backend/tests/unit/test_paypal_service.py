@@ -135,6 +135,82 @@ def test_create_order_sends_application_context_when_urls_supplied():
     assert ctx["user_action"] == "PAY_NOW"
 
 
+# ---------------------------------------------------------------------------
+# Guest card checkout — application_context.landing_page.
+#
+# GUEST_CHECKOUT (default) shows the card form FIRST on PayPal's hosted
+# page so overseas buyers without a PayPal account can pay as guests;
+# PayPal-account buyers keep their "Log in" path. Admin-overridable via
+# provider config JSON `landing_page` (/admin/payment-providers).
+# ---------------------------------------------------------------------------
+
+def _order_body_capture():
+    """OAuth mock + orders mock that records the request body."""
+    respx.post(f"{SANDBOX_BASE}/v1/oauth2/token").mock(
+        return_value=httpx.Response(200, json={
+            "access_token": "tok", "expires_in": 3600}))
+    captured = {}
+
+    def capture_request(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(201, json={
+            "id": "ORDER-X", "status": "CREATED", "links": []})
+
+    respx.post(f"{SANDBOX_BASE}/v2/checkout/orders").mock(
+        side_effect=capture_request)
+    return captured
+
+
+@respx.mock
+def test_create_order_defaults_to_guest_checkout_landing():
+    """No config → landing_page=GUEST_CHECKOUT. This is the fix for
+    overseas buyers bouncing off PayPal's login wall."""
+    captured = _order_body_capture()
+    _provider().create_order(amount_minor=900, currency="GBP",
+                             return_url="https://x/r", cancel_url="https://x/c")
+    assert captured["body"]["application_context"]["landing_page"] \
+        == "GUEST_CHECKOUT"
+
+
+@respx.mock
+def test_create_order_landing_page_admin_override():
+    """config.landing_page=LOGIN restores the previous behaviour without
+    a deploy; values are normalized case-insensitively."""
+    captured = _order_body_capture()
+    p = PayPalProvider(key_id="A", key_secret="S", mode="test",
+                       webhook_id="WH-1", landing_page="login")
+    p.create_order(amount_minor=900, currency="GBP",
+                   return_url="https://x/r", cancel_url="https://x/c")
+    assert captured["body"]["application_context"]["landing_page"] == "LOGIN"
+
+
+@respx.mock
+def test_create_order_unknown_landing_page_falls_back_to_default():
+    """A typo in admin config must not take payments down — unknown
+    values silently fall back to GUEST_CHECKOUT."""
+    captured = _order_body_capture()
+    p = PayPalProvider(key_id="A", key_secret="S", mode="test",
+                       webhook_id="WH-1", landing_page="CARD_PLZ")
+    p.create_order(amount_minor=900, currency="GBP",
+                   return_url="https://x/r", cancel_url="https://x/c")
+    assert captured["body"]["application_context"]["landing_page"] \
+        == "GUEST_CHECKOUT"
+
+
+@respx.mock
+def test_create_order_sends_application_context_even_without_urls():
+    """landing_page applies regardless of return/cancel URLs — the
+    context block is now always present (it used to be omitted when no
+    URLs were supplied, which would have silently dropped the guest
+    preference for any future caller)."""
+    captured = _order_body_capture()
+    _provider().create_order(amount_minor=900, currency="GBP")
+    ctx = captured["body"]["application_context"]
+    assert ctx["landing_page"] == "GUEST_CHECKOUT"
+    assert "return_url" not in ctx and "cancel_url" not in ctx
+    assert ctx["shipping_preference"] == "NO_SHIPPING"
+
+
 @respx.mock
 def test_create_order_amount_string_format_two_decimals():
     """PayPal's amount.value is a string with 2 decimal places.

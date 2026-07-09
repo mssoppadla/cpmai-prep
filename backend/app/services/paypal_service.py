@@ -47,6 +47,19 @@ from app.core.exceptions import AppError
 # whole-unit-rounding caveat in pricing_service.py.
 _DECIMALS_PER_MAJOR = 2
 
+# Orders-v2 application_context.landing_page values. Controls what the
+# buyer sees FIRST on PayPal's hosted page:
+#   GUEST_CHECKOUT — card form first ("guest" pay-by-card), with
+#                    "Log in to PayPal" as the secondary option. Our
+#                    default: overseas buyers without PayPal accounts
+#                    were bouncing off the login wall.
+#   LOGIN          — PayPal login wall first (the old implicit default).
+#   NO_PREFERENCE  — PayPal decides per buyer context.
+# Admin-overridable via the provider's config JSON (`landing_page`) on
+# /admin/payment-providers — no deploy needed to flip behaviour.
+_LANDING_PAGES = ("GUEST_CHECKOUT", "LOGIN", "NO_PREFERENCE")
+_DEFAULT_LANDING_PAGE = "GUEST_CHECKOUT"
+
 
 class PayPalProvider:
     """REST client for PayPal Orders v2.
@@ -89,6 +102,13 @@ class PayPalProvider:
         self.mode = mode if mode in ("test", "live") else "test"
         self.config = config
         self._webhook_id = (config or {}).get("webhook_id") or ""
+        # Buyer-facing landing page on PayPal's hosted checkout. Unknown
+        # config values fall back to the default rather than erroring —
+        # a typo in admin config must not take payments down.
+        raw_lp = str((config or {}).get("landing_page") or
+                     _DEFAULT_LANDING_PAGE).strip().upper()
+        self._landing_page = (raw_lp if raw_lp in _LANDING_PAGES
+                              else _DEFAULT_LANDING_PAGE)
 
         self._base = self._LIVE_BASE if self.mode == "live" else self._SANDBOX_BASE
         # 8-second connect, 20-second read — PayPal's API is occasionally
@@ -192,19 +212,26 @@ class PayPalProvider:
             }],
         }
         # application_context controls the buyer-facing flow on PayPal's
-        # domain. If unset, PayPal uses the merchant's dashboard defaults.
-        # We always pass return/cancel so the buyer lands back on a known
-        # frontend route, where we capture (return) or surface a cancel
-        # message (cancel).
-        if return_url or cancel_url:
-            body["application_context"] = {
-                **({"return_url": return_url} if return_url else {}),
-                **({"cancel_url": cancel_url} if cancel_url else {}),
-                # NO_SHIPPING: digital goods, no address needed.
-                # PAY_NOW: skip PayPal's "review your order" intermediate.
-                "shipping_preference": "NO_SHIPPING",
-                "user_action": "PAY_NOW",
-            }
+        # domain. We always pass return/cancel so the buyer lands back on
+        # a known frontend route, where we capture (return) or surface a
+        # cancel message (cancel).
+        #
+        # landing_page=GUEST_CHECKOUT (default; admin-overridable via
+        # provider config) shows the CARD FORM first so overseas buyers
+        # without a PayPal account can pay as guests — PayPal-account
+        # holders still get a "Log in" link, so the existing flow keeps
+        # working. NOTE: guest card eligibility is ultimately PayPal's
+        # per-country/risk decision, and the merchant account needs
+        # "PayPal account optional" = On.
+        body["application_context"] = {
+            **({"return_url": return_url} if return_url else {}),
+            **({"cancel_url": cancel_url} if cancel_url else {}),
+            "landing_page": self._landing_page,
+            # NO_SHIPPING: digital goods, no address needed.
+            # PAY_NOW: skip PayPal's "review your order" intermediate.
+            "shipping_preference": "NO_SHIPPING",
+            "user_action": "PAY_NOW",
+        }
         try:
             r = self._http.post(
                 "/v2/checkout/orders",
