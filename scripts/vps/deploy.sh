@@ -283,21 +283,31 @@ sudo chown -R "$(id -un):$(id -gn)" /var/log/cpmai 2>/dev/null || true
 # entirely from the operator workflow. After PR-A's merge, the admin
 # can install the database AND get recurring refreshes purely through
 # /admin/geoip. No terminal access needed.
-if [ -x scripts/vps/install_geoip_cron.sh ]; then
-  ./scripts/vps/install_geoip_cron.sh 2>&1 | sed 's/^/  /' || \
+# NB (2026-07 incident): these guards used to be `[ -x ... ]` and the
+# installer scripts were committed WITHOUT the executable bit — so the
+# blocks were silently skipped on every deploy and prod ran on stale FX
+# rates for 7 weeks. Guards are now `[ -f ]` + explicit `bash` (immune
+# to mode bits), the missing-file case warns loudly, and
+# tests/unit/test_vps_script_modes.py pins the +x bits in git.
+if [ -f scripts/vps/install_geoip_cron.sh ]; then
+  bash scripts/vps/install_geoip_cron.sh 2>&1 | sed 's/^/  /' || \
       warn "install_geoip_cron.sh exited non-zero — refresh cron may "\
            "not be installed. Run it manually with: "\
-           "APP_DIR=$APP_DIR ./scripts/vps/install_geoip_cron.sh"
+           "APP_DIR=$APP_DIR bash scripts/vps/install_geoip_cron.sh"
+else
+  warn "scripts/vps/install_geoip_cron.sh MISSING — geoip refresh cron NOT installed"
 fi
 
 # FX-rate refresh cron — pulls daily from Frankfurter (ECB-published)
 # so admin doesn't have to manually update pricing.fx_live_raw. See
 # scripts/vps/install_fx_cron.sh for the rationale.
-if [ -x scripts/vps/install_fx_cron.sh ]; then
-  ./scripts/vps/install_fx_cron.sh 2>&1 | sed 's/^/  /' || \
+if [ -f scripts/vps/install_fx_cron.sh ]; then
+  bash scripts/vps/install_fx_cron.sh 2>&1 | sed 's/^/  /' || \
       warn "install_fx_cron.sh exited non-zero — FX refresh cron may "\
            "not be installed. Run it manually with: "\
-           "APP_DIR=$APP_DIR ./scripts/vps/install_fx_cron.sh"
+           "APP_DIR=$APP_DIR bash scripts/vps/install_fx_cron.sh"
+else
+  warn "scripts/vps/install_fx_cron.sh MISSING — FX refresh cron NOT installed"
 fi
 
 START_TS=$(date +%s)

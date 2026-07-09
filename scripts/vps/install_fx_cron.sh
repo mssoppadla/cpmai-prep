@@ -32,10 +32,16 @@ say() { printf '==> %s\n' "$*"; }
 ok()  { printf '  ✓ %s\n' "$*"; }
 die() { printf '  ✗ %s\n' "$*" >&2; exit 1; }
 
-[ -x "$REFRESH_SCRIPT" ] || die "$REFRESH_SCRIPT not found or not executable. \
-chmod +x scripts/vps/fx_refresh.sh first."
+[ -f "$REFRESH_SCRIPT" ] || die "$REFRESH_SCRIPT not found."
 
-CRON_LINE="$SCHEDULE APP_DIR=$APP_DIR $REFRESH_SCRIPT >> $CRON_LOG 2>&1"
+# Best-effort log dir. Provisioning normally creates /var/log/cpmai;
+# this covers rebuilt boxes so the first cron run isn't lost to a
+# missing directory. Non-fatal on permission denial (set -e is active).
+mkdir -p "$(dirname "$CRON_LOG")" 2>/dev/null || true
+
+# `bash` prefix: immune to a lost executable bit (the exact failure
+# that silently disabled this cron for 7 weeks — see deploy.sh note).
+CRON_LINE="$SCHEDULE APP_DIR=$APP_DIR bash $REFRESH_SCRIPT >> $CRON_LOG 2>&1"
 
 say "Refreshing crontab entry for fx_refresh.sh"
 (crontab -l 2>/dev/null | grep -v 'fx_refresh\.sh' ; echo "$CRON_LINE") \
