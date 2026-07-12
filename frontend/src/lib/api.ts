@@ -530,6 +530,15 @@ export const payments = {
    *  onApprove callback after the buyer approves on PayPal's domain.
    *  Razorpay uses verify() above — PayPal needs this because the
    *  Orders v2 flow separates authorization from capture. */
+  /** Report a checkout the buyer abandoned on PayPal's page (cancel
+   *  click or PayPal-side error) so the order is recorded as
+   *  cancelled instead of dangling in "created". */
+  async paypalCancelled(orderId: string): Promise<{ status: string }> {
+    const { data } = await request<{ status: string }>(
+      "/payments/paypal/cancelled",
+      { method: "POST", json: { order_id: orderId }, authed: true });
+    return data;
+  },
   async paypalCapture(payload: PayPalCaptureIn): Promise<PayPalCaptureOut> {
     const { data } = await request<PayPalCaptureOut>(
       "/payments/paypal/capture", {

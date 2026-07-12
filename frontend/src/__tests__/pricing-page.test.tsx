@@ -179,3 +179,39 @@ describe("/pricing page", () => {
     });
   });
 });
+
+describe("PayPal cancel bounce-back", () => {
+  it("shows guidance and reports the abandoned order when ?cancelled=1&token= is present", async () => {
+    global.fetch = buildFetch(QUOTE_NO_OFFER);
+    window.history.replaceState(null, "", "/pricing?cancelled=1&token=PAYPAL-XYZ");
+
+    render(<PricingPage />);
+    await waitFor(() => {
+      expect(screen.getByText(/payment wasn.t completed/i)).toBeInTheDocument();
+    });
+    // Guidance names the working alternative for the guest-card error.
+    expect(screen.getByText(/Log in to PayPal/)).toBeInTheDocument();
+
+    // The abandoned order was reported so admins see the drop-off.
+    await waitFor(() => {
+      const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const cancelCall = calls.find(([u]) =>
+        String(u).endsWith("/payments/paypal/cancelled"));
+      expect(cancelCall).toBeTruthy();
+      expect(JSON.parse(String(cancelCall![1]?.body))).toEqual(
+        { order_id: "PAYPAL-XYZ" });
+    });
+    // Params stripped — refresh won't re-report.
+    expect(window.location.search).toBe("");
+  });
+
+  it("no banner on a normal visit", async () => {
+    global.fetch = buildFetch(QUOTE_NO_OFFER);
+    window.history.replaceState(null, "", "/pricing");
+    render(<PricingPage />);
+    await waitFor(() => {
+      expect(screen.getByText("Exam Bundle")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/payment wasn.t completed/i)).toBeNull();
+  });
+});

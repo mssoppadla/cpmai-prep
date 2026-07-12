@@ -40,11 +40,11 @@ from app.models.offer import OfferCode
 from app.models.lead import Lead, LeadSource
 from app.schemas.payment import (
     CreateOrderIn, CreateOrderOut, VerifyPaymentIn, VerifyPaymentOut,
-    PayPalCaptureIn, PayPalCaptureOut,
+    PayPalCancelledIn, PayPalCancelledOut, PayPalCaptureIn, PayPalCaptureOut,
 )
 from app.services.payment_registry import PaymentRegistry
 from app.services.payment_lifecycle import (
-    activate_subscription_for_payment, mark_payment_failed,
+    activate_subscription_for_payment, mark_payment_cancelled, mark_payment_failed,
     find_payment_for_event, find_payment_for_paypal_event,
 )
 from app.services.pricing_service import PricingService
@@ -348,6 +348,30 @@ def paypal_capture(payload: PayPalCaptureIn,
     return PayPalCaptureOut(
         status="active", plan_slug=sub.plan, expires_at=sub.expires_at,
     )
+
+
+@router.post("/paypal/cancelled", response_model=PayPalCancelledOut)
+def paypal_cancelled(payload: PayPalCancelledIn,
+                     user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Record a PayPal checkout the buyer abandoned.
+
+    PayPal appends ``?token=<order_id>`` to our cancel_url, so the
+    pricing page knows exactly which order died — whether the buyer
+    clicked cancel or hit PayPal's own error page (the UK guest-card
+    incident, 2026-07-12). Without this, the Payment row sits in
+    'created' forever and the drop-off is invisible to admins.
+
+    Only the order's owner can report it, and only 'created' rows
+    change — a stale cancel report can never downgrade a captured or
+    failed payment (mark_payment_cancelled enforces both).
+    """
+    payment = db.query(Payment).filter_by(
+        provider_order_id=payload.order_id, user_id=user.id).first()
+    if not payment:
+        raise NotFoundError("Order not found.")
+    mark_payment_cancelled(db, payment)
+    return PayPalCancelledOut(status=payment.status)
 
 
 @router.post("/webhook")
