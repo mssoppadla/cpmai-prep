@@ -157,7 +157,9 @@ def test_pricing_lookup_targets_only_plan_corpus():
     with patch(_patch_target("pricing_lookup"), return_value=[]) as m:
         PricingLookupTool().execute(_ctx(), {"query": "x"})
     kw = m.call_args.kwargs
-    assert list(kw["source_types"]) == ["plan"]
+    assert "plan" in kw["source_types"]
+    assert "course" in kw["source_types"]   # course prices are pricing
+    assert "upload" not in kw["source_types"]
 
 
 # ============================================================ pricing extra

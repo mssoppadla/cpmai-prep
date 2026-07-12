@@ -31,6 +31,7 @@ from app.core.audit import audit_log
 from app.core.deps import get_admin_user, get_db
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.tenant import get_current_tenant_id
+from app.services.assistant.rag.ingest import reindex_quietly
 from app.models.content_page import ContentPage
 from app.models.user import User
 from app.schemas.content_page import (
@@ -144,6 +145,9 @@ def create_content_page(
         db, admin.id, "content_page.created",
         {"id": page.id, "slug": page.slug, "title": page.title},
     )
+    # Assistant corpus sync — only published, publicly-visible pages
+    # are indexed; the adapter enforces that, this hook just triggers.
+    reindex_quietly(db, "content_page", page.id)
     return page
 
 
@@ -175,6 +179,7 @@ def update_content_page(
         db, admin.id, "content_page.updated",
         {"id": page.id, "slug": page.slug, "changed": sorted(updates.keys())},
     )
+    reindex_quietly(db, "content_page", page.id)
     return page
 
 
@@ -266,4 +271,5 @@ def delete_content_page(
         db, admin.id, "content_page.deleted",
         {"id": page.id, "slug": page.slug, "soft": True},
     )
+    reindex_quietly(db, "content_page", page.id)   # clears the chunks
     # No response body on 204

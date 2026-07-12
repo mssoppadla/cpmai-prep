@@ -50,7 +50,7 @@ const SITE_FALLBACK: SiteChrome = {
   reddit_url: "",
   copyright_text: "© 2026 CPMAI Prep. All rights reserved.",
   show_pricing_link: true,
-  assistant_widget_subtitle: "Grounded in our FAQ, pricing & question explanations",
+  assistant_widget_subtitle: "Ask about courses, pricing, live classes & the CPMAI exam",
   // Empty default — when /content/site returns the seeded list, the
   // assistant widget renders the suggestions as clickable chips. The
   // header itself doesn't consume this; it's just here to satisfy the

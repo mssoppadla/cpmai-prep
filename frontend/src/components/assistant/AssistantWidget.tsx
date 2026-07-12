@@ -29,13 +29,14 @@ import { assistant, content, leads, errMsg,
 import type { UserOut, AssistantCitation, SuggestedAction } from "@/types/api";
 import { useAssistant, type ChatTurn } from "./useAssistant";
 
-const DEFAULT_SUBTITLE = "Grounded in our FAQ, pricing & question explanations";
+const DEFAULT_SUBTITLE = "Ask about courses, pricing, live classes & the CPMAI exam";
 // EmptyState fallback — matches the previously-hardcoded list so the
 // widget keeps working before /content/site has resolved (and as a
 // guard if an admin nukes the setting entirely).
 const DEFAULT_TRY_ASKING: string[] = [
   "What's the difference between Phase 2 and Phase 3?",
   "How much is the exam bundle?",
+  "When is the next live class?",
   "Where do I register for the actual exam?",
 ];
 // Anon-state copy shown when an unauthenticated visitor opens the

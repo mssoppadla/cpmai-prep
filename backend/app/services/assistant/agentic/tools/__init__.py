@@ -25,4 +25,5 @@ from app.services.assistant.agentic.tools import (
     user_insights,
     pmi_reference,
     human_escalation,
+    live_sessions,
 )

@@ -41,6 +41,13 @@ from app.services.assistant.handlers.faq_handler import FAQHandler
 from app.services.assistant.handlers.insights_handler import InsightsHandler
 from app.services.assistant.handlers.pmi_handler import PmiReferenceHandler
 from app.services.assistant.intent_classifier import Intent, IntentClassifier
+from app.services.assistant.rag.handler_support import SHARED_KNOWLEDGE_SOURCES
+
+# The cross-cutting site-knowledge pool (uploads + CMS pages + course
+# catalog + live-session schedule). FAQ/Content handlers spread this
+# into their filters, so the expected sets derive from the constant —
+# extending the pool must not silently drop a handler's primary source.
+_SHARED = set(SHARED_KNOWLEDGE_SOURCES)
 
 
 @dataclass
@@ -76,13 +83,13 @@ QUESTIONS: list[QuestionCase] = [
     QuestionCase(
         question="What's the eligibility for the CPMAI exam?",
         expected_intent=Intent.FAQ,
-        expected_legacy_sources={"faq", "upload"},
+        expected_legacy_sources={"faq"} | _SHARED,
         expected_agentic_tools={"faq", "upload"},
     ),
     QuestionCase(
         question="How long is the exam? What's the passing score?",
         expected_intent=Intent.FAQ,
-        expected_legacy_sources={"faq", "upload"},
+        expected_legacy_sources={"faq"} | _SHARED,
         expected_agentic_tools={"faq", "upload"},
     ),
 
@@ -90,14 +97,14 @@ QUESTIONS: list[QuestionCase] = [
     QuestionCase(
         question="Explain CPMAI Phase 3 and what it covers",
         expected_intent=Intent.CONTENT,
-        expected_legacy_sources={"question_explanation", "upload"},
+        expected_legacy_sources={"question_explanation"} | _SHARED,
         expected_agentic_tools={"content", "upload"},
         notes="'phase' keyword routes to CONTENT",
     ),
     QuestionCase(
         question="What is the deployment phase about?",
         expected_intent=Intent.CONTENT,
-        expected_legacy_sources={"question_explanation", "upload"},
+        expected_legacy_sources={"question_explanation"} | _SHARED,
         expected_agentic_tools={"content", "upload"},
         notes="'what is' + 'deployment' keywords route to CONTENT",
     ),
@@ -106,13 +113,13 @@ QUESTIONS: list[QuestionCase] = [
     QuestionCase(
         question="How much does the Premium subscription cost?",
         expected_intent=Intent.ACCOUNT,
-        expected_legacy_sources={"plan"},
+        expected_legacy_sources={"plan", "course"},
         expected_agentic_tools={"account"},
     ),
     QuestionCase(
         question="Can I get a refund if I cancel my plan?",
         expected_intent=Intent.ACCOUNT,
-        expected_legacy_sources={"plan"},
+        expected_legacy_sources={"plan", "course"},
         expected_agentic_tools={"account"},
     ),
 
@@ -141,7 +148,7 @@ QUESTIONS: list[QuestionCase] = [
     QuestionCase(
         question="What are GDPR Rules?",
         expected_intent=Intent.CONTENT,       # default fallthrough is now CONTENT
-        expected_legacy_sources={"question_explanation", "upload"},
+        expected_legacy_sources={"question_explanation"} | _SHARED,
         expected_agentic_tools={"content", "upload"},
         notes="REGRESSION (operator-reported, May 2026): GDPR fell "
               "through to FAQ default; FAQHandler's narrow self-image "
@@ -155,11 +162,41 @@ QUESTIONS: list[QuestionCase] = [
     QuestionCase(
         question="Tell me about machine learning model evaluation",
         expected_intent=Intent.CONTENT,       # default fallthrough is now CONTENT
-        expected_legacy_sources={"question_explanation", "upload"},
+        expected_legacy_sources={"question_explanation"} | _SHARED,
         expected_agentic_tools={"content", "upload"},
         notes="ML/AI topic falls through to CONTENT default; the broader "
               "system prompt + upload corpus together let the LLM answer "
               "without refusing.",
+    ),
+    # ---- SITE-WIDE KNOWLEDGE (July 2026): live classes + course catalog
+    QuestionCase(
+        question="When is the next live class?",
+        expected_intent=Intent.FAQ,
+        expected_legacy_sources={"faq"} | _SHARED,
+        expected_agentic_tools={"live_sessions"},
+        notes="'live class' keyword routes to FAQ; the shared pool "
+              "includes the zoom_session corpus, so the schedule (with "
+              "dates) is retrievable. Agentic flow uses the live-DB "
+              "live_sessions tool instead.",
+    ),
+    QuestionCase(
+        question="What courses do you offer on this platform?",
+        expected_intent=Intent.ACCOUNT,
+        expected_legacy_sources={"plan", "course"},
+        expected_agentic_tools={"account"},
+        notes="'offer' is an ACCOUNT keyword — and that's fine now: "
+              "AccountHandler retrieves plan AND course corpora, so a "
+              "catalog question landing there still gets real course "
+              "titles + prices.",
+    ),
+    QuestionCase(
+        question="Which courses are available for CPMAI preparation?",
+        expected_intent=Intent.CONTENT,
+        expected_legacy_sources={"question_explanation"} | _SHARED,
+        expected_agentic_tools={"content", "upload"},
+        notes="No keyword match falls through to CONTENT; the shared "
+              "pool includes the course catalog so the handler can "
+              "answer with real titles/prices.",
     ),
 ]
 

@@ -101,7 +101,7 @@
   },
   {
     "key": "assistant.allowed_topics",
-    "value": "CPMAI Body of Knowledge (the 6 phases), ML/AI fundamentals, data science, certification exam tactics, pricing on this site, your account on this site.",
+    "value": "CPMAI Body of Knowledge (the 6 phases), ML/AI fundamentals, data science, certification exam tactics, pricing on this site, your account on this site, our course catalog and course contents, our live class schedule and dates, any information published on this site's pages.",
     "description": "Comma-or-newline list of topics the bot will discuss freely. Folded into the system prompt as 'TOPIC SCOPE'."
   },
   {
@@ -121,7 +121,7 @@
   },
   {
     "key": "assistant.widget_subtitle",
-    "value": "Grounded in our FAQ, pricing & question explanations",
+    "value": "Ask about courses, pricing, live classes & the CPMAI exam",
     "description": "Subtitle shown under 'CPMAI Assistant' in the chat panel header. Tells learners what the AI is grounded in."
   },
   {
@@ -134,6 +134,7 @@
     "value": [
       "What's the difference between Phase 2 and Phase 3?",
       "How much is the exam bundle?",
+      "When is the next live class?",
       "Where do I register for the actual exam?"
     ],
     "description": "Starter prompts shown in the chat widget's empty state. Each entry becomes a clickable chip that pre-fills the chat input. Max 10 entries, 200 chars each. Empty list disables the suggestions."
@@ -190,7 +191,7 @@
   },
   {
     "key": "assistant.classifier.keywords.faq",
-    "value": ["exam pattern", "passing", "duration", "fee", "eligibility", "certification", "how do i take", "schedule", "format", "exam date", "exam time"],
+    "value": ["exam pattern", "passing", "duration", "fee", "eligibility", "certification", "how do i take", "schedule", "format", "exam date", "exam time", "live class", "live session", "webinar", "live training"],
     "description": "Substrings that route to the FAQ handler (RAG over faq + upload corpora). FIFTH priority. Add a substring here if you've added a new FAQ row and want pricing-style or process-style questions to land on this handler. For example, adding 'cost' here makes 'How Much Does CPMAI Cost?' route to the FAQ corpus where the answer lives."
   },
   {

@@ -30,7 +30,7 @@ class AccountHandler:
 
     def respond(self, request, user) -> dict:
         chunks = retrieve_context(
-            self.db, request.message, source_types=["plan"])
+            self.db, request.message, source_types=["plan", "course"])
         context = build_context_block(chunks)
         base_system = configurable_handler_system(self.name, DEFAULT_SYSTEM)
         base = (base_system + "\n\n" + context) if context else base_system
