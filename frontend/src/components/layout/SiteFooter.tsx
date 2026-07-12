@@ -33,7 +33,7 @@ const SITE_FALLBACK: SiteChrome = {
   reddit_url: "",
   copyright_text: "© 2026 CPMAI Prep. All rights reserved.",
   show_pricing_link: true,
-  assistant_widget_subtitle: "Grounded in our FAQ, pricing & question explanations",
+  assistant_widget_subtitle: "Ask about courses, pricing, live classes & the CPMAI exam",
   // Empty default — backend sends the seeded list. Footer never reads
   // this anyway, but TypeScript requires the field to be present.
   assistant_try_asking_suggestions: [],

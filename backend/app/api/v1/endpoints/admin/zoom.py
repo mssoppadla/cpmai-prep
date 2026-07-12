@@ -40,6 +40,7 @@ from app.core.audit import audit_log
 from app.core.deps import get_admin_user, get_db
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.tenant import get_current_tenant_id
+from app.services.assistant.rag.ingest import reindex_quietly
 from app.models.user import User
 from app.models.zoom import ZoomSession, Recording
 from app.schemas.zoom import (
@@ -152,6 +153,9 @@ def create_session(
     audit_log(db, admin.id, "zoom_session.created",
               {"id": s.id, "status": s.status,
                "zoom_meeting_id": s.zoom_meeting_id})
+    # Assistant corpus sync — the adapter only indexes scheduled/
+    # live sessions, so drafts add nothing and cancels clear chunks.
+    reindex_quietly(db, "zoom_session", s.id)
     return s
 
 
@@ -178,6 +182,7 @@ def publish_session(
     db.commit(); db.refresh(s)
     audit_log(db, admin.id, "zoom_session.published",
               {"id": s.id, "zoom_meeting_id": s.zoom_meeting_id})
+    reindex_quietly(db, "zoom_session", s.id)
     return s
 
 
@@ -229,6 +234,7 @@ def update_session(
     db.commit(); db.refresh(s)
     audit_log(db, admin.id, "zoom_session.updated",
               {"id": s.id, "changed": sorted(updates.keys())})
+    reindex_quietly(db, "zoom_session", s.id)
     return s
 
 
@@ -259,6 +265,7 @@ def delete_session(
     db.commit()
     audit_log(db, admin.id, "zoom_session.deleted",
               {"id": s.id, "zoom_meeting_id": s.zoom_meeting_id})
+    reindex_quietly(db, "zoom_session", s.id)   # clears the chunks
 
 
 # ──────────────────────────────────────────────────────────────────────

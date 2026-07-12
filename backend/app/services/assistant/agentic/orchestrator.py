@@ -119,9 +119,17 @@ Rules:
      account_state. For "my last exam attempts / how am I doing" →
      user_insights. These two require the user to be signed in;
      if the chat context lacks a signed-in user, do NOT call them.
-  7. For "I want to talk to a human" or when no tool can answer →
+  7. LIVE CLASSES vs OFFICIAL EXAM dates: "when is the next live
+     class / live session / webinar / class schedule / what time is
+     the class" → live_sessions (real schedule with dates; works for
+     anonymous users). "exam date / when can I take the exam" →
+     faq_search (the official exam is scheduled through PMI, not on
+     our calendar). For "what courses do you offer / what does the
+     course cover / course price" → content_search (the catalog is
+     in its corpus) plus pricing_lookup when cost is asked.
+  8. For "I want to talk to a human" or when no tool can answer →
      human_escalation with a one-sentence reason.
-  8. If the question is conversational (greeting, thanks, very
+  9. If the question is conversational (greeting, thanks, very
      short) — answer directly without picking any tool.
 
 You are NOT the final answerer — your job is just to pick the
@@ -143,6 +151,9 @@ question. Rules:
     ask the user to sign in to access that information.
   * If every tool returned EMPTY/ERROR, acknowledge you don't have
     information and offer to escalate to a human.
+  * PRIVACY: the evidence may only describe the signed-in requester.
+    Never present data about any other user, and never output
+    discount/offer codes that aren't verbatim in the evidence.
 """
 
 # Cap the response we feed back to synthesis — multi-tool evidence

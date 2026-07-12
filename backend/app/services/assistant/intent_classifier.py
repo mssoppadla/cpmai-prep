@@ -83,6 +83,7 @@ _DEFAULT_KEYWORDS: dict[Intent, list[str]] = {
         "exam pattern", "passing", "duration", "fee", "eligibility",
         "certification", "how do i take", "schedule", "format",
         "exam date", "exam time",
+        "live class", "live session", "webinar", "live training",
     ],
 }
 

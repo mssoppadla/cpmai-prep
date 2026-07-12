@@ -23,19 +23,26 @@ from app.services.assistant.rag.retrieve import (
 
 
 # Source types that represent admin-curated knowledge applicable to ANY
-# subject-matter handler (FAQ, Content). Currently just admin uploads
-# via /admin/rag-sources, but a future "manual notes" or "policy
-# library" source would belong here too. Excludes:
-#   - "plan" (account-specific data; lives in AccountHandler only)
-#   - "question_explanation" (one source per handler — ContentHandler's
-#     primary source, not part of the cross-cutting knowledge pool)
+# subject-matter handler (FAQ, Content):
+#   - "upload"       — admin-uploaded reference docs (/admin/rag-sources)
+#   - "content_page" — published, publicly-visible CMS pages
+#   - "course"       — the published course catalog (titles, outcomes,
+#                      prices) so "what courses do you offer" works from
+#                      any topical route
+#   - "zoom_session" — upcoming/live class sessions WITH their dates so
+#                      "when is the next live class" is answerable
+# Excludes:
+#   - "plan" (pricing data; lives in AccountHandler/pricing_lookup)
+#   - "question_explanation" (ContentHandler's primary source)
 #   - "faq" (FAQHandler's primary source)
 #
-# Handlers spread this into their source_types filter so admin-uploaded
-# documents are searchable from any topical handler. Without this an
-# operator who uploads a 250-chunk knowledge base never sees those
-# chunks reach the LLM (the upload corpus is orphaned from retrieval).
-SHARED_KNOWLEDGE_SOURCES: tuple[str, ...] = ("upload",)
+# Handlers spread this into their source_types filter so this shared
+# site-knowledge pool is searchable from any topical handler — in BOTH
+# the legacy flow and the agentic *_search tools. Similarity ranking
+# keeps irrelevant sources out of the top-k.
+SHARED_KNOWLEDGE_SOURCES: tuple[str, ...] = (
+    "upload", "content_page", "course", "zoom_session",
+)
 
 
 def retrieve_context(
@@ -107,6 +114,14 @@ def _short_tag(c: RetrievedChunk) -> str:
         return f"Plan: {name}"
     if c.source_type == "question_explanation":
         return "Question explanation"
+    if c.source_type == "course":
+        title = c.metadata.get("course_title") or "Course"
+        return f"Course: {title}"
+    if c.source_type == "content_page":
+        title = c.metadata.get("page_title") or "Page"
+        return f"Page: {title}"
+    if c.source_type == "zoom_session":
+        return "Live class"
     if c.source_type == "upload":
         # Admin-uploaded reference document. The chunker stores the
         # filename in metadata; surface it here so a citation chip
@@ -122,6 +137,12 @@ def _title(c: RetrievedChunk) -> str:
         return c.metadata.get("faq_question") or c.content[:120]
     if c.source_type == "plan":
         return c.metadata.get("plan_name") or "Pricing plan"
+    if c.source_type == "course":
+        return c.metadata.get("course_title") or c.content[:120]
+    if c.source_type == "content_page":
+        return c.metadata.get("page_title") or c.content[:120]
+    if c.source_type == "zoom_session":
+        return c.metadata.get("session_title") or c.content[:120]
     if c.source_type == "upload":
         # Prefix with filename + chunk index when available so multiple
         # chunks from the same doc are distinguishable in the citations
@@ -142,6 +163,16 @@ def _deep_link(c: RetrievedChunk) -> str | None:
     if c.source_type == "faq":
         # No deep-link per FAQ row today; landing FAQ section anchor.
         return "/#faq-heading"
+    if c.source_type == "course":
+        slug = c.metadata.get("course_slug")
+        return f"/courses/{slug}" if slug else "/courses"
+    if c.source_type == "content_page":
+        slug = c.metadata.get("page_slug")
+        return f"/pages/{slug}" if slug else None
+    if c.source_type == "zoom_session":
+        # Sessions are joined from the signed-in dashboard; anonymous
+        # visitors land on the courses page which advertises them.
+        return "/dashboard"
     # Uploaded docs are admin-only — no public deep-link to the raw
     # file (we discard the bytes after chunking; only the rag_chunks
     # rows persist). Citation chip stays clickable but routes nowhere.

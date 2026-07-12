@@ -35,6 +35,7 @@ from app.core.deps import get_admin_user, get_db
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.media_tokens import protected_media_url
 from app.core.tenant import get_current_tenant_id
+from app.services.assistant.rag.ingest import reindex_quietly
 from app.models.lms import (
     Chapter, Course, CourseAnnouncement, CourseCategory,
     CourseCategoryLink, Enrollment, Lesson, LessonFile,
@@ -281,6 +282,9 @@ def create_course(
     db.add(c); db.commit(); db.refresh(c)
     audit_log(db, admin.id, "course.created",
               {"id": c.id, "slug": c.slug, "title": c.title})
+    # Keep the assistant's course corpus in sync (published only —
+    # the adapter skips drafts, so an unpublished save clears chunks).
+    reindex_quietly(db, "course", c.id)
     return c
 
 
@@ -304,6 +308,7 @@ def update_course(
     db.commit(); db.refresh(c)
     audit_log(db, admin.id, "course.updated",
               {"id": c.id, "slug": c.slug, "changed": sorted(updates.keys())})
+    reindex_quietly(db, "course", c.id)
     return c
 
 
@@ -321,6 +326,7 @@ def delete_course(
     c.deleted_by = admin.id
     db.commit()
     audit_log(db, admin.id, "course.deleted", {"id": c.id, "slug": c.slug})
+    reindex_quietly(db, "course", c.id)   # clears the chunks
 
 
 # ============================================================ CHAPTERS

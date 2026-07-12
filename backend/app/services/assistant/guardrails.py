@@ -9,15 +9,43 @@ from app.models.user import User
 
 INJECTION_PATTERNS = [
     re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions", re.I),
+    re.compile(r"disregard\s+(all\s+)?(previous|prior|above|your)\s+"
+               r"(instructions|rules|guidelines)", re.I),
     re.compile(r"system\s*prompt", re.I),
     re.compile(r"reveal\s+(your\s+)?(instructions|system|prompt)", re.I),
     re.compile(r"</?(system|admin)>", re.I),
+    # Persona/jailbreak framings. Kept tight — "act as a project
+    # manager" is a legitimate CPMAI question; "you are now the
+    # system" is not.
+    re.compile(r"developer\s+mode", re.I),
+    re.compile(r"\bjailbreak", re.I),
+    re.compile(r"do\s+anything\s+now", re.I),
+    re.compile(r"you\s+are\s+now\s+(the\s+)?(system|admin|root|developer)", re.I),
+    # Config/credential extraction.
+    re.compile(r"(reveal|show|print|dump|leak)\s+(me\s+)?(your\s+|the\s+)?"
+               r"(config|configuration|credentials?|secrets?|api\s*key|"
+               r"env(ironment)?\s*var)", re.I),
+    # Cross-user data harvesting — the tools are architecturally scoped
+    # to the signed-in user, but block the obvious asks at the door too.
+    re.compile(r"(another|other)\s+(user|candidate|student|learner)s?'?s?\b"
+               r".{0,40}\b(score|result|email|data|subscription|attempt|"
+               r"detail|password|phone)", re.I),
+    re.compile(r"(list|dump|show)\s+(me\s+)?all\s+(the\s+)?"
+               r"(users|customers|candidates|students|emails|"
+               r"offer\s*codes|discount\s*codes|coupons)", re.I),
 ]
 
 OUTPUT_BLOCKLIST = [
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
     re.compile(r"rzp_(live|test)_[A-Za-z0-9]+"),
     re.compile(r"BEGIN (RSA|OPENSSH) PRIVATE KEY"),
+    # JWTs (two base64url segments starting with eyJ) — access/refresh
+    # tokens must never surface in a chat answer.
+    re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}"),
+    # bcrypt password hashes.
+    re.compile(r"\$2[aby]\$\d{2}\$"),
+    # Connection strings with inline credentials.
+    re.compile(r"(postgres(ql)?|mysql|redis|amqp)://[^\s/]+:[^\s@]+@", re.I),
 ]
 
 

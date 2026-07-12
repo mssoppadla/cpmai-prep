@@ -63,7 +63,7 @@ class PricingLookupTool(Tool):
             )
         try:
             chunks = retrieve_context(
-                ctx.db, query, source_types=["plan"])
+                ctx.db, query, source_types=["plan", "course"])
         except Exception as e:
             return ToolResult(
                 tool_name=self.name,

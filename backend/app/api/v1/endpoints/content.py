@@ -154,7 +154,7 @@ def site_chrome():
         # round-trip — site chrome is already fetched on every page.
         "assistant_widget_subtitle": settings_store.get_str(
             "assistant.widget_subtitle",
-            "Grounded in our FAQ, pricing & question explanations",
+            "Ask about courses, pricing, live classes & the CPMAI exam",
         ),
         # Suggested starter prompts shown in the empty-state of the
         # assistant widget. Admin-editable as a list so they can
@@ -195,6 +195,7 @@ def _try_asking_suggestions() -> list[str]:
     return [
         "What's the difference between Phase 2 and Phase 3?",
         "How much is the exam bundle?",
+        "When is the next live class?",
         "Where do I register for the actual exam?",
     ]
 
