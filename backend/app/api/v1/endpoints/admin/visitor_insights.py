@@ -276,6 +276,106 @@ def insights_pages(
 
 
 # ---------------------------------------------------------------------
+# 2b. Navigation flow — which page visitors move to next
+# ---------------------------------------------------------------------
+
+@router.get("/insights/flow")
+def insights_flow(
+    window: WindowLiteral = Query("7d"),
+    limit: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+):
+    """Page-to-page navigation flow.
+
+    Reconstructs each session's page.view sequence (ordered by
+    created_at, then id — the id tiebreak preserves client order for
+    views that landed in the same 5-second tracker batch) and counts
+    the consecutive from→to pairs.
+
+    Returns:
+      * transitions — top `limit` (from_path, to_path) pairs with:
+          - count            — sessions moves observed
+          - share_of_from    — count / all moves leaving from_path
+          - avg_seconds_on_from — avg ACTIVE dwell on the from page
+            (page.exit duration_ms), i.e. "stayed 90s on /pricing,
+            then went to /courses"
+      * entries — top 10 first-pages-of-session
+      * exits   — top 10 last-pages-of-session
+
+    Consecutive repeats of the same path (e.g. a query-param change on
+    the same route template) are skipped — they're not navigation.
+    """
+    tenant_id = get_current_tenant_id()
+    since = _since(window)
+
+    rows = (
+        db.query(JourneyEvent)
+        .filter(JourneyEvent.tenant_id == tenant_id)
+        .filter(JourneyEvent.created_at >= since)
+        .filter(JourneyEvent.event.in_(("page.view", "page.exit")))
+        .filter(JourneyEvent.path.isnot(None))
+        .filter(JourneyEvent.session_id.isnot(None))
+        .all()
+    )
+
+    views_per_session: dict[str, list[tuple[datetime, int, str]]] = defaultdict(list)
+    exit_durations: dict[str, list[int]] = defaultdict(list)
+    for r in rows:
+        if r.event == "page.view":
+            views_per_session[r.session_id].append((r.created_at, r.id, r.path))
+        elif r.duration_ms:
+            exit_durations[r.path].append(r.duration_ms)
+
+    transition_counts: dict[tuple[str, str], int] = defaultdict(int)
+    moves_leaving: dict[str, int] = defaultdict(int)
+    entry_counts: dict[str, int] = defaultdict(int)
+    exit_counts: dict[str, int] = defaultdict(int)
+
+    for views in views_per_session.values():
+        views.sort(key=lambda t: (t[0], t[1]))
+        ordered = [path for _, _, path in views]
+        # Collapse consecutive repeats — not navigation.
+        deduped: list[str] = []
+        for p in ordered:
+            if not deduped or deduped[-1] != p:
+                deduped.append(p)
+        entry_counts[deduped[0]] += 1
+        exit_counts[deduped[-1]] += 1
+        for frm, to in zip(deduped, deduped[1:]):
+            transition_counts[(frm, to)] += 1
+            moves_leaving[frm] += 1
+
+    def _avg_s(path: str) -> float:
+        durs = exit_durations.get(path, [])
+        return round(sum(durs) / len(durs) / 1000, 1) if durs else 0
+
+    transitions = [
+        {
+            "from_path": frm,
+            "to_path": to,
+            "count": n,
+            "share_of_from": round(n / moves_leaving[frm], 3),
+            "avg_seconds_on_from": _avg_s(frm),
+        }
+        for (frm, to), n in transition_counts.items()
+    ]
+    transitions.sort(key=lambda d: d["count"], reverse=True)
+
+    def _top(counts: dict[str, int], n: int = 10) -> list[dict]:
+        ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+        return [{"path": p, "count": c} for p, c in ranked[:n]]
+
+    return {
+        "window": window,
+        "since": since.isoformat().replace("+00:00", "Z"),
+        "transitions": transitions[:limit],
+        "entries": _top(entry_counts),
+        "exits": _top(exit_counts),
+    }
+
+
+# ---------------------------------------------------------------------
 # 3. Funnel — landing → signup → first lesson → payment
 # ---------------------------------------------------------------------
 

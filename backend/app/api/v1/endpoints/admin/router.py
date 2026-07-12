@@ -21,6 +21,7 @@ from app.api.v1.endpoints.admin import (
     email_templates,
     email_automations,
     payments as payments_admin,
+    testimonials,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -30,6 +31,7 @@ admin_router.include_router(questions.router,    prefix="/questions",     tags=[
 admin_router.include_router(exam_sets.router,    prefix="/exam-sets",     tags=["admin"])
 admin_router.include_router(leads.router,        prefix="/leads",         tags=["admin"])
 admin_router.include_router(faqs.router,         prefix="/faqs",          tags=["admin"])
+admin_router.include_router(testimonials.router, prefix="/testimonials",  tags=["admin"])
 admin_router.include_router(content_pages.router, prefix="/content-pages", tags=["admin"])
 admin_router.include_router(cms_ai.router,        prefix="/cms-ai",        tags=["admin"])
 admin_router.include_router(lms_admin.router,     prefix="",                tags=["admin", "lms"])

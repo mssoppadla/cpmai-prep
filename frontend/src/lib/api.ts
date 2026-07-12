@@ -9,6 +9,7 @@ import type {
   AssistantRequest, AssistantResponse,
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
   FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
+  TestimonialOut, TestimonialAdminOut, TestimonialIn,
   ContentPageOut, ContentPageCreateIn, ContentPageUpdateIn,
   ContentPagePublicOut, ContentPageNavItemOut,
   CmsGeneratePageIn, CmsGeneratePageOut,
@@ -599,8 +600,29 @@ export const content = {
     const { data } = await request<FaqOut[]>("/content/faqs");
     return data;
   },
+  async testimonials(): Promise<TestimonialOut[]> {
+    const { data } = await request<TestimonialOut[]>("/content/testimonials");
+    return data;
+  },
   async landing(): Promise<LandingCopy> {
     const { data } = await request<LandingCopy>("/content/landing");
+    return data;
+  },
+  /** Admin-editable 404/error-page copy + help-links toggle. */
+  async errors(): Promise<{
+    not_found_title: string;
+    not_found_body: string;
+    server_error_title: string;
+    server_error_body: string;
+    show_help_links: boolean;
+  }> {
+    const { data } = await request<{
+      not_found_title: string;
+      not_found_body: string;
+      server_error_title: string;
+      server_error_body: string;
+      show_help_links: boolean;
+    }>("/content/errors");
     return data;
   },
   async site(): Promise<SiteChrome> {
@@ -944,6 +966,26 @@ export const admin = {
     },
     async delete(id: number) {
       await request(`/admin/faqs/${id}`, { method: "DELETE", authed: true });
+    },
+  },
+  testimonials: {
+    async list() {
+      const { data } = await request<TestimonialAdminOut[]>(
+        "/admin/testimonials", { authed: true });
+      return data;
+    },
+    async create(p: TestimonialIn) {
+      const { data } = await request<TestimonialAdminOut>(
+        "/admin/testimonials", { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async update(id: number, p: TestimonialIn) {
+      const { data } = await request<TestimonialAdminOut>(
+        `/admin/testimonials/${id}`, { method: "PATCH", json: p, authed: true });
+      return data;
+    },
+    async delete(id: number) {
+      await request(`/admin/testimonials/${id}`, { method: "DELETE", authed: true });
     },
   },
   contentPages: {
@@ -1472,6 +1514,23 @@ export const admin = {
         }[];
         overall_conversion: number;
       }>(`/admin/insights/funnel?window=${window}`,
+         { authed: true });
+      return data;
+    },
+    async flow(window: "24h" | "7d" | "30d" | "90d" = "7d", limit = 25) {
+      const { data } = await request<{
+        window: string;
+        since:  string;
+        transitions: {
+          from_path: string;
+          to_path: string;
+          count: number;
+          share_of_from: number;
+          avg_seconds_on_from: number;
+        }[];
+        entries: { path: string; count: number }[];
+        exits:   { path: string; count: number }[];
+      }>(`/admin/insights/flow?window=${window}&limit=${limit}`,
          { authed: true });
       return data;
     },

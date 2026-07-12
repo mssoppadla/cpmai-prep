@@ -443,4 +443,47 @@ def user_insights(user_id: int, db: Session = Depends(get_db)):
         "courses": courses,
         "quiz_attempts": quiz_attempts,
         "activity": activity,
+        "page_journey": _page_journey(db, user_id),
     }
+
+
+def _page_journey(db: Session, user_id: int, max_pages: int = 50) -> list[dict]:
+    """The user's recent page-by-page journey: which page, how long
+    they actively stayed (from the tracker's page.exit duration), and
+    which page they moved to next.
+
+    Built from page.view/page.exit rows ordered ascending by
+    (created_at, id) — the id tiebreak keeps client order for events
+    that arrived in the same tracker batch. next_path only links pages
+    within the SAME session_id, so closing the tab ends a chain
+    (next_path stays null = "left the site").
+    """
+    rows = (db.query(JourneyEvent)
+            .filter(JourneyEvent.user_id == user_id)
+            .filter(JourneyEvent.event.in_(("page.view", "page.exit")))
+            .order_by(JourneyEvent.created_at.desc(), JourneyEvent.id.desc())
+            .limit(2 * max_pages * 2)  # views + exits, with headroom
+            .all())
+    rows.reverse()  # ascending — oldest first
+
+    journey: list[dict] = []
+    last_view_idx: dict[str, int] = {}   # session_id -> index into journey
+    for ev in rows:
+        sid = ev.session_id or ""
+        if ev.event == "page.view":
+            if sid in last_view_idx:
+                journey[last_view_idx[sid]]["next_path"] = ev.path
+            journey.append({
+                "path": ev.path,
+                "entered_at": ev.created_at,
+                "seconds": None,
+                "next_path": None,
+                "session_id": ev.session_id,
+            })
+            last_view_idx[sid] = len(journey) - 1
+        elif ev.duration_ms:
+            # page.exit — attach dwell to this session's current page.
+            idx = last_view_idx.get(sid)
+            if idx is not None and journey[idx]["path"] == ev.path:
+                journey[idx]["seconds"] = round(ev.duration_ms / 1000, 1)
+    return journey[-max_pages:]

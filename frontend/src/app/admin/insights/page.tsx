@@ -49,6 +49,7 @@ export default function InsightsPage() {
   const [overview, setOverview] = useState<Awaited<ReturnType<typeof admin.insights.overview>> | null>(null);
   const [pages,    setPages]    = useState<Awaited<ReturnType<typeof admin.insights.pages>> | null>(null);
   const [funnel,   setFunnel]   = useState<Awaited<ReturnType<typeof admin.insights.funnel>> | null>(null);
+  const [flow,     setFlow]     = useState<Awaited<ReturnType<typeof admin.insights.flow>> | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -60,12 +61,13 @@ export default function InsightsPage() {
   const reload = useCallback(async () => {
     setErr(null); setLoading(true);
     try {
-      const [o, p, f] = await Promise.all([
+      const [o, p, f, fl] = await Promise.all([
         admin.insights.overview(win),
         admin.insights.pages(win, 25),
         admin.insights.funnel(win),
+        admin.insights.flow(win, 25),
       ]);
-      setOverview(o); setPages(p); setFunnel(f);
+      setOverview(o); setPages(p); setFunnel(f); setFlow(fl);
     } catch (e) {
       setErr(errMsg(e));
     } finally { setLoading(false); }
@@ -195,6 +197,58 @@ export default function InsightsPage() {
         </div>
       </section>
 
+      {/* ── Navigation flow ─────────────────────────────────────── */}
+      <section>
+        <h2 className="text-sm font-semibold text-slate-700 mb-2">Navigation flow</h2>
+        <p className="text-xs text-slate-400 mb-2">
+          Where visitors go next: each row is a page-to-page move within a
+          session, with the average active time spent on the page before
+          moving on.
+        </p>
+        <div className="grid lg:grid-cols-3 gap-4 items-start">
+          <div className="lg:col-span-2 rounded border bg-white overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="text-left p-2">From</th>
+                  <th className="text-left p-2 w-6" aria-hidden></th>
+                  <th className="text-left p-2">To</th>
+                  <th className="text-right p-2">Moves</th>
+                  <th className="text-right p-2" title="Share of all moves leaving the From page">% of exits</th>
+                  <th className="text-right p-2" title="Average active time on the From page before moving">Time before move</th>
+                </tr>
+              </thead>
+              <tbody>
+                {flow?.transitions.length ? flow.transitions.map((t) => (
+                  <tr key={`${t.from_path}→${t.to_path}`} className="border-t hover:bg-slate-50">
+                    <td className="p-2 font-mono text-xs">{t.from_path}</td>
+                    <td className="p-2 text-slate-400">→</td>
+                    <td className="p-2 font-mono text-xs">{t.to_path}</td>
+                    <td className="p-2 text-right">{t.count}</td>
+                    <td className="p-2 text-right">{fmtPct(t.share_of_from)}</td>
+                    <td className="p-2 text-right">
+                      {t.avg_seconds_on_from ? fmtSeconds(t.avg_seconds_on_from) : "—"}
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={6} className="p-4 text-center text-slate-500">
+                    {loading ? "Loading…" : "No page-to-page moves in this window yet."}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-4">
+            <PathCountCard title="Top entry pages"
+                           hint="First page of a session"
+                           rows={flow?.entries ?? []} loading={loading} />
+            <PathCountCard title="Top exit pages"
+                           hint="Last page before leaving"
+                           rows={flow?.exits ?? []} loading={loading} />
+          </div>
+        </div>
+      </section>
+
       {/* ── Funnel ──────────────────────────────────────────────── */}
       <section>
         <h2 className="text-sm font-semibold text-slate-700 mb-2">
@@ -303,6 +357,36 @@ export default function InsightsPage() {
   );
 }
 
+
+function PathCountCard({ title, hint, rows, loading }: {
+  title: string;
+  hint: string;
+  rows: { path: string; count: number }[];
+  loading?: boolean;
+}) {
+  const max = rows[0]?.count || 1;
+  return (
+    <div className="rounded border bg-white p-3">
+      <div className="text-xs font-semibold text-slate-700">{title}</div>
+      <div className="text-[11px] text-slate-400 mb-2">{hint}</div>
+      {rows.length ? (
+        <div className="space-y-1.5">
+          {rows.map((r) => (
+            <div key={r.path} className="flex items-center gap-2 text-xs">
+              <span className="font-mono truncate flex-1">{r.path}</span>
+              <div className="w-20 bg-slate-100 rounded h-2 overflow-hidden flex-shrink-0">
+                <div className="bg-indigo-400 h-full" style={{ width: `${(r.count / max) * 100}%` }} />
+              </div>
+              <span className="w-8 text-right text-slate-600 tabular-nums">{r.count}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-slate-400">{loading ? "Loading…" : "No data yet."}</div>
+      )}
+    </div>
+  );
+}
 
 function KpiCard({ label, value, loading, tone = "ok" }: {
   label: string;

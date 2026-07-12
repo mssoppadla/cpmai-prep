@@ -241,3 +241,93 @@ def test_anonymize_zeroes_pii_but_keeps_event_rows(client, db, admin):
         # … and the non-PII fields stay (so aggregates work)
         assert row.event == "page.view"
         assert row.country == "IN"
+
+
+# ──────────────────────────── /flow
+
+def test_flow_requires_admin(client, user):
+    h = auth_header(client, user.email)
+    assert client.get("/api/v1/admin/insights/flow", headers=h).status_code == 403
+    assert client.get("/api/v1/admin/insights/flow").status_code in (401, 403)
+
+
+def test_flow_counts_transitions_entries_and_exits(client, db, admin):
+    """Two sessions travel / → /pricing (one continues to /courses).
+    A third lands on /pricing and leaves. Expect:
+      transitions: /→/pricing ×2 (share 1.0), /pricing→/courses ×1
+      entries: / ×2, /pricing ×1
+      exits: /pricing ×2, /courses ×1
+      avg_seconds_on_from for /pricing rows = 90s (single page.exit)."""
+    h = auth_header(client, admin.email)
+    _clear_events(db)
+    now = datetime.now(timezone.utc) - timedelta(hours=2)
+
+    def s(offset_s, event, path, sid, duration_ms=None):
+        _seed(db, when=now + timedelta(seconds=offset_s), event=event,
+              anon_id=f"a-{sid}", session_id=sid, path=path,
+              duration_ms=duration_ms)
+
+    # Session 1: / → /pricing → /courses
+    s(0,   "page.view", "/",        "s1")
+    s(30,  "page.view", "/pricing", "s1")
+    s(120, "page.exit", "/pricing", "s1", duration_ms=90000)
+    s(121, "page.view", "/courses", "s1")
+    # Session 2: / → /pricing (ends there)
+    s(200, "page.view", "/",        "s2")
+    s(230, "page.view", "/pricing", "s2")
+    # Session 3: lands on /pricing, leaves
+    s(300, "page.view", "/pricing", "s3")
+
+    r = client.get("/api/v1/admin/insights/flow?window=24h", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+
+    tr = {(t["from_path"], t["to_path"]): t for t in body["transitions"]}
+    assert tr[("/", "/pricing")]["count"] == 2
+    assert tr[("/", "/pricing")]["share_of_from"] == 1.0
+    assert tr[("/pricing", "/courses")]["count"] == 1
+    assert tr[("/pricing", "/courses")]["avg_seconds_on_from"] == 90.0
+    # Ranked by count — the ×2 edge comes first.
+    assert body["transitions"][0]["from_path"] == "/"
+
+    entries = {e["path"]: e["count"] for e in body["entries"]}
+    exits = {e["path"]: e["count"] for e in body["exits"]}
+    assert entries == {"/": 2, "/pricing": 1}
+    assert exits == {"/pricing": 2, "/courses": 1}
+
+
+def test_flow_orders_same_timestamp_views_by_id(client, db, admin):
+    """Two page.views landing in the same tracker batch get near-equal
+    created_at; the id tiebreak must preserve client order."""
+    h = auth_header(client, admin.email)
+    _clear_events(db)
+    when = datetime.now(timezone.utc) - timedelta(minutes=30)
+    _seed(db, when=when, event="page.view", anon_id="a-x",
+          session_id="s-x", path="/first")
+    _seed(db, when=when, event="page.view", anon_id="a-x",
+          session_id="s-x", path="/second")
+
+    r = client.get("/api/v1/admin/insights/flow?window=24h", headers=h)
+    assert r.status_code == 200
+    t = r.json()["transitions"]
+    assert len(t) == 1
+    assert (t[0]["from_path"], t[0]["to_path"]) == ("/first", "/second")
+
+
+def test_flow_collapses_consecutive_same_path(client, db, admin):
+    """Repeated page.view on the same template (query-param change)
+    is not a navigation edge."""
+    h = auth_header(client, admin.email)
+    _clear_events(db)
+    now = datetime.now(timezone.utc) - timedelta(minutes=30)
+    _seed(db, when=now, event="page.view", anon_id="a-y",
+          session_id="s-y", path="/exams")
+    _seed(db, when=now + timedelta(seconds=5), event="page.view",
+          anon_id="a-y", session_id="s-y", path="/exams")
+    _seed(db, when=now + timedelta(seconds=10), event="page.view",
+          anon_id="a-y", session_id="s-y", path="/pricing")
+
+    r = client.get("/api/v1/admin/insights/flow?window=24h", headers=h)
+    body = r.json()
+    assert [(t["from_path"], t["to_path"], t["count"])
+            for t in body["transitions"]] == [("/exams", "/pricing", 1)]

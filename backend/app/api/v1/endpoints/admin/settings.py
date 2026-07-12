@@ -72,6 +72,25 @@ def _int_in(lo: int, hi: int):
     return lambda v: isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def _hex_color(v) -> bool:
+    """CSS hex color — #RGB or #RRGGBB. The admin UI uses a native
+    color picker (always emits #RRGGBB) but hand-typed short form is
+    fine too. No alpha channel — these land in inline styles where
+    admins can't preview transparency against every backdrop."""
+    if not isinstance(v, str) or not v.startswith("#"):
+        return False
+    digits = v[1:]
+    if len(digits) not in (3, 6):
+        return False
+    return all(c in "0123456789abcdefABCDEF" for c in digits)
+
+
+def _choice(*options: str):
+    """Value must be one of a fixed set of strings (enum-style knob)."""
+    allowed = set(options)
+    return lambda v: isinstance(v, str) and v in allowed
+
+
 def _short_str_list(*, max_items: int = 20, max_item_len: int = 200):
     """List of non-empty strings, e.g. the assistant "try asking" suggestions.
 
@@ -462,6 +481,36 @@ EDITABLE: dict[str, Callable] = {
     "landing.paths_exam_title":          _short_str(120),
     "landing.paths_exam_body":           _short_str(400),
     "landing.paths_exam_cta":            _short_str(60),
+    # Live-class registration banner under the hero subtitle. Styling
+    # is admin-owned (font size/style/colors + attention animation) so
+    # marketing can restyle the announcement without a redeploy. The
+    # link is the calendar/Zoom registration URL; empty renders the
+    # banner text without a button.
+    "landing.live_banner_enabled":       _bool,
+    "landing.live_banner_text":          _short_str(300),
+    "landing.live_banner_link_url":      _optional_url(500),
+    "landing.live_banner_link_label":    _short_str(60),
+    "landing.live_banner_font_size":     _int_in(10, 48),
+    "landing.live_banner_font_style":    _choice("normal", "italic",
+                                                 "bold", "bold-italic"),
+    "landing.live_banner_font_color":    _hex_color,
+    "landing.live_banner_bg_color":      _hex_color,
+    "landing.live_banner_animation":     _choice("none", "pulse", "blink"),
+    # Testimonial carousel section shell (cards live in the
+    # testimonials table, managed via /admin/testimonials).
+    "landing.testimonials_enabled":      _bool,
+    "landing.testimonials_heading":      _short_str(120),
+    "landing.testimonials_interval_ms":  _int_in(2000, 60000),
+    # Error-page copy (404 + unexpected-error). Served by
+    # /content/errors; the frontend falls back to the same defaults if
+    # the API itself is down. show_help_links toggles the entire
+    # "here's where to go instead" block (quick links + the live-class
+    # registration button) on those pages.
+    "errors.not_found_title":            _short_str(120),
+    "errors.not_found_body":             _optional_str(400),
+    "errors.server_error_title":         _short_str(120),
+    "errors.server_error_body":          _optional_str(400),
+    "errors.show_help_links":            _bool,
     # Exams page anonymous-state banner. Plain text (not markdown),
     # rendered with the same indigo-50 banner styling as before — only
     # the wording changes.
