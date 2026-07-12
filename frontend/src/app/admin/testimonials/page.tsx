@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { admin, errMsg, absoluteUploadUrl } from "@/lib/api";
+import { ImageCropUpload } from "@/components/admin/ImageCropUpload";
 import type { TestimonialAdminOut, TestimonialIn } from "@/types/api";
 
 const blank: TestimonialIn = {
@@ -29,7 +30,6 @@ export default function TestimonialsAdminPage() {
   const [form, setForm] = useState<TestimonialIn | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
 
   // Section settings (runtime settings, saved separately from cards).
   const [section, setSection] = useState<{ enabled: boolean; heading: string; intervalSec: number } | null>(null);
@@ -85,16 +85,6 @@ export default function TestimonialsAdminPage() {
   }
   function startNew() { setEditing(null); setForm({ ...blank }); }
   function cancel()   { setEditing(null); setForm(null); }
-
-  async function uploadPhoto(file: File) {
-    if (!form) return;
-    setUploading(true); setErr(null);
-    try {
-      const uploaded = await admin.uploads.file(file);
-      setForm({ ...form, photo_url: uploaded.url });
-    } catch (e) { console.error("[admin/testimonials] upload", e); setErr(errMsg(e)); }
-    finally { setUploading(false); }
-  }
 
   async function save() {
     if (!form) return;
@@ -205,29 +195,26 @@ export default function TestimonialsAdminPage() {
           </Field>
 
           <div className="mt-3" />
-          <Field label="Photo (optional)">
+          <Field label="Photo (optional) — you choose the framing">
             {form.photo_url ? (
               <div className="flex items-center gap-3">
+                {/* Same 16:9 aspect as the public card — true preview. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={absoluteUploadUrl(form.photo_url)} alt="Testimonial photo preview"
-                     className="w-16 h-16 rounded-lg object-cover border border-slate-200" />
-                <button type="button" onClick={() => setForm({ ...form, photo_url: null })}
-                        className="text-xs text-rose-600 hover:underline">
-                  Remove photo
-                </button>
+                     className="w-40 aspect-video rounded-lg object-cover border border-slate-200" />
+                <div className="flex flex-col gap-1">
+                  <button type="button" onClick={() => setForm({ ...form, photo_url: null })}
+                          className="text-xs text-rose-600 hover:underline text-left">
+                    Remove photo
+                  </button>
+                  <span className="text-[11px] text-slate-400">
+                    To re-frame, remove and upload again.
+                  </span>
+                </div>
               </div>
             ) : (
-              <label className="block border-2 border-dashed border-slate-300 rounded-lg p-4
-                                text-center cursor-pointer text-sm text-slate-500
-                                hover:border-indigo-400 hover:text-indigo-600 transition">
-                <input type="file" accept="image/*" className="hidden"
-                       onChange={(e) => {
-                         const f = e.target.files?.[0];
-                         if (f) void uploadPhoto(f);
-                         e.target.value = "";
-                       }} />
-                {uploading ? "Uploading…" : "Click to upload a photo (JPG/PNG/WebP)"}
-              </label>
+              <ImageCropUpload
+                onUploaded={(url) => setForm({ ...form, photo_url: url })} />
             )}
           </Field>
 
@@ -245,7 +232,7 @@ export default function TestimonialsAdminPage() {
           </div>
 
           <div className="flex items-center gap-3 mt-5">
-            <button onClick={save} disabled={busy || uploading || !form.name.trim() || !form.quote.trim()}
+            <button onClick={save} disabled={busy || !form.name.trim() || !form.quote.trim()}
               className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
               {busy ? "Saving…" : (editing ? "Save changes" : "Create")}
             </button>
