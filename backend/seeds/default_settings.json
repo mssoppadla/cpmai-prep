@@ -644,6 +644,46 @@
     "description": "Attention animation for the banner: none | pulse (gentle fade in/out) | blink (hard on/off). Users with reduced-motion enabled never see the animation."
   },
   {
+    "key": "landing.live_banner_link_enabled",
+    "value": true,
+    "description": "Show the live-class REGISTRATION button on the banner (needs live_banner_link_url set). OFF hides just this button; the banner text stays."
+  },
+  {
+    "key": "landing.live_banner_link_bg_color",
+    "value": "",
+    "description": "Registration button background (hex, e.g. #312e81). Empty = automatic (uses the banner text color, which always contrasts)."
+  },
+  {
+    "key": "landing.live_banner_link_text_color",
+    "value": "",
+    "description": "Registration button label color (hex). Empty = automatic (uses the banner background color)."
+  },
+  {
+    "key": "landing.live_banner_ondemand_enabled",
+    "value": false,
+    "description": "Show a second ON-DEMAND TRAINING REQUEST button on the banner. Point the URL below at your Google Form for custom training details."
+  },
+  {
+    "key": "landing.live_banner_ondemand_label",
+    "value": "Request on-demand training",
+    "description": "Label on the on-demand training button."
+  },
+  {
+    "key": "landing.live_banner_ondemand_url",
+    "value": "",
+    "description": "On-demand training request link — usually a Google Form (full https:// URL). Empty hides the button even when enabled."
+  },
+  {
+    "key": "landing.live_banner_ondemand_bg_color",
+    "value": "",
+    "description": "On-demand button background (hex). Empty = automatic (white with a border in the banner's text color)."
+  },
+  {
+    "key": "landing.live_banner_ondemand_text_color",
+    "value": "",
+    "description": "On-demand button label color (hex). Empty = automatic (the banner's text color)."
+  },
+  {
     "key": "landing.testimonials_enabled",
     "value": true,
     "description": "Show/hide the testimonial carousel on the landing page. Cards are managed in /admin/testimonials; the section auto-hides when no active cards exist."

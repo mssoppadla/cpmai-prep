@@ -72,6 +72,12 @@ def _int_in(lo: int, hi: int):
     return lambda v: isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def _hex_color_or_empty(v) -> bool:
+    """Empty string = 'automatic' (component derives a contrasting
+    pairing from the banner colors); otherwise a hex color."""
+    return v == "" or _hex_color(v)
+
+
 def _hex_color(v) -> bool:
     """CSS hex color — #RGB or #RRGGBB. The admin UI uses a native
     color picker (always emits #RRGGBB) but hand-typed short form is
@@ -496,6 +502,19 @@ EDITABLE: dict[str, Callable] = {
     "landing.live_banner_font_color":    _hex_color,
     "landing.live_banner_bg_color":      _hex_color,
     "landing.live_banner_animation":     _choice("none", "pulse", "blink"),
+    # Banner buttons. Two independent buttons, each with its own
+    # toggle: the live-class REGISTRATION button (calendar/Zoom link
+    # above) and an ON-DEMAND TRAINING REQUEST button (Google Form for
+    # custom training details). Colors: empty = automatic pairing
+    # derived from the banner's font/background colors.
+    "landing.live_banner_link_enabled":        _bool,
+    "landing.live_banner_link_bg_color":       _hex_color_or_empty,
+    "landing.live_banner_link_text_color":     _hex_color_or_empty,
+    "landing.live_banner_ondemand_enabled":    _bool,
+    "landing.live_banner_ondemand_label":      _short_str(60),
+    "landing.live_banner_ondemand_url":        _optional_url(500),
+    "landing.live_banner_ondemand_bg_color":   _hex_color_or_empty,
+    "landing.live_banner_ondemand_text_color": _hex_color_or_empty,
     # Testimonial carousel section shell (cards live in the
     # testimonials table, managed via /admin/testimonials).
     "landing.testimonials_enabled":      _bool,

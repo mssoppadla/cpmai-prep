@@ -20,6 +20,14 @@ const KEYS = {
   font_color: "landing.live_banner_font_color",
   bg_color:   "landing.live_banner_bg_color",
   animation:  "landing.live_banner_animation",
+  link_enabled:        "landing.live_banner_link_enabled",
+  link_bg_color:       "landing.live_banner_link_bg_color",
+  link_text_color:     "landing.live_banner_link_text_color",
+  ondemand_enabled:    "landing.live_banner_ondemand_enabled",
+  ondemand_label:      "landing.live_banner_ondemand_label",
+  ondemand_url:        "landing.live_banner_ondemand_url",
+  ondemand_bg_color:   "landing.live_banner_ondemand_bg_color",
+  ondemand_text_color: "landing.live_banner_ondemand_text_color",
 } as const;
 
 type BannerForm = {
@@ -32,6 +40,15 @@ type BannerForm = {
   font_color: string;
   bg_color: string;
   animation: "none" | "pulse" | "blink";
+  link_enabled: boolean;
+  /** Empty string = automatic color pairing. */
+  link_bg_color: string;
+  link_text_color: string;
+  ondemand_enabled: boolean;
+  ondemand_label: string;
+  ondemand_url: string;
+  ondemand_bg_color: string;
+  ondemand_text_color: string;
 };
 
 const DEFAULTS: BannerForm = {
@@ -44,6 +61,14 @@ const DEFAULTS: BannerForm = {
   font_color: "#312e81",
   bg_color: "#e0e7ff",
   animation: "none",
+  link_enabled: true,
+  link_bg_color: "",
+  link_text_color: "",
+  ondemand_enabled: false,
+  ondemand_label: "Request on-demand training",
+  ondemand_url: "",
+  ondemand_bg_color: "",
+  ondemand_text_color: "",
 };
 
 export default function LandingBannerAdminPage() {
@@ -73,6 +98,18 @@ export default function LandingBannerAdminPage() {
           animation:  pick(byKey.get(KEYS.animation),
                            ["none", "pulse", "blink"] as const,
                            DEFAULTS.animation),
+          link_enabled: typeof byKey.get(KEYS.link_enabled) === "boolean"
+                          ? byKey.get(KEYS.link_enabled) as boolean
+                          : DEFAULTS.link_enabled,
+          link_bg_color:   str(byKey.get(KEYS.link_bg_color), DEFAULTS.link_bg_color),
+          link_text_color: str(byKey.get(KEYS.link_text_color), DEFAULTS.link_text_color),
+          ondemand_enabled: typeof byKey.get(KEYS.ondemand_enabled) === "boolean"
+                              ? byKey.get(KEYS.ondemand_enabled) as boolean
+                              : DEFAULTS.ondemand_enabled,
+          ondemand_label: str(byKey.get(KEYS.ondemand_label), DEFAULTS.ondemand_label),
+          ondemand_url:   str(byKey.get(KEYS.ondemand_url), DEFAULTS.ondemand_url),
+          ondemand_bg_color:   str(byKey.get(KEYS.ondemand_bg_color), DEFAULTS.ondemand_bg_color),
+          ondemand_text_color: str(byKey.get(KEYS.ondemand_text_color), DEFAULTS.ondemand_text_color),
         };
         setForm(loaded); setInitial(loaded);
       } catch (e) {
@@ -96,6 +133,14 @@ export default function LandingBannerAdminPage() {
       font_color: form.font_color,
       bg_color: form.bg_color,
       animation: form.animation,
+      link_enabled: form.link_enabled,
+      link_bg_color: form.link_bg_color,
+      link_text_color: form.link_text_color,
+      ondemand_enabled: form.ondemand_enabled,
+      ondemand_label: form.ondemand_label.trim() || DEFAULTS.ondemand_label,
+      ondemand_url: form.ondemand_url.trim(),
+      ondemand_bg_color: form.ondemand_bg_color,
+      ondemand_text_color: form.ondemand_text_color,
     };
     try {
       for (const field of Object.keys(KEYS) as Array<keyof BannerForm>) {
@@ -146,6 +191,14 @@ export default function LandingBannerAdminPage() {
           live_banner_font_color: form.font_color,
           live_banner_bg_color: form.bg_color,
           live_banner_animation: form.animation,
+          live_banner_link_enabled: form.link_enabled,
+          live_banner_link_bg_color: form.link_bg_color,
+          live_banner_link_text_color: form.link_text_color,
+          live_banner_ondemand_enabled: form.ondemand_enabled,
+          live_banner_ondemand_label: form.ondemand_label,
+          live_banner_ondemand_url: form.ondemand_url,
+          live_banner_ondemand_bg_color: form.ondemand_bg_color,
+          live_banner_ondemand_text_color: form.ondemand_text_color,
         }} />
       </div>
 
@@ -162,17 +215,58 @@ export default function LandingBannerAdminPage() {
                     className={cls} />
         </Field>
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="Registration link (calendar / Zoom URL)">
-            <input value={form.link_url} placeholder="https://zoom.us/meeting/register/…"
-                   onChange={(e) => setForm({ ...form, link_url: e.target.value })}
-                   className={cls} />
-          </Field>
-          <Field label="Button label">
-            <input value={form.link_label} maxLength={60}
-                   onChange={(e) => setForm({ ...form, link_label: e.target.value })}
-                   className={cls} />
-          </Field>
+        {/* ── Button 1: live-class registration ─────────────────── */}
+        <div className="border border-slate-200 rounded-lg p-4 space-y-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+            <input type="checkbox" checked={form.link_enabled}
+                   onChange={(e) => setForm({ ...form, link_enabled: e.target.checked })} />
+            Show the registration button
+          </label>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Registration link (calendar / Zoom URL)">
+              <input value={form.link_url} placeholder="https://zoom.us/meeting/register/…"
+                     onChange={(e) => setForm({ ...form, link_url: e.target.value })}
+                     className={cls} />
+            </Field>
+            <Field label="Button label">
+              <input value={form.link_label} maxLength={60}
+                     onChange={(e) => setForm({ ...form, link_label: e.target.value })}
+                     className={cls} />
+            </Field>
+          </div>
+          <AutoColorPair
+            bg={form.link_bg_color} text={form.link_text_color}
+            autoHint="Automatic = banner text color as background, banner background as label — always readable."
+            onChange={(bg, text) => setForm({ ...form, link_bg_color: bg, link_text_color: text })} />
+        </div>
+
+        {/* ── Button 2: on-demand training request ──────────────── */}
+        <div className="border border-slate-200 rounded-lg p-4 space-y-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+            <input type="checkbox" checked={form.ondemand_enabled}
+                   onChange={(e) => setForm({ ...form, ondemand_enabled: e.target.checked })} />
+            Show an on-demand training request button
+          </label>
+          <p className="text-xs text-slate-500 -mt-1">
+            Second button for aspirants who want custom training — point it
+            at a Google Form that collects their requirements.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Request form link (Google Form URL)">
+              <input value={form.ondemand_url} placeholder="https://forms.gle/…"
+                     onChange={(e) => setForm({ ...form, ondemand_url: e.target.value })}
+                     className={cls} />
+            </Field>
+            <Field label="Button label">
+              <input value={form.ondemand_label} maxLength={60}
+                     onChange={(e) => setForm({ ...form, ondemand_label: e.target.value })}
+                     className={cls} />
+            </Field>
+          </div>
+          <AutoColorPair
+            bg={form.ondemand_bg_color} text={form.ondemand_text_color}
+            autoHint="Automatic = white background with the banner text color as label + border (outline style)."
+            onChange={(bg, text) => setForm({ ...form, ondemand_bg_color: bg, ondemand_text_color: text })} />
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
@@ -257,6 +351,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>
       {children}
+    </div>
+  );
+}
+
+/** Button color pair with an "automatic" mode (stored as empty
+ *  strings — the banner derives a contrasting pairing itself). */
+function AutoColorPair({ bg, text, autoHint, onChange }: {
+  bg: string; text: string; autoHint: string;
+  onChange: (bg: string, text: string) => void;
+}) {
+  const isAuto = bg === "" && text === "";
+  return (
+    <div>
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={isAuto}
+               onChange={(e) => onChange(
+                 e.target.checked ? "" : "#312e81",
+                 e.target.checked ? "" : "#ffffff")} />
+        Automatic button colors
+      </label>
+      <p className="text-xs text-slate-500 mt-0.5">{autoHint}</p>
+      {!isAuto && (
+        <div className="grid sm:grid-cols-2 gap-4 mt-2">
+          <ColorField label="Button background" value={bg || "#312e81"}
+                      onChange={(v) => onChange(v, text || "#ffffff")} />
+          <ColorField label="Button label color" value={text || "#ffffff"}
+                      onChange={(v) => onChange(bg || "#312e81", v)} />
+        </div>
+      )}
     </div>
   );
 }
