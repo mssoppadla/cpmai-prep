@@ -7,8 +7,10 @@ from app.core import domains as domain_registry
 from app.core.settings_store import settings_store
 from app.models.faq import FaqItem
 from app.models.question import Question
+from app.models.testimonial import Testimonial
 from app.models.topic import Topic
 from app.schemas.faq import FaqOut
+from app.schemas.testimonial import TestimonialOut
 
 router = APIRouter()
 
@@ -59,6 +61,46 @@ def list_faqs(db: Session = Depends(get_db)):
     rows = (db.query(FaqItem)
             .filter(FaqItem.is_active.is_(True))
             .order_by(FaqItem.display_order, FaqItem.id)
+            .all())
+    return rows
+
+
+@router.get("/errors")
+def error_pages_copy():
+    """Admin-editable copy for the 404 / unexpected-error pages, plus
+    the master toggle for the help-links block. The frontend embeds the
+    same defaults as fallbacks so the error pages still render when the
+    API itself is the thing that's down."""
+    return {
+        "not_found_title": settings_store.get_str(
+            "errors.not_found_title",
+            "Uh oh! You seem to have lost your way.",
+        ),
+        "not_found_body": settings_store.get_str(
+            "errors.not_found_body",
+            "Let us help you find what you were looking for:",
+        ),
+        "server_error_title": settings_store.get_str(
+            "errors.server_error_title",
+            "Something went wrong on our end",
+        ),
+        "server_error_body": settings_store.get_str(
+            "errors.server_error_body",
+            "Please try again — or jump back to one of these pages:",
+        ),
+        "show_help_links": bool(
+            settings_store.get("errors.show_help_links", True),
+        ),
+    }
+
+
+@router.get("/testimonials", response_model=list[TestimonialOut])
+def list_testimonials(db: Session = Depends(get_db)):
+    """Public testimonials for the landing carousel, ordered by
+    display_order. Inactive rows are hidden."""
+    rows = (db.query(Testimonial)
+            .filter(Testimonial.is_active.is_(True))
+            .order_by(Testimonial.display_order, Testimonial.id)
             .all())
     return rows
 
@@ -263,4 +305,60 @@ def landing_copy():
             "not saved to a dashboard). Sign in to save attempts; "
             "subscribe to unlock premium sets.",
         ),
+        # Live-class registration banner, rendered directly under the
+        # hero subtitle. Fully admin-styleable (font size/style/colors +
+        # optional pulse/blink attention animation) via /admin/landing-
+        # banner. Disabled by default so nothing shows until the admin
+        # configures a link.
+        "live_banner_enabled": bool(
+            settings_store.get("landing.live_banner_enabled", False),
+        ),
+        "live_banner_text": settings_store.get_str(
+            "landing.live_banner_text",
+            "Live CPMAI exam-prep classes are open — reserve your seat!",
+        ),
+        "live_banner_link_url": settings_store.get_str(
+            "landing.live_banner_link_url", "",
+        ),
+        "live_banner_link_label": settings_store.get_str(
+            "landing.live_banner_link_label", "Register now",
+        ),
+        "live_banner_font_size": _int_setting(
+            "landing.live_banner_font_size", 16, lo=10, hi=48,
+        ),
+        "live_banner_font_style": settings_store.get_str(
+            "landing.live_banner_font_style", "normal",
+        ),
+        "live_banner_font_color": settings_store.get_str(
+            "landing.live_banner_font_color", "#312e81",
+        ),
+        "live_banner_bg_color": settings_store.get_str(
+            "landing.live_banner_bg_color", "#e0e7ff",
+        ),
+        "live_banner_animation": settings_store.get_str(
+            "landing.live_banner_animation", "none",
+        ),
+        # Testimonial carousel under the banner. Cards come from
+        # /content/testimonials; these knobs control the section shell.
+        "testimonials_enabled": bool(
+            settings_store.get("landing.testimonials_enabled", True),
+        ),
+        "testimonials_heading": settings_store.get_str(
+            "landing.testimonials_heading", "What our aspirants say",
+        ),
+        "testimonials_interval_ms": _int_setting(
+            "landing.testimonials_interval_ms", 6000, lo=2000, hi=60000,
+        ),
     }
+
+
+def _int_setting(key: str, default: int, *, lo: int, hi: int) -> int:
+    """Read an int setting defensively — a malformed value (or a string
+    that slipped in) falls back to the default instead of crashing the
+    public landing render."""
+    raw = settings_store.get(key, default)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return n if lo <= n <= hi else default

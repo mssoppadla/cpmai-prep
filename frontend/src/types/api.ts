@@ -118,6 +118,16 @@ export interface UserInsights {
   courses: UserInsightsCourse[];
   quiz_attempts: number;
   activity: Array<{ event: string; path: string | null; duration_ms: number | null; created_at: string }>;
+  /** Recent page-by-page journey: dwell seconds (active time) per page
+   *  and the page they moved to next (null = left the site / still there). */
+  page_journey: PageJourneyStep[];
+}
+export interface PageJourneyStep {
+  path: string | null;
+  entered_at: string;
+  seconds: number | null;
+  next_path: string | null;
+  session_id: string | null;
 }
 export interface SubscriptionSummary {
   active: boolean;
@@ -348,6 +358,33 @@ export interface FaqAdminOut extends FaqOut {
 export interface FaqIn {
   question: string;
   answer: string;
+  display_order: number;
+  is_active: boolean;
+}
+
+// ---------- Testimonials ---------------------------------------------------
+export interface TestimonialOut {
+  id: number;
+  name: string;
+  role: string | null;
+  quote: string;
+  /** Relative /uploads/... URL or absolute https URL; null = initials avatar. */
+  photo_url: string | null;
+  /** External proof link (LinkedIn etc.); null = card not clickable. */
+  link_url: string | null;
+  display_order: number;
+}
+export interface TestimonialAdminOut extends TestimonialOut {
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface TestimonialIn {
+  name: string;
+  role: string | null;
+  quote: string;
+  photo_url: string | null;
+  link_url: string | null;
   display_order: number;
   is_active: boolean;
 }
@@ -845,6 +882,21 @@ export interface LandingCopy {
   hero_subtitle: string;
   /** Banner shown on /exams when the visitor is NOT signed in. */
   exams_anonymous_banner: string;
+  /** Live-class registration banner under the hero subtitle — fully
+   *  admin-styleable via /admin/landing-banner. */
+  live_banner_enabled: boolean;
+  live_banner_text: string;
+  live_banner_link_url: string;
+  live_banner_link_label: string;
+  live_banner_font_size: number;
+  live_banner_font_style: "normal" | "italic" | "bold" | "bold-italic";
+  live_banner_font_color: string;
+  live_banner_bg_color: string;
+  live_banner_animation: "none" | "pulse" | "blink";
+  /** Testimonial carousel section shell (cards from /content/testimonials). */
+  testimonials_enabled: boolean;
+  testimonials_heading: string;
+  testimonials_interval_ms: number;
 }
 
 /** Admin-editable site-wide chrome (header + footer). */

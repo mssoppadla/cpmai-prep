@@ -138,6 +138,26 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "landing.paths_exam_title":          "Step 2 · Mock exams",
     "landing.paths_exam_body":           "Realistic practice exams.",
     "landing.paths_exam_cta":            "Try a mock exam",
+    # Live-class registration banner (under the hero subtitle)
+    "landing.live_banner_enabled":       True,
+    "landing.live_banner_text":          "Live classes start Monday — save your seat!",
+    "landing.live_banner_link_url":      "https://zoom.us/meeting/register/example",
+    "landing.live_banner_link_label":    "Register now",
+    "landing.live_banner_font_size":     18,
+    "landing.live_banner_font_style":    "bold",
+    "landing.live_banner_font_color":    "#1e3a8a",
+    "landing.live_banner_bg_color":      "#fef3c7",
+    "landing.live_banner_animation":     "pulse",
+    # Testimonial carousel section shell
+    "landing.testimonials_enabled":      True,
+    "landing.testimonials_heading":      "What our aspirants say",
+    "landing.testimonials_interval_ms":  5000,
+    # Error-page copy + help-links toggle
+    "errors.not_found_title":            "Uh oh! You seem to have lost your way.",
+    "errors.not_found_body":             "Let us help you find what you were looking for:",
+    "errors.server_error_title":         "Something went wrong on our end",
+    "errors.server_error_body":          "Please try again — or jump back to one of these pages:",
+    "errors.show_help_links":            False,
     "exams.anonymous_banner":            "Sign in to save your attempts.",
     # site.*
     "site.brand_name":                   "CPMAI Prep",
@@ -283,6 +303,42 @@ def test_site_urls_accept_empty_or_https(key):
     assert EDITABLE[key]("http://example.com")
     assert not EDITABLE[key]("ftp://example.com")
     assert not EDITABLE[key]("example.com")        # no scheme
+
+
+# ================================================ live-banner validators
+@pytest.mark.parametrize("key", [
+    "landing.live_banner_font_color", "landing.live_banner_bg_color",
+])
+def test_banner_colors_require_hex(key):
+    assert EDITABLE[key]("#fff")
+    assert EDITABLE[key]("#E0E7FF")
+    assert not EDITABLE[key]("red")          # named colors rejected
+    assert not EDITABLE[key]("#12345")       # bad length
+    assert not EDITABLE[key]("#gggggg")      # non-hex digits
+    assert not EDITABLE[key](0xFFFFFF)       # not a string
+
+
+def test_banner_font_style_is_enum():
+    ok = EDITABLE["landing.live_banner_font_style"]
+    for v in ("normal", "italic", "bold", "bold-italic"):
+        assert ok(v)
+    assert not ok("underline")
+    assert not ok("")
+
+
+def test_banner_animation_is_enum():
+    ok = EDITABLE["landing.live_banner_animation"]
+    for v in ("none", "pulse", "blink"):
+        assert ok(v)
+    assert not ok("shake")
+
+
+def test_testimonials_interval_bounds():
+    ok = EDITABLE["landing.testimonials_interval_ms"]
+    assert ok(2000) and ok(60000)
+    assert not ok(1999)     # too fast to read a card
+    assert not ok(60001)
+    assert not ok("6000")   # must be an int, not a numeric string
 
 
 # ================================================ Zoom credential validators

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { admin, errMsg } from "@/lib/api";
 import type { UserAdminOut, UserInsights } from "@/types/api";
 import { linkedinHref } from "@/lib/linkedin";
+import { buildJourneyRows, fmtDwell } from "@/lib/journey";
 import { ActivityWindowFilter, toIsoUtc } from "@/components/admin/ActivityWindowFilter";
 
 function fmtDuration(sec: number): string {
@@ -213,6 +214,47 @@ export default function AdminUserInsightsPage() {
                         ))}
                       </div>
                     )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Page journey — which pages, dwell time, where they went next */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h2 className="text-sm font-semibold text-slate-700 mb-1">Page journey</h2>
+            <p className="text-xs text-slate-400 mb-3">
+              Pages this user visited, how long they actively stayed on each,
+              and where they moved next. A divider marks a new browsing session;
+              &ldquo;left&rdquo; means the tab was closed or the site abandoned.
+            </p>
+            {(data.page_journey ?? []).length === 0 ? (
+              <div className="text-sm text-slate-400">No page visits tracked yet.</div>
+            ) : (
+              <div className="max-h-80 overflow-y-auto text-xs">
+                {buildJourneyRows(data.page_journey).map((step, i) => (
+                  <div key={i}>
+                    {step.newSession && i > 0 && (
+                      <div className="my-2 flex items-center gap-2 text-[10px] uppercase tracking-wide text-slate-400">
+                        <span className="flex-1 border-t border-dashed border-slate-200" />
+                        new session
+                        <span className="flex-1 border-t border-dashed border-slate-200" />
+                      </div>
+                    )}
+                    <div className="py-1.5 flex items-center gap-3">
+                      <span className="text-slate-400 whitespace-nowrap w-32 flex-shrink-0">
+                        {fmtDate(step.entered_at)}
+                      </span>
+                      <span className="font-mono text-slate-800 truncate">{step.path || "—"}</span>
+                      <span className="text-indigo-600 font-medium whitespace-nowrap">
+                        {fmtDwell(step.seconds)}
+                      </span>
+                      <span className="text-slate-400 flex-1 truncate text-right">
+                        {step.next_path
+                          ? <>→ <span className="font-mono text-slate-600">{step.next_path}</span></>
+                          : <span className="italic">left / last page</span>}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -597,5 +597,90 @@
     "key": "email.enroll_url",
     "value": "",
     "description": "CTA link target in the auto-reply email ({{enroll_url}}) — e.g. the pricing/checkout page. Empty falls back to the site root."
+  },
+  {
+    "key": "landing.live_banner_enabled",
+    "value": false,
+    "description": "Master switch for the live-class registration banner under the landing hero. Turn ON after setting the text + registration link below."
+  },
+  {
+    "key": "landing.live_banner_text",
+    "value": "Live CPMAI exam-prep classes are open — reserve your seat!",
+    "description": "Announcement text inside the live-class banner. Keep under ~120 chars so it stays one or two lines on mobile."
+  },
+  {
+    "key": "landing.live_banner_link_url",
+    "value": "",
+    "description": "Registration link for live classes (calendar invite / Zoom registration / booking page). Full https:// URL. Empty shows the banner text without a button."
+  },
+  {
+    "key": "landing.live_banner_link_label",
+    "value": "Register now",
+    "description": "Label on the banner's registration button."
+  },
+  {
+    "key": "landing.live_banner_font_size",
+    "value": 16,
+    "description": "Banner text size in px (10–48). The button scales with it."
+  },
+  {
+    "key": "landing.live_banner_font_style",
+    "value": "normal",
+    "description": "Banner font style: normal | italic | bold | bold-italic."
+  },
+  {
+    "key": "landing.live_banner_font_color",
+    "value": "#312e81",
+    "description": "Banner text color (hex, e.g. #312e81). Pick something readable against the background color."
+  },
+  {
+    "key": "landing.live_banner_bg_color",
+    "value": "#e0e7ff",
+    "description": "Banner background color (hex, e.g. #e0e7ff)."
+  },
+  {
+    "key": "landing.live_banner_animation",
+    "value": "none",
+    "description": "Attention animation for the banner: none | pulse (gentle fade in/out) | blink (hard on/off). Users with reduced-motion enabled never see the animation."
+  },
+  {
+    "key": "landing.testimonials_enabled",
+    "value": true,
+    "description": "Show/hide the testimonial carousel on the landing page. Cards are managed in /admin/testimonials; the section auto-hides when no active cards exist."
+  },
+  {
+    "key": "landing.testimonials_heading",
+    "value": "What our aspirants say",
+    "description": "Heading above the landing-page testimonial carousel."
+  },
+  {
+    "key": "landing.testimonials_interval_ms",
+    "value": 6000,
+    "description": "Auto-rotate interval for the testimonial carousel in milliseconds (2000–60000). Manual arrow clicks reset the timer."
+  },
+  {
+    "key": "errors.not_found_title",
+    "value": "Uh oh! You seem to have lost your way.",
+    "description": "Heading on the 404 (page not found) page."
+  },
+  {
+    "key": "errors.not_found_body",
+    "value": "Let us help you find what you were looking for:",
+    "description": "Supporting sentence on the 404 page, shown above the quick links. Empty hides the sentence."
+  },
+  {
+    "key": "errors.server_error_title",
+    "value": "Something went wrong on our end",
+    "description": "Heading on the unexpected-error page."
+  },
+  {
+    "key": "errors.server_error_body",
+    "value": "Please try again — or jump back to one of these pages:",
+    "description": "Supporting sentence on the unexpected-error page. Empty hides the sentence."
+  },
+  {
+    "key": "errors.show_help_links",
+    "value": true,
+    "description": "Show the 'here's where to go instead' block on the 404/error pages: quick links (Home, Courses, Mock exams, Pricing) plus the live-class registration button when the landing banner is enabled. OFF = just the message."
   }
 ]

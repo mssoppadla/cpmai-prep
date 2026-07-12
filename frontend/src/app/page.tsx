@@ -20,10 +20,12 @@
  */
 import Link from "next/link";
 import { GraduationCap, ClipboardCheck, ArrowRight } from "lucide-react";
-import type { ContentPagePublicOut, SiteChrome } from "@/types/api";
+import type { ContentPagePublicOut, SiteChrome, TestimonialOut } from "@/types/api";
 import { JsonLd, organizationSchema, courseSchema, faqSchema } from "@/components/seo/JsonLd";
 import { LeadCaptureForm } from "@/components/lead/LeadCaptureForm";
 import { LandingConnect } from "@/components/layout/LandingConnect";
+import { LiveClassBanner } from "@/components/landing/LiveClassBanner";
+import { TestimonialCarousel } from "@/components/landing/TestimonialCarousel";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import RenderBlocks from "@/components/cms/RenderBlocks";
@@ -76,6 +78,24 @@ const FALLBACK_LANDING = {
     "Realistic, PMI-standard practice exams with per-question explanations " +
     "and domain-level score breakdowns.",
   paths_exam_cta: "Try a mock exam",
+  // Live-class registration banner (under the hero subtitle). Disabled
+  // in the fallback — if the API is down we can't know whether the
+  // admin turned it on, and a stale "register now" banner is worse
+  // than none.
+  live_banner_enabled: false,
+  live_banner_text: "",
+  live_banner_link_url: "",
+  live_banner_link_label: "Register now",
+  live_banner_font_size: 16,
+  live_banner_font_style: "normal" as const,
+  live_banner_font_color: "#312e81",
+  live_banner_bg_color: "#e0e7ff",
+  live_banner_animation: "none" as const,
+  // Testimonial carousel shell. Enabled by default but the section
+  // renders nothing when the cards fetch comes back empty.
+  testimonials_enabled: true,
+  testimonials_heading: "What our aspirants say",
+  testimonials_interval_ms: 6000,
 };
 
 async function fetchJson<T>(path: string, fallback: T): Promise<T> {
@@ -143,10 +163,11 @@ export default async function Landing() {
   // 2. Default — render the existing marketing landing.
   // Pull site chrome in parallel so JSON-LD's organization/sameAs etc.
   // reflect whatever the admin has configured in /admin/settings.
-  const [faqs, landing, chrome] = await Promise.all([
+  const [faqs, landing, chrome, testimonials] = await Promise.all([
     fetchJson<typeof FALLBACK_FAQS>("/content/faqs", FALLBACK_FAQS),
     fetchJson<typeof FALLBACK_LANDING>("/content/landing", FALLBACK_LANDING),
     fetchJson<Partial<SiteChrome>>("/content/site", {}),
+    fetchJson<TestimonialOut[]>("/content/testimonials", []),
   ]);
   const faqPairs = faqs.map(f => ({ q: f.question, a: f.answer }));
 
@@ -168,7 +189,23 @@ export default async function Landing() {
                         max-w-2xl mx-auto leading-relaxed">
             {landing.hero_subtitle}
           </p>
+
+          {/* Live-class registration banner — admin-styled via
+              /admin/landing-banner; hidden until enabled there. */}
+          <LiveClassBanner landing={landing} />
         </header>
+
+        {/* Testimonial carousel — cards managed in /admin/testimonials,
+            rotation + heading configurable there too. Hidden when the
+            section is disabled or no active cards exist. */}
+        {landing.testimonials_enabled && Array.isArray(testimonials)
+          && testimonials.length > 0 && (
+          <TestimonialCarousel
+            items={testimonials}
+            heading={landing.testimonials_heading}
+            intervalMs={landing.testimonials_interval_ms}
+          />
+        )}
 
         {/* Two ways to prepare — surfaces both product lines (courses +
             mock exams) to first-time visitors right under the hero, so

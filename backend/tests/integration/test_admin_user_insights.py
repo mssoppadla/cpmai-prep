@@ -39,3 +39,40 @@ def test_user_insights_requires_admin(client, user):
 def test_user_insights_404_for_missing_user(client, admin):
     r = client.get("/api/v1/admin/users/999999/insights", headers=auth_header(client, admin.email))
     assert r.status_code == 404
+
+
+def test_user_insights_page_journey_dwell_and_next_path(client, db, admin, user):
+    """page_journey pairs each page.view with its page.exit dwell and
+    links next_path within the same session only."""
+    from datetime import timedelta
+    from app.models.journey_event import JourneyEvent
+
+    t0 = datetime(2026, 7, 10, 10, 0, 0, tzinfo=timezone.utc)
+
+    def seed(offset_s, event, path, session_id, duration_ms=None):
+        db.add(JourneyEvent(event=event, user_id=user.id, path=path,
+                            session_id=session_id, duration_ms=duration_ms,
+                            created_at=t0 + timedelta(seconds=offset_s)))
+        db.commit()
+
+    # Session 1: / (45s) → /pricing (90s) → /courses/[slug] (no exit yet)
+    seed(0,   "page.view", "/",               "s1")
+    seed(45,  "page.exit", "/",               "s1", duration_ms=45000)
+    seed(46,  "page.view", "/pricing",        "s1")
+    seed(136, "page.exit", "/pricing",        "s1", duration_ms=90000)
+    seed(137, "page.view", "/courses/[slug]", "s1")
+    # Session 2 (later, different tab): /exams only — must NOT chain
+    # onto session 1's last page.
+    seed(500, "page.view", "/exams",          "s2")
+
+    r = client.get(f"/api/v1/admin/users/{user.id}/insights",
+                   headers=auth_header(client, admin.email))
+    assert r.status_code == 200
+    j = r.json()["page_journey"]
+    paths = [(p["path"], p["seconds"], p["next_path"]) for p in j]
+    assert paths == [
+        ("/",               45.0, "/pricing"),
+        ("/pricing",        90.0, "/courses/[slug]"),
+        ("/courses/[slug]", None, None),      # still there / left site
+        ("/exams",          None, None),      # separate session, no chain
+    ]
