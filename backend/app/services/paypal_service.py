@@ -50,13 +50,24 @@ _DECIMALS_PER_MAJOR = 2
 # Landing-page preference — what the buyer sees FIRST on PayPal's
 # hosted page:
 #   GUEST_CHECKOUT — card form first ("guest" pay-by-card), with
-#                    "Log in to PayPal" as the secondary option. Our
-#                    default: overseas buyers without PayPal accounts
-#                    were bouncing off the login wall.
+#                    "Log in to PayPal" as the secondary option.
 #   LOGIN          — PayPal login wall first (the old implicit default).
-#   NO_PREFERENCE  — PayPal decides per buyer context.
+#   NO_PREFERENCE  — PayPal decides per buyer context. OUR DEFAULT.
 # Admin-overridable via the provider's config JSON (`landing_page`) on
 # /admin/payment-providers — no deploy needed to flip behaviour.
+#
+# Why NO_PREFERENCE default (prod incident 2026-07-12): forcing the
+# card-form-first page (GUEST_CHECKOUT→BILLING) breaks buyers for whom
+# PayPal does NOT allow guest card processing on this merchant account
+# — a UK buyer got PayPal's generic "We're sorry, something went
+# wrong" on the guest form, while the SAME buyer paying after logging
+# in to PayPal succeeded (guest eligibility is per merchant-account
+# capability + buyer-country rules, e.g. PSD2/3-D Secure in the UK/EU;
+# nothing our API request can grant). NO_PREFERENCE lets PayPal show
+# the card form only where guest checkout is actually eligible and the
+# login page elsewhere — the login flow is unaffected either way.
+# Operators who have confirmed guest-card capability with PayPal can
+# still force card-first via config landing_page=GUEST_CHECKOUT.
 #
 # WIRE FORMAT TRAP (prod incident 2026-07-09): the LEGACY
 # ``application_context.landing_page`` we send only accepts
@@ -68,7 +79,7 @@ _DECIMALS_PER_MAJOR = 2
 # it does) and translate to BILLING at the wire boundary. If this
 # provider ever migrates to experience_context, drop the mapping.
 _LANDING_PAGES = ("GUEST_CHECKOUT", "LOGIN", "NO_PREFERENCE")
-_DEFAULT_LANDING_PAGE = "GUEST_CHECKOUT"
+_DEFAULT_LANDING_PAGE = "NO_PREFERENCE"
 _LANDING_PAGE_WIRE = {
     "GUEST_CHECKOUT": "BILLING",
     "LOGIN": "LOGIN",
@@ -264,8 +275,12 @@ class PayPalProvider:
                 f"PayPal order.create network error: {type(e).__name__}: {e}",
                 status_code=502)
         if r.status_code not in (200, 201):
+            # paypal-debug-id is THE handle PayPal support asks for —
+            # surface it in the error so ops can quote it verbatim.
             raise AppError(
-                f"PayPal rejected order (HTTP {r.status_code}): {r.text[:300]}",
+                f"PayPal rejected order (HTTP {r.status_code}, "
+                f"debug-id {r.headers.get('paypal-debug-id', 'n/a')}): "
+                f"{r.text[:300]}",
                 status_code=502)
         payload = r.json()
         # Pull out the "approve" rel link — what the buyer is redirected
@@ -331,7 +346,9 @@ class PayPalProvider:
                 return self._refetch_capture(order_id)
         if r.status_code not in (200, 201):
             raise AppError(
-                f"PayPal capture failed (HTTP {r.status_code}): {r.text[:300]}",
+                f"PayPal capture failed (HTTP {r.status_code}, "
+                f"debug-id {r.headers.get('paypal-debug-id', 'n/a')}): "
+                f"{r.text[:300]}",
                 status_code=502)
         payload = r.json()
         return self._extract_capture(payload, fallback_order_id=order_id)

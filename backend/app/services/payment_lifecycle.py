@@ -138,6 +138,50 @@ def activate_subscription_for_payment(db: Session, payment: Payment) -> Subscrip
     return sub
 
 
+
+def _release_offer_seat(db: Session, payment: Payment) -> None:
+    """Return a reserved offer-code seat to the pool — shared by the
+    failed and cancelled paths. Only releases if no redemption row
+    exists for this payment (a redemption row means the seat was
+    already claimed successfully)."""
+    if not payment.offer_code:
+        return
+    offer = (db.query(OfferCode)
+             .filter_by(code=payment.offer_code).first())
+    if offer is not None and (offer.used_count or 0) > 0:
+        redeemed = (db.query(OfferRedemption)
+                    .filter_by(offer_code_id=offer.id,
+                                payment_id=payment.id)
+                    .first())
+        if redeemed is None:
+            offer.used_count -= 1
+
+
+def mark_payment_cancelled(db: Session, payment: Payment) -> None:
+    """Record a checkout the buyer abandoned on the gateway's hosted
+    page (clicked cancel OR hit the gateway's own error — e.g. PayPal's
+    guest-card form failing for ineligible buyers).
+
+    Distinct from mark_payment_failed: 'failed' means the gateway
+    DECLINED a capture we attempted; 'cancelled' means no payment was
+    ever attempted on our rails. No "payment failed" email nudge here —
+    but the journey event makes the drop-off visible in Visitor
+    Insights and the admin payments list instead of leaving the row in
+    'created' forever.
+
+    Idempotent, and deliberately touches ONLY rows still in 'created' —
+    a late cancel-report must never downgrade a captured/failed row.
+    """
+    if payment.status != "created":
+        return
+    payment.status = "cancelled"
+    _release_offer_seat(db, payment)
+    db.commit()
+    emit_event(db, "payment.checkout_cancelled", user_id=payment.user_id,
+               metadata={"provider_name": payment.provider_name,
+                          "provider_order_id": payment.provider_order_id,
+                          "plan_id": payment.plan_id})
+
 def mark_payment_failed(db: Session, payment: Payment) -> None:
     """Flip `payment` to status='failed' and release any reserved
     offer-code seat.
@@ -152,21 +196,7 @@ def mark_payment_failed(db: Session, payment: Payment) -> None:
         return
 
     payment.status = "failed"
-
-    if payment.offer_code:
-        offer = (db.query(OfferCode)
-                 .filter_by(code=payment.offer_code).first())
-        if offer is not None and (offer.used_count or 0) > 0:
-            # Only release if no redemption row exists for this payment
-            # (a redemption row means the seat was already claimed
-            # successfully and shouldn't be returned to the pool).
-            redeemed = (db.query(OfferRedemption)
-                        .filter_by(offer_code_id=offer.id,
-                                    payment_id=payment.id)
-                        .first())
-            if redeemed is None:
-                offer.used_count -= 1
-
+    _release_offer_seat(db, payment)
     db.commit()
     emit_event(db, "payment.failed", user_id=payment.user_id,
                metadata={"provider_name": payment.provider_name,

@@ -138,10 +138,11 @@ def test_create_order_sends_application_context_when_urls_supplied():
 # ---------------------------------------------------------------------------
 # Guest card checkout — application_context.landing_page.
 #
-# GUEST_CHECKOUT (config value, default) shows the card form FIRST on
-# PayPal's hosted page so overseas buyers without a PayPal account can
-# pay as guests; PayPal-account buyers keep their "Log in" path.
-# Admin-overridable via provider config JSON `landing_page`.
+# Default is NO_PREFERENCE (PayPal decides per buyer eligibility — see
+# the 2026-07-12 UK guest-card regression pinned below). GUEST_CHECKOUT
+# (card form first) remains available via provider config JSON
+# `landing_page` for operators who've confirmed guest-card capability
+# with PayPal; it still translates to BILLING on the wire.
 #
 # WIRE TRAP pinned here (prod incident 2026-07-09): the legacy
 # application_context only accepts LOGIN | BILLING | NO_PREFERENCE.
@@ -169,14 +170,22 @@ def _order_body_capture():
 
 
 @respx.mock
-def test_create_order_defaults_to_guest_checkout_landing():
-    """No config → card-form-first, which on the LEGACY wire vocabulary
-    is "BILLING" (NEVER "GUEST_CHECKOUT" — that 400s, see wire trap)."""
+def test_create_order_defaults_to_no_preference_landing():
+    """No config → NO_PREFERENCE: PayPal decides per buyer eligibility.
+
+    REGRESSION (prod, 2026-07-12): forcing the card-form-first page
+    (BILLING) broke UK guest buyers — PayPal showed its generic
+    "We're sorry, something went wrong" on the guest card form because
+    guest card processing isn't eligible for that buyer/merchant
+    combination, while the SAME buyer logging in to PayPal paid fine
+    (and US buyers logging in were always fine). NO_PREFERENCE lets
+    PayPal show the card form only where guest checkout actually works
+    and the (always-working) login page elsewhere."""
     captured = _order_body_capture()
     _provider().create_order(amount_minor=900, currency="GBP",
                              return_url="https://x/r", cancel_url="https://x/c")
     assert captured["body"]["application_context"]["landing_page"] \
-        == "BILLING"
+        == "NO_PREFERENCE"
 
 
 @respx.mock
@@ -194,14 +203,14 @@ def test_create_order_landing_page_admin_override():
 @respx.mock
 def test_create_order_unknown_landing_page_falls_back_to_default():
     """A typo in admin config must not take payments down — unknown
-    values silently fall back to the default (BILLING on the wire)."""
+    values silently fall back to the default (NO_PREFERENCE)."""
     captured = _order_body_capture()
     p = PayPalProvider(key_id="A", key_secret="S", mode="test",
                        webhook_id="WH-1", landing_page="CARD_PLZ")
     p.create_order(amount_minor=900, currency="GBP",
                    return_url="https://x/r", cancel_url="https://x/c")
     assert captured["body"]["application_context"]["landing_page"] \
-        == "BILLING"
+        == "NO_PREFERENCE"
 
 
 @respx.mock
@@ -238,7 +247,7 @@ def test_create_order_sends_application_context_even_without_urls():
     captured = _order_body_capture()
     _provider().create_order(amount_minor=900, currency="GBP")
     ctx = captured["body"]["application_context"]
-    assert ctx["landing_page"] == "BILLING"
+    assert ctx["landing_page"] == "NO_PREFERENCE"
     assert "return_url" not in ctx and "cancel_url" not in ctx
     assert ctx["shipping_preference"] == "NO_SHIPPING"
 

@@ -47,6 +47,10 @@ EVENTS = {
     "auth.login.google", "auth.signup.google",
     # Payments + subscription
     "payment.order_created", "payment.success", "payment.failed",
+    # Buyer came back from the gateway's hosted page without paying
+    # (clicked cancel OR hit the gateway's own error page — e.g. the
+    # PayPal guest-card form failing for ineligible buyers).
+    "payment.checkout_cancelled",
     "subscription.activated", "subscription.cancelled",
     # Exam lifecycle
     "exam.viewed", "exam.started", "exam.submitted",

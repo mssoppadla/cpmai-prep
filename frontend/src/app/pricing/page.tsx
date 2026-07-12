@@ -143,6 +143,13 @@ export default function PricingPage() {
   const [linkedinReason, setLinkedinReason] = useState(
     "So we can serve you better and share relevant prep documents");
   const [quote, setQuote] = useState<PriceQuoteOut | null>(null);
+  // Set when the buyer bounced back from PayPal without paying —
+  // PayPal appends ?token=<order_id> to our cancel_url. We record the
+  // abandoned order server-side (so admins SEE the drop-off instead of
+  // a forever-"created" row) and show guidance, because the common
+  // cause is PayPal's guest card form being unavailable for the
+  // buyer's country — logging in to PayPal works with the same card.
+  const [checkoutCancelled, setCheckoutCancelled] = useState(false);
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
 
@@ -151,6 +158,23 @@ export default function PricingPage() {
   // summary) because we want EVERY card to show the selected-currency
   // price, not just the selected one.
   const [perPlanQuotes, setPerPlanQuotes] = useState<Record<string, PriceQuoteOut>>({});
+
+  // Detect a bounce-back from PayPal's cancel_url. Reads
+  // window.location directly (client-only effect) instead of
+  // useSearchParams to avoid wrapping the whole page in <Suspense>.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("cancelled") !== "1") return;
+    setCheckoutCancelled(true);
+    const orderId = params.get("token");   // PayPal's order-id param
+    if (orderId) {
+      // Best-effort — 401/404 (signed out mid-flow, unknown order)
+      // must not break the pricing page.
+      payments.paypalCancelled(orderId).catch(() => {});
+    }
+    // Strip the params so a refresh doesn't re-report / re-banner.
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   // Load plans + currencies + auth state in parallel.
   useEffect(() => {
@@ -403,6 +427,15 @@ export default function PricingPage() {
           </label>
         </div>
 
+        {checkoutCancelled && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-lg mb-4 text-sm">
+            <div className="font-semibold mb-1">Your payment wasn&rsquo;t completed</div>
+            Your PayPal checkout was cancelled — no money was taken. If the
+            card form on PayPal showed an error, try again and choose
+            {" "}<b>Log in to PayPal</b> instead: the same card works after
+            signing in. Need help? Use the chat bubble or contact support.
+          </div>
+        )}
         {err && (
           <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-lg my-4 text-sm">
             {err}

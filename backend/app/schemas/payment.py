@@ -71,6 +71,19 @@ class PayPalCaptureIn(BaseModel):
     order_id: str                # PayPal order id returned by Smart Button
 
 
+class PayPalCancelledIn(BaseModel):
+    """Buyer bounced back from PayPal's hosted page without approving —
+    PayPal appends ?token=<order_id> to our cancel_url; the frontend
+    reports it here so the abandoned order is RECORDED instead of
+    sitting in status='created' forever, indistinguishable from a
+    closed tab."""
+    order_id: str
+
+
+class PayPalCancelledOut(BaseModel):
+    status: str                  # the payment row's (possibly updated) status
+
+
 class PayPalCaptureOut(BaseModel):
     status: str                  # "active" | "pending"
     plan_slug: str
