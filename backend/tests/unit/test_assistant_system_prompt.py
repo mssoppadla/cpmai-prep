@@ -50,11 +50,14 @@ def test_empty_settings_yield_empty_preamble(stub_settings):
     assert system_prompt.assemble_preamble() == ""
 
 
-def test_with_preamble_passes_through_when_empty(stub_settings):
-    """The convenience wrapper preserves the handler's system prompt
-    unchanged when no guardrails are configured."""
+def test_with_preamble_always_carries_privacy_directive(stub_settings):
+    """Even with EVERY admin setting empty, the non-removable privacy
+    directive is prepended — data isolation must not depend on admin
+    configuration. The handler's own prompt stays intact at the end."""
     result = system_prompt.with_preamble("HANDLER PROMPT")
-    assert result == "HANDLER PROMPT"
+    assert result.endswith("HANDLER PROMPT")
+    assert system_prompt.PRIVACY_DIRECTIVE in result
+    assert "Never disclose information about any user other than" in result
 
 
 # ============================================================ each piece alone
