@@ -431,7 +431,8 @@ def user_insights(user_id: int, db: Session = Depends(get_db)):
         })
 
     # --- recent activity timeline ---
-    events = (db.query(JourneyEvent).filter(JourneyEvent.user_id == user_id)
+    identity = _linked_event_filter(db, user_id)
+    events = (db.query(JourneyEvent).filter(identity)
               .order_by(JourneyEvent.created_at.desc()).limit(50).all())
     activity = [{"event": ev.event, "path": ev.path, "duration_ms": ev.duration_ms,
                  "created_at": ev.created_at} for ev in events]
@@ -447,6 +448,37 @@ def user_insights(user_id: int, db: Session = Depends(get_db)):
     }
 
 
+def _linked_event_filter(db: Session, user_id: int):
+    """Condition matching every journey event belonging to this user —
+    directly (user_id on the row) OR through linked identifiers.
+
+    Why the indirection: the SPA tracker's page events may arrive
+    anonymously (no bearer token on sendBeacon tab-close flushes, or
+    sessions from before the tracker sent auth at all). But auth events
+    (login/signup) record BOTH user_id and the browser's anon_id +
+    session_id — so any anon_id/session_id ever seen alongside this
+    user_id is theirs, and matching on those pulls their anonymous page
+    history into the per-user views. The anon cookie is long-lived, so
+    this also back-fills history recorded before the linkage existed.
+    """
+    anon_ids = [a for (a,) in (
+        db.query(JourneyEvent.anon_id)
+        .filter(JourneyEvent.user_id == user_id,
+                JourneyEvent.anon_id.isnot(None))
+        .distinct())]
+    session_ids = [s for (s,) in (
+        db.query(JourneyEvent.session_id)
+        .filter(JourneyEvent.user_id == user_id,
+                JourneyEvent.session_id.isnot(None))
+        .distinct())]
+    conds = [JourneyEvent.user_id == user_id]
+    if anon_ids:
+        conds.append(JourneyEvent.anon_id.in_(anon_ids))
+    if session_ids:
+        conds.append(JourneyEvent.session_id.in_(session_ids))
+    return or_(*conds)
+
+
 def _page_journey(db: Session, user_id: int, max_pages: int = 50) -> list[dict]:
     """The user's recent page-by-page journey: which page, how long
     they actively stayed (from the tracker's page.exit duration), and
@@ -459,7 +491,7 @@ def _page_journey(db: Session, user_id: int, max_pages: int = 50) -> list[dict]:
     (next_path stays null = "left the site").
     """
     rows = (db.query(JourneyEvent)
-            .filter(JourneyEvent.user_id == user_id)
+            .filter(_linked_event_filter(db, user_id))
             .filter(JourneyEvent.event.in_(("page.view", "page.exit")))
             .order_by(JourneyEvent.created_at.desc(), JourneyEvent.id.desc())
             .limit(2 * max_pages * 2)  # views + exits, with headroom

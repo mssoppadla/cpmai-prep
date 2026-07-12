@@ -157,6 +157,25 @@ function enqueue(ev: TrackEvent): void {
   }
 }
 
+/**
+ * Bearer header for /track flushes. When the visitor is signed in the
+ * backend stamps user_id onto every event row, which is what makes the
+ * admin User Insights page journey attribute page views to the user.
+ * Same storage key as lib/api.ts. Expired/invalid tokens are harmless:
+ * /track's get_optional_user degrades to anonymous, never rejects.
+ * sendBeacon flushes (tab close) can't carry headers — those events
+ * stay anonymous and are joined server-side via anon_id/session_id.
+ */
+export function trackAuthHeaders(): Record<string, string> {
+  try {
+    const t = typeof window !== "undefined"
+      ? window.localStorage.getItem("cpmai.access") : null;
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  } catch {
+    return {};   // storage blocked (private mode / hardened browser)
+  }
+}
+
 async function flush(): Promise<void> {
   if (queue.length === 0) return;
   const batch = queue;
@@ -166,13 +185,12 @@ async function flush(): Promise<void> {
     sent_at: new Date().toISOString(),
   });
   try {
-    // Prefer keepalive fetch (allows JSON body + bearer token if any
-    // future auth is added). sendBeacon is used specifically for
-    // pagehide where keepalive fetch is also unreliable in older
-    // Safari.
+    // Prefer keepalive fetch (allows JSON body + bearer token).
+    // sendBeacon is used specifically for pagehide where keepalive
+    // fetch is also unreliable in older Safari.
     await fetch(TRACK_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...trackAuthHeaders() },
       body: payload,
       keepalive: true,
       credentials: "include",  // ship the anon_id cookie
@@ -205,7 +223,7 @@ function flushSync(): void {
     // still squeak through in most modern setups.
     void fetch(TRACK_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...trackAuthHeaders() },
       body: payload,
       keepalive: true,
       credentials: "include",
