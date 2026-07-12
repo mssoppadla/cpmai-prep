@@ -91,6 +91,14 @@ const FALLBACK_LANDING = {
   live_banner_font_color: "#312e81",
   live_banner_bg_color: "#e0e7ff",
   live_banner_animation: "none" as const,
+  live_banner_link_enabled: true,
+  live_banner_link_bg_color: "",
+  live_banner_link_text_color: "",
+  live_banner_ondemand_enabled: false,
+  live_banner_ondemand_label: "Request on-demand training",
+  live_banner_ondemand_url: "",
+  live_banner_ondemand_bg_color: "",
+  live_banner_ondemand_text_color: "",
   // Testimonial carousel shell. Enabled by default but the section
   // renders nothing when the cards fetch comes back empty.
   testimonials_enabled: true,

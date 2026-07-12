@@ -76,3 +76,50 @@ def test_user_insights_page_journey_dwell_and_next_path(client, db, admin, user)
         ("/courses/[slug]", None, None),      # still there / left site
         ("/exams",          None, None),      # separate session, no chain
     ]
+
+
+def test_user_insights_links_anonymous_page_views_via_anon_and_session(
+        client, db, admin, user):
+    """Regression: tracker page events that arrived WITHOUT a bearer
+    token (user_id NULL) must still show in the per-user views, joined
+    through the anon_id / session_id that the auth.login event records.
+    This is what makes 'clicked Mock exams, Home, FAQs' visible on the
+    admin User Insights page."""
+    from datetime import timedelta
+    from app.models.journey_event import JourneyEvent
+
+    t0 = datetime(2026, 7, 11, 9, 0, 0, tzinfo=timezone.utc)
+
+    def seed(offset_s, event, path, *, user_id=None, anon_id=None,
+             session_id=None, duration_ms=None):
+        db.add(JourneyEvent(event=event, user_id=user_id, anon_id=anon_id,
+                            path=path, session_id=session_id,
+                            duration_ms=duration_ms,
+                            created_at=t0 + timedelta(seconds=offset_s)))
+        db.commit()
+
+    # Anonymous browsing (tracker sent no token): pages with dwell.
+    seed(0,  "page.view", "/exams",  anon_id="cookie-1", session_id="sess-a")
+    seed(40, "page.exit", "/exams",  anon_id="cookie-1", session_id="sess-a",
+         duration_ms=40000)
+    seed(41, "page.view", "/",       anon_id="cookie-1", session_id="sess-a")
+    # Login event carries BOTH ids — the linking row.
+    seed(50, "auth.login", None, user_id=user.id, anon_id="cookie-1",
+         session_id="sess-a")
+    # A beacon-flushed exit after login — still anonymous but same session.
+    seed(90, "page.exit", "/", anon_id=None, session_id="sess-a",
+         duration_ms=49000)
+
+    r = client.get(f"/api/v1/admin/users/{user.id}/insights",
+                   headers=auth_header(client, admin.email))
+    assert r.status_code == 200
+    data = r.json()
+
+    journey = [(p["path"], p["seconds"], p["next_path"])
+               for p in data["page_journey"]]
+    assert ("/exams", 40.0, "/") in journey       # anon view + dwell linked
+    assert ("/", 49.0, None) in journey           # beacon exit paired too
+
+    activity_events = {a["event"] for a in data["activity"]}
+    assert "page.view" in activity_events          # anon rows now included
+    assert "auth.login" in activity_events

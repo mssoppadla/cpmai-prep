@@ -893,6 +893,16 @@ export interface LandingCopy {
   live_banner_font_color: string;
   live_banner_bg_color: string;
   live_banner_animation: "none" | "pulse" | "blink";
+  /** Banner buttons: registration (calendar/Zoom) + on-demand training
+   *  request (Google Form). Empty color = automatic pairing. */
+  live_banner_link_enabled: boolean;
+  live_banner_link_bg_color: string;
+  live_banner_link_text_color: string;
+  live_banner_ondemand_enabled: boolean;
+  live_banner_ondemand_label: string;
+  live_banner_ondemand_url: string;
+  live_banner_ondemand_bg_color: string;
+  live_banner_ondemand_text_color: string;
   /** Testimonial carousel section shell (cards from /content/testimonials). */
   testimonials_enabled: boolean;
   testimonials_heading: string;

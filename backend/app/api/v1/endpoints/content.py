@@ -338,6 +338,34 @@ def landing_copy():
         "live_banner_animation": settings_store.get_str(
             "landing.live_banner_animation", "none",
         ),
+        # Banner buttons — registration (calendar/Zoom) + on-demand
+        # training request (Google Form). Each independently toggled;
+        # empty colors mean "automatic pairing" in the frontend.
+        "live_banner_link_enabled": bool(
+            settings_store.get("landing.live_banner_link_enabled", True),
+        ),
+        "live_banner_link_bg_color": settings_store.get_str(
+            "landing.live_banner_link_bg_color", "",
+        ),
+        "live_banner_link_text_color": settings_store.get_str(
+            "landing.live_banner_link_text_color", "",
+        ),
+        "live_banner_ondemand_enabled": bool(
+            settings_store.get("landing.live_banner_ondemand_enabled", False),
+        ),
+        "live_banner_ondemand_label": settings_store.get_str(
+            "landing.live_banner_ondemand_label",
+            "Request on-demand training",
+        ),
+        "live_banner_ondemand_url": settings_store.get_str(
+            "landing.live_banner_ondemand_url", "",
+        ),
+        "live_banner_ondemand_bg_color": settings_store.get_str(
+            "landing.live_banner_ondemand_bg_color", "",
+        ),
+        "live_banner_ondemand_text_color": settings_store.get_str(
+            "landing.live_banner_ondemand_text_color", "",
+        ),
         # Testimonial carousel under the banner. Cards come from
         # /content/testimonials; these knobs control the section shell.
         "testimonials_enabled": bool(

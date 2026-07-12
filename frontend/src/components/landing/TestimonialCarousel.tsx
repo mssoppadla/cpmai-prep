@@ -155,7 +155,7 @@ function TestimonialCard({ t }: { t: TestimonialOut }) {
         // would need a remotePatterns entry per deploy host for no benefit.
         // eslint-disable-next-line @next/next/no-img-element
         <img src={photo} alt={`Photo of ${t.name}`}
-             className="w-full h-40 sm:h-44 object-cover" loading="lazy" />
+             className="w-full aspect-video object-cover" loading="lazy" />
       ) : (
         <div aria-hidden
              className="w-full h-24 bg-gradient-to-br from-indigo-100 to-slate-100

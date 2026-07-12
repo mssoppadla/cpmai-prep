@@ -103,7 +103,11 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
     # GeoIP enrichment of the last-login snapshot. Doesn't touch
     # user.country/city (those are signup-snapshot semantics).
     _enrich_user_at_login(user, request, db)
+    # anon_id/session_id link this user to their anonymous browsing
+    # history — the User Insights page journey joins through them.
     emit_event(db, "auth.login", user_id=user.id,
+               anon_id=getattr(request.state, "anon_id", None),
+               session_id=getattr(request.state, "session_id", None),
                metadata={"method": "password",
                          "country": user.last_login_country})
     enqueue_for_trigger(db, "user.login", user,
@@ -148,6 +152,8 @@ def google_login(payload: GoogleLoginIn, request: Request,
         audit_log(db, user.id, "auth.signup.google",
                   {"email": user.email}, **ctx)
         emit_event(db, "auth.signup.google", user_id=user.id,
+                   anon_id=getattr(request.state, "anon_id", None),
+                   session_id=getattr(request.state, "session_id", None),
                    request_id=ctx.get("request_id"),
                    metadata={"email": user.email,
                              "country": user.country})
@@ -164,6 +170,8 @@ def google_login(payload: GoogleLoginIn, request: Request,
                   {"email": user.email}, **ctx)
 
     emit_event(db, "auth.login.google", user_id=user.id,
+               anon_id=getattr(request.state, "anon_id", None),
+               session_id=getattr(request.state, "session_id", None),
                request_id=ctx.get("request_id"),
                metadata={"email": user.email,
                          "first_time": bool(prov.get("created")),
@@ -218,5 +226,7 @@ def logout(request: Request, user: User = Depends(get_current_user),
         except JWTError:
             pass
     emit_event(db, "auth.logout", user_id=user.id,
+               anon_id=getattr(request.state, "anon_id", None),
+               session_id=getattr(request.state, "session_id", None),
                request_id=getattr(request.state, "request_id", None))
     return
