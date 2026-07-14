@@ -126,9 +126,37 @@ export default async function PrivacyPage() {
             <li>Remembering UI preferences (e.g. sidebar collapsed state)</li>
           </ul>
           <p>
-            We do not use third-party advertising cookies. You may
-            disable cookies in your browser, but doing so will prevent
-            you from logging in.
+            You may disable cookies in your browser, but doing so will
+            prevent you from logging in.
+          </p>
+        </Section>
+
+        <Section title="5b. Advertising Cookies (Consent-Based)">
+          <p>
+            We advertise the Service on Google and LinkedIn. To measure
+            those campaigns we can use the <strong>Google tag</strong>
+            {" "}(Google Ads conversion tracking) and the{" "}
+            <strong>LinkedIn Insight Tag</strong>. These third-party
+            tags are loaded <strong>only after you explicitly accept
+            the cookie-consent banner</strong> — if you decline (or
+            simply ignore the banner), no third-party advertising
+            script loads and no advertising cookie is set.
+          </p>
+          <p><strong>When you accept, these providers may collect:</strong></p>
+          <ul>
+            <li>That your browser visited our pages, and conversion events (e.g. a purchase or a lead-form submission, with order value and currency)</li>
+            <li>Cookie identifiers used by Google / LinkedIn to attribute your visit to an ad you saw or clicked, and to build advertising audiences</li>
+          </ul>
+          <p>
+            Their processing is governed by the{" "}
+            <a href="https://policies.google.com/privacy" target="_blank"
+               rel="noopener noreferrer">Google Privacy Policy</a> and the{" "}
+            <a href="https://www.linkedin.com/legal/privacy-policy" target="_blank"
+               rel="noopener noreferrer">LinkedIn Privacy Policy</a>.
+            We implement Google <em>Consent Mode v2</em>, so consent
+            signals are honoured by Google&apos;s systems. You can change
+            your mind at any time by clearing this site&apos;s data in your
+            browser — the consent banner will ask again on your next visit.
           </p>
         </Section>
 

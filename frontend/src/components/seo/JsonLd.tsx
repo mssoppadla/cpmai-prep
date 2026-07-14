@@ -101,3 +101,34 @@ export const faqSchema = (qs: { q: string; a: string }[]) => ({
     acceptedAnswer: { "@type": "Answer", text: a },
   })),
 });
+
+
+/** Event schema for upcoming live class sessions — date-rich results.
+ *  Sessions come from the public /content/live-sessions endpoint
+ *  (title/date/duration only; join links are never public). */
+export function liveSessionEventsSchema(sessions: Array<{
+  id: number; title: string; description?: string;
+  scheduled_at: string | null; duration_minutes?: number;
+}>, siteUrl?: string) {
+  const base = siteUrl ?? DEFAULT_SITE_URL;
+  return sessions
+    .filter((s) => Boolean(s.scheduled_at))
+    .map((s) => ({
+      "@context": "https://schema.org",
+      "@type": "EducationEvent",
+      name: s.title,
+      ...(s.description ? { description: s.description } : {}),
+      startDate: s.scheduled_at,
+      eventAttendanceMode: "https://schema.org/OnlineEventAttendanceMode",
+      eventStatus: "https://schema.org/EventScheduled",
+      location: {
+        "@type": "VirtualLocation",
+        url: `${base}/courses`,
+      },
+      organizer: {
+        "@type": "EducationalOrganization",
+        name: "CPMAI Prep",
+        url: base,
+      },
+    }));
+}

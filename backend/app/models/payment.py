@@ -26,6 +26,13 @@ class Payment(Base):
     discount_paise      = Column(Integer, default=0)
     offer_code          = Column(String(48))               # snapshot, not FK (codes can be deleted)
     referrer            = Column(String(240))              # free-text "who referred me"
+    # Ad-campaign attribution captured at order time from the SPA
+    # tracker's session UTMs — lets admins answer 'revenue per
+    # campaign'. journey_events/leads already carry these; payments
+    # gained them 2026-07-13 for the ads rollout.
+    utm_source   = Column(String(64))
+    utm_medium   = Column(String(64))
+    utm_campaign = Column(String(128))
     currency     = Column(String(8), nullable=False, default="INR")
     status       = Column(String(32), nullable=False)   # created|captured|failed|refunded
     idempotency_key = Column(String(64), unique=True, nullable=False)

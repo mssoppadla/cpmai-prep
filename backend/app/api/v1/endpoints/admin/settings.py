@@ -530,6 +530,19 @@ EDITABLE: dict[str, Callable] = {
     "errors.server_error_title":         _short_str(120),
     "errors.server_error_body":          _optional_str(400),
     "errors.show_help_links":            _bool,
+    # ── Advertising / conversion tags (Google Ads + LinkedIn) ────────
+    # All empty by default = no third-party scripts load at all. IDs
+    # are pasted from the ad platforms; the frontend loads tags only
+    # when configured AND the visitor granted consent (Consent Mode
+    # v2). No secrets here — these IDs are public by nature (they ship
+    # in page source on every site that uses them).
+    "ads.enabled":                       _bool,
+    "ads.google_tag_id":                 _optional_str(40),
+    "ads.google_purchase_label":         _optional_str(80),
+    "ads.google_lead_label":             _optional_str(80),
+    "ads.linkedin_partner_id":           _optional_str(40),
+    "ads.linkedin_purchase_conversion_id": _optional_str(40),
+    "ads.linkedin_lead_conversion_id":   _optional_str(40),
     # Exams page anonymous-state banner. Plain text (not markdown),
     # rendered with the same indigo-50 banner styling as before — only
     # the wording changes.

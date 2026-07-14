@@ -148,6 +148,14 @@ function captureUtms(searchParams: URLSearchParams): void {
   }
 }
 
+/** The session's captured UTM parameters — used by checkout to stamp
+ *  ad-campaign attribution onto the payment row. */
+export function getSessionUtms(): {
+  utm_source?: string; utm_medium?: string; utm_campaign?: string;
+} {
+  return { ...utmsForSession };
+}
+
 function enqueue(ev: TrackEvent): void {
   // Always merge in session-level UTMs so every event carries
   // attribution context.

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { fireLeadConversion } from "@/lib/ads";
 import { useRouter } from "next/navigation";
 
 interface Props {
@@ -85,6 +86,9 @@ export function LeadCaptureForm({
         return;
       }
       setState("ok");
+      // Ad-platform Lead conversion (no-op unless ads configured and
+      // the visitor granted consent).
+      fireLeadConversion();
       // Route to the configured destination after a brief moment so the
       // user can read the confirmation. postSubmitRoute=null skips this.
       if (postSubmitRoute) {

@@ -12,7 +12,10 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, vi, beforeEach } from "vitest";
 
-import PricingPage from "@/app/pricing/page";
+// The route is now a SERVER page (SSR for SEO); the interactive
+// component under test is PricingClient. Null props exercise the
+// client-fetch path these tests were written against.
+import { PricingClient } from "@/app/pricing/PricingClient";
 
 const PLAN = {
   id: 1, name: "Exam Bundle", slug: "exam-bundle",
@@ -123,7 +126,7 @@ function buildFetch(quoteResponse: typeof QUOTE_NO_OFFER | typeof QUOTE_WITH_OFF
 describe("/pricing page", () => {
   it("lists active plans and shows the base price", async () => {
     global.fetch = buildFetch(QUOTE_NO_OFFER);
-    render(<PricingPage />);
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
     await waitFor(() => {
       expect(screen.getByText("Exam Bundle")).toBeInTheDocument();
     });
@@ -136,7 +139,7 @@ describe("/pricing page", () => {
 
   it("shows the offer-applied line when the server confirms it", async () => {
     global.fetch = buildFetch(QUOTE_WITH_OFFER);
-    render(<PricingPage />);
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
     // Wait for plans to load + the offer-code input to render.
     const offerInput = await screen.findByPlaceholderText(/SAVE10/i);
     fireEvent.change(offerInput, { target: { value: "SAVE10" } });
@@ -147,7 +150,7 @@ describe("/pricing page", () => {
 
   it("bounces unauthenticated user to /login on checkout", async () => {
     global.fetch = buildFetch(QUOTE_NO_OFFER);
-    render(<PricingPage />);
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
     // The button text changes to "Sign in to continue" once /users/me
     // resolves with 401, but the button itself stays `disabled` until
     // /pricing/quote resolves. Race: in slow CI the text-match may
@@ -165,7 +168,7 @@ describe("/pricing page", () => {
 
   it("renders the GST line when the quote includes GST", async () => {
     global.fetch = buildFetch(QUOTE_WITH_GST);
-    render(<PricingPage />);
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
     // Subtotal + GST(18%) + new total all show.
     await waitFor(() => {
       expect(screen.getByText("Subtotal")).toBeInTheDocument();
@@ -185,7 +188,7 @@ describe("PayPal cancel bounce-back", () => {
     global.fetch = buildFetch(QUOTE_NO_OFFER);
     window.history.replaceState(null, "", "/pricing?cancelled=1&token=PAYPAL-XYZ");
 
-    render(<PricingPage />);
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
     await waitFor(() => {
       expect(screen.getByText(/payment wasn.t completed/i)).toBeInTheDocument();
     });
@@ -208,7 +211,7 @@ describe("PayPal cancel bounce-back", () => {
   it("no banner on a normal visit", async () => {
     global.fetch = buildFetch(QUOTE_NO_OFFER);
     window.history.replaceState(null, "", "/pricing");
-    render(<PricingPage />);
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
     await waitFor(() => {
       expect(screen.getByText("Exam Bundle")).toBeInTheDocument();
     });

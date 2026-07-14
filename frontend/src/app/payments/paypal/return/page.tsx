@@ -21,6 +21,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { payments, errMsg } from "@/lib/api";
+import { firePurchaseConversion } from "@/lib/ads";
 
 
 // Next.js 14 strict build refuses to prerender pages that call
@@ -84,6 +85,10 @@ function PayPalReturnInner() {
 
         if (result.status === "active") {
           setStatus("success");
+          // Ad-platform purchase conversion (no-op unless configured +
+          // consented). Amount intentionally omitted — this page only
+          // knows the order id; Google still dedupes on transaction_id.
+          firePurchaseConversion({ orderId });
           router.replace(`/exams?paid=${encodeURIComponent(planSlug)}`);
         } else {
           // PayPal accepted the capture but it's pending (risk review).
