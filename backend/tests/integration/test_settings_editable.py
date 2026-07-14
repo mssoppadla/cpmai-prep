@@ -166,6 +166,14 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "errors.server_error_title":         "Something went wrong on our end",
     "errors.server_error_body":          "Please try again — or jump back to one of these pages:",
     "errors.show_help_links":            False,
+    # Advertising / conversion tags
+    "ads.enabled":                       True,
+    "ads.google_tag_id":                 "AW-123456789",
+    "ads.google_purchase_label":         "AbC-D_efGhIjKlMnOp",
+    "ads.google_lead_label":             "LeAd-LaBeL123",
+    "ads.linkedin_partner_id":           "1234567",
+    "ads.linkedin_purchase_conversion_id": "987654",
+    "ads.linkedin_lead_conversion_id":   "987655",
     "exams.anonymous_banner":            "Sign in to save your attempts.",
     # site.*
     "site.brand_name":                   "CPMAI Prep",

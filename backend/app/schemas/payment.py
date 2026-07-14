@@ -18,6 +18,12 @@ class CreateOrderIn(BaseModel):
     # to happen and we don't want to charge in INR if the user thought
     # they were paying in USD).
     currency: Optional[str] = Field(default="INR", min_length=3, max_length=3)
+    # Ad-campaign attribution — the SPA tracker's session UTMs, passed
+    # through at checkout so revenue is attributable per campaign.
+    # Optional + length-bounded; junk simply stays NULL downstream.
+    utm_source:   Optional[str] = Field(default=None, max_length=64)
+    utm_medium:   Optional[str] = Field(default=None, max_length=64)
+    utm_campaign: Optional[str] = Field(default=None, max_length=128)
 
 
 class CreateOrderOut(BaseModel):

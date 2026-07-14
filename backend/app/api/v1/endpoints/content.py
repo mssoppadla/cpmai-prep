@@ -8,6 +8,7 @@ from app.core.settings_store import settings_store
 from app.models.faq import FaqItem
 from app.models.question import Question
 from app.models.testimonial import Testimonial
+from app.models.zoom import ZoomSession
 from app.models.topic import Topic
 from app.schemas.faq import FaqOut
 from app.schemas.testimonial import TestimonialOut
@@ -105,6 +106,36 @@ def list_testimonials(db: Session = Depends(get_db)):
     return rows
 
 
+@router.get("/live-sessions")
+def list_live_sessions(db: Session = Depends(get_db)):
+    """Upcoming live class sessions — PUBLIC-SAFE fields only (title,
+    date, duration; never join URLs). Feeds the landing page's Event
+    structured data so scheduled classes are eligible for date-rich
+    search results. Same exposure rationale as the assistant's
+    live_sessions tool: the landing banner already advertises live
+    classes to everyone."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    rows = (db.query(ZoomSession)
+            .filter(ZoomSession.status.in_(("scheduled", "live")),
+                    ZoomSession.is_deleted.is_(False),
+                    ZoomSession.scheduled_at >= now - timedelta(hours=3))
+            .order_by(ZoomSession.scheduled_at)
+            .limit(10).all())
+    return [
+        {
+            "id": r.id,
+            "title": r.title,
+            "description": (r.description or "")[:300],
+            "scheduled_at": r.scheduled_at.isoformat()
+                if r.scheduled_at else None,
+            "duration_minutes": r.duration_minutes,
+            "status": r.status,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/site")
 def site_chrome():
     """Site-wide header/footer config — admin-editable via /admin/settings.
@@ -175,6 +206,24 @@ def site_chrome():
             "Please sign in to continue chatting. Anonymous chat needs "
             "a browser identifier — refresh the page or sign in.",
         ),
+        # Advertising / conversion tag config (Google Ads + LinkedIn).
+        # Public by nature — these ids ship in page source on any site
+        # using them. The frontend loads tags only when enabled AND ids
+        # are present AND the visitor granted cookie consent.
+        "ads": {
+            "enabled": bool(settings_store.get("ads.enabled", False)),
+            "google_tag_id": settings_store.get_str("ads.google_tag_id", ""),
+            "google_purchase_label": settings_store.get_str(
+                "ads.google_purchase_label", ""),
+            "google_lead_label": settings_store.get_str(
+                "ads.google_lead_label", ""),
+            "linkedin_partner_id": settings_store.get_str(
+                "ads.linkedin_partner_id", ""),
+            "linkedin_purchase_conversion_id": settings_store.get_str(
+                "ads.linkedin_purchase_conversion_id", ""),
+            "linkedin_lead_conversion_id": settings_store.get_str(
+                "ads.linkedin_lead_conversion_id", ""),
+        },
     }
 
 

@@ -41,6 +41,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
     const page = await cmsPublic.page(params.slug);
     return {
+      alternates: { canonical: `/pages/${params.slug}` },
       title: page.title,
       description: `${page.title} — CPMAI Prep`,
     };

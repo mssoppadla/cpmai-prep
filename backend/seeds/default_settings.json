@@ -171,27 +171,95 @@
   },
   {
     "key": "assistant.classifier.keywords.pmi_reference",
-    "value": ["pmi.org", "pmi website", "register for the exam", "register for exam", "exam content outline", "eco link", "eco", "course bundle link", "where do i register", "where to register", "exam fee", "exam cost", "official exam", "syllabus", "what's on the exam", "what is on the exam"],
+    "value": [
+      "pmi.org",
+      "pmi website",
+      "register for the exam",
+      "register for exam",
+      "exam content outline",
+      "eco link",
+      "eco",
+      "course bundle link",
+      "where do i register",
+      "where to register",
+      "exam fee",
+      "exam cost",
+      "official exam",
+      "syllabus",
+      "what's on the exam",
+      "what is on the exam"
+    ],
     "description": "Substrings that route a chat question to the PMI_REFERENCE handler (returns the configured PMI official URL). FIRST priority in the classifier — any of these matching short-circuits the rest of the keyword scan. Admin can edit at runtime; case is preserved in the form but compared case-insensitively. Empty list = PMI handler never matches via keyword (questions can still reach it via the agentic router or by being the admin-configured default intent)."
   },
   {
     "key": "assistant.classifier.keywords.insights",
-    "value": ["my score", "my exam", "weak area", "my progress", "how did i", "improve", "my attempt"],
+    "value": [
+      "my score",
+      "my exam",
+      "weak area",
+      "my progress",
+      "how did i",
+      "improve",
+      "my attempt"
+    ],
     "description": "Substrings that route to the INSIGHTS handler (queries the user's recent exam_sessions for personalised feedback). SECOND priority — runs after PMI. Watch out for generic words like 'improve' that can mis-route content questions to INSIGHTS when the user isn't asking about their own attempts."
   },
   {
     "key": "assistant.classifier.keywords.account",
-    "value": ["subscription", "billing", "payment", "signup", "plan", "invoice", "refund", "cancel", "price", "pricing", "discount", "offer", "coupon"],
+    "value": [
+      "subscription",
+      "billing",
+      "payment",
+      "signup",
+      "plan",
+      "invoice",
+      "refund",
+      "cancel",
+      "price",
+      "pricing",
+      "discount",
+      "offer",
+      "coupon"
+    ],
     "description": "Substrings that route to the ACCOUNT handler (RAG over the plan corpus). THIRD priority. ACCOUNT cannot read the user's actual subscription expiry / payment history — for that, flip to agentic which has an account_state tool. ACCOUNT is the right destination for plan/pricing questions only."
   },
   {
     "key": "assistant.classifier.keywords.content",
-    "value": ["explain", "what is", "define", "phase", "cpmai phase", "topic", "concept", "domain", "business understanding", "data understanding", "modeling", "deployment"],
+    "value": [
+      "explain",
+      "what is",
+      "define",
+      "phase",
+      "cpmai phase",
+      "topic",
+      "concept",
+      "domain",
+      "business understanding",
+      "data understanding",
+      "modeling",
+      "deployment"
+    ],
     "description": "Substrings that route to the CONTENT handler (RAG over question_explanation + upload corpora). FOURTH priority. This is also the default catch-all when no keyword matches — see assistant.classifier.default_intent."
   },
   {
     "key": "assistant.classifier.keywords.faq",
-    "value": ["exam pattern", "passing", "duration", "fee", "eligibility", "certification", "how do i take", "schedule", "format", "exam date", "exam time", "live class", "live session", "webinar", "live training"],
+    "value": [
+      "exam pattern",
+      "passing",
+      "duration",
+      "fee",
+      "eligibility",
+      "certification",
+      "how do i take",
+      "schedule",
+      "format",
+      "exam date",
+      "exam time",
+      "live class",
+      "live session",
+      "webinar",
+      "live training"
+    ],
     "description": "Substrings that route to the FAQ handler (RAG over faq + upload corpora). FIFTH priority. Add a substring here if you've added a new FAQ row and want pricing-style or process-style questions to land on this handler. For example, adding 'cost' here makes 'How Much Does CPMAI Cost?' route to the FAQ corpus where the answer lives."
   },
   {
@@ -251,7 +319,14 @@
   },
   {
     "key": "pricing.supported_currencies",
-    "value": ["INR", "USD", "EUR", "GBP", "SGD", "AED"],
+    "value": [
+      "INR",
+      "USD",
+      "EUR",
+      "GBP",
+      "SGD",
+      "AED"
+    ],
     "description": "ISO-4217 codes the /pricing currency selector offers. Must include INR (Plan.base_price_paise is denominated in INR, FX is INR-relative). Add codes here AND populate the matching FX rate in pricing.fx_rates_inr_per_unit before the option becomes usable."
   },
   {
@@ -723,5 +798,40 @@
     "key": "errors.show_help_links",
     "value": true,
     "description": "Show the 'here's where to go instead' block on the 404/error pages: quick links (Home, Courses, Mock exams, Pricing) plus the live-class registration button when the landing banner is enabled. OFF = just the message."
+  },
+  {
+    "key": "ads.enabled",
+    "value": false,
+    "description": "Master switch for third-party ad/conversion tags (Google Ads + LinkedIn Insight). OFF = no third-party scripts load at all. Turn ON only after filling the IDs below AND updating the privacy policy; tags still wait for visitor consent."
+  },
+  {
+    "key": "ads.google_tag_id",
+    "value": "",
+    "description": "Google tag id from Google Ads (format AW-XXXXXXXXX) or GA4 (G-XXXX). Empty = Google tag not loaded."
+  },
+  {
+    "key": "ads.google_purchase_label",
+    "value": "",
+    "description": "Google Ads conversion LABEL for the Purchase action (the part after the slash in AW-XXXX/label). Created in Google Ads > Goals > Conversions."
+  },
+  {
+    "key": "ads.google_lead_label",
+    "value": "",
+    "description": "Google Ads conversion LABEL for the Lead action (landing-form submission)."
+  },
+  {
+    "key": "ads.linkedin_partner_id",
+    "value": "",
+    "description": "LinkedIn Insight Tag partner id (Campaign Manager > Analyze > Insight Tag). Empty = LinkedIn tag not loaded."
+  },
+  {
+    "key": "ads.linkedin_purchase_conversion_id",
+    "value": "",
+    "description": "LinkedIn conversion id for Purchase (Campaign Manager > Conversions, use the numeric id)."
+  },
+  {
+    "key": "ads.linkedin_lead_conversion_id",
+    "value": "",
+    "description": "LinkedIn conversion id for Lead."
   }
 ]

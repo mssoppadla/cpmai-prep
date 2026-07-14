@@ -914,6 +914,16 @@ export interface SiteChrome {
   brand_name: string;
   tagline: string;
   support_email: string;
+  /** Ad/conversion tag config (ads.* settings). Public ids by nature. */
+  ads?: {
+    enabled: boolean;
+    google_tag_id: string;
+    google_purchase_label: string;
+    google_lead_label: string;
+    linkedin_partner_id: string;
+    linkedin_purchase_conversion_id: string;
+    linkedin_lead_conversion_id: string;
+  };
   /** Dedicated privacy contact. Falls back to support_email server-side
    *  if not configured separately. Privacy Policy page links here. */
   privacy_email: string;
@@ -1087,6 +1097,10 @@ export interface CreateOrderIn {
   plan_slug: string;
   offer_code?: string | null;
   referrer?: string | null;
+  /** Ad-campaign attribution (from the tracker's session UTMs). */
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
   /** Optional LinkedIn id/URL captured at checkout (same intent as the landing form). */
   linkedin_id?: string | null;
   /** ISO-4217 code. Default "INR" — pass the user's selected currency

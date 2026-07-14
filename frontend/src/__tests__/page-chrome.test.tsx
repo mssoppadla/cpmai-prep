@@ -67,7 +67,9 @@ describe("page chrome — every public page wraps SiteHeader + SiteFooter", () =
   });
 
   it("/exams (listing)", async () => {
-    render(<ExamSetsListPage />);
+    // Async server component — resolve before render (same
+    // pattern as the landing page above).
+    render(await ExamSetsListPage());
     await expectHeaderAndFooter();
   });
 
@@ -127,7 +129,7 @@ describe("page chrome — every public page wraps SiteHeader + SiteFooter", () =
       return baseFetch(input, init);
     }) as typeof fetch;
 
-    render(<PricingPage />);
+    render(await PricingPage());
     await expectHeaderAndFooter();
   });
 });

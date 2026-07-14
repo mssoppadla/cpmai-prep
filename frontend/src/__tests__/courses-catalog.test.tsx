@@ -9,7 +9,9 @@
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import CoursesCatalogPage from "@/app/courses/page";
+// Route is now a SERVER page; the interactive component is
+// CoursesCatalogClient. Null props = client-fetch path.
+import { CoursesCatalogClient } from "@/app/courses/CoursesCatalogClient";
 import { lmsPublic } from "@/lib/api";
 
 
@@ -44,7 +46,7 @@ describe("CoursesCatalogPage", () => {
 
   it("renders course cards returned by the API", async () => {
     mockListCourses.mockResolvedValueOnce([sample]);
-    render(<CoursesCatalogPage />);
+    render(<CoursesCatalogClient initialCourses={null} initialCategories={[]} />);
     await waitFor(() => {
       expect(screen.getByText("Intro to Python")).toBeInTheDocument();
     });
@@ -57,7 +59,7 @@ describe("CoursesCatalogPage", () => {
 
   it("shows empty state when no courses", async () => {
     mockListCourses.mockResolvedValueOnce([]);
-    render(<CoursesCatalogPage />);
+    render(<CoursesCatalogClient initialCourses={null} initialCategories={[]} />);
     await waitFor(() => {
       expect(screen.getByText(/No courses available yet/i)).toBeInTheDocument();
     });
@@ -65,7 +67,7 @@ describe("CoursesCatalogPage", () => {
 
   it("filter button refetches with difficulty", async () => {
     mockListCourses.mockResolvedValue([]);
-    render(<CoursesCatalogPage />);
+    render(<CoursesCatalogClient initialCourses={null} initialCategories={[]} />);
     await waitFor(() => expect(mockListCourses).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByText("intermediate"));
     await waitFor(() => {
@@ -75,7 +77,7 @@ describe("CoursesCatalogPage", () => {
 
   it("wraps with SiteHeader and SiteFooter (chrome contract)", async () => {
     mockListCourses.mockResolvedValueOnce([]);
-    render(<CoursesCatalogPage />);
+    render(<CoursesCatalogClient initialCourses={null} initialCategories={[]} />);
     await waitFor(() => {
       // Brand from SiteHeader
       expect(screen.getAllByText("CPMAI Prep").length).toBeGreaterThan(0);
@@ -93,7 +95,7 @@ describe("CoursesCatalogPage", () => {
       base_price_paise: 99900,
       currency: "INR",
     }]);
-    render(<CoursesCatalogPage />);
+    render(<CoursesCatalogClient initialCourses={null} initialCategories={[]} />);
     await waitFor(() => {
       expect(screen.getByText(/INR 999\.00/)).toBeInTheDocument();
     });
@@ -105,7 +107,7 @@ describe("CoursesCatalogPage", () => {
       preview_video_url: "/uploads/1/2026/06/demo.mp4?token=tok",
       preview_lesson_id: 5,
     }]);
-    render(<CoursesCatalogPage />);
+    render(<CoursesCatalogClient initialCourses={null} initialCategories={[]} />);
     const btn = await screen.findByLabelText(/Play free preview/i);
     expect(btn).toBeInTheDocument();
     fireEvent.click(btn);
@@ -118,7 +120,7 @@ describe("CoursesCatalogPage", () => {
 
   it("links the thumbnail to the course when there is no preview", async () => {
     mockListCourses.mockResolvedValueOnce([sample]);
-    render(<CoursesCatalogPage />);
+    render(<CoursesCatalogClient initialCourses={null} initialCategories={[]} />);
     await waitFor(() => expect(screen.getByText("Intro to Python")).toBeInTheDocument());
     // No preview → no play button.
     expect(screen.queryByLabelText(/Play free preview/i)).not.toBeInTheDocument();

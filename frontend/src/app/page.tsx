@@ -21,7 +21,7 @@
 import Link from "next/link";
 import { GraduationCap, ClipboardCheck, ArrowRight } from "lucide-react";
 import type { ContentPagePublicOut, SiteChrome, TestimonialOut } from "@/types/api";
-import { JsonLd, organizationSchema, courseSchema, faqSchema } from "@/components/seo/JsonLd";
+import { JsonLd, organizationSchema, courseSchema, faqSchema, liveSessionEventsSchema } from "@/components/seo/JsonLd";
 import { LeadCaptureForm } from "@/components/lead/LeadCaptureForm";
 import { LandingConnect } from "@/components/layout/LandingConnect";
 import { LiveClassBanner } from "@/components/landing/LiveClassBanner";
@@ -31,12 +31,12 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import RenderBlocks from "@/components/cms/RenderBlocks";
 
 
-// CMS-aware landing route: must re-fetch on every request so that
-// toggling the cms.use_cms_landing setting OR editing the landing
-// page takes effect on the very next load. Without this, Next's
-// default fetch cache would freeze the FIRST render's outcome.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// ISR (60s): the landing page is the primary ad-click destination, so
+// it serves from the Next cache with background refresh instead of
+// waiting on 4 backend fetches per hit. Trade-off (approved
+// 2026-07-13): admin copy edits and the cms.use_cms_landing toggle
+// take up to ~60s to appear publicly.
+export const revalidate = 60;
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -108,7 +108,7 @@ const FALLBACK_LANDING = {
 
 async function fetchJson<T>(path: string, fallback: T): Promise<T> {
   try {
-    const r = await fetch(`${API}${path}`, { cache: "no-store" });
+    const r = await fetch(`${API}${path}`, { next: { revalidate: 60 } });
     if (!r.ok) return fallback;
     return await r.json();
   } catch {
@@ -123,7 +123,7 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
  */
 async function fetchCmsLanding(): Promise<ContentPagePublicOut | null> {
   try {
-    const r = await fetch(`${API}/cms/landing`, { cache: "no-store" });
+    const r = await fetch(`${API}/cms/landing`, { next: { revalidate: 60 } });
     if (!r.ok) return null;
     const data = await r.json();
     // Defensive validation — only proceed if the response actually
@@ -171,11 +171,14 @@ export default async function Landing() {
   // 2. Default — render the existing marketing landing.
   // Pull site chrome in parallel so JSON-LD's organization/sameAs etc.
   // reflect whatever the admin has configured in /admin/settings.
-  const [faqs, landing, chrome, testimonials] = await Promise.all([
+  const [faqs, landing, chrome, testimonials, liveSessions] = await Promise.all([
     fetchJson<typeof FALLBACK_FAQS>("/content/faqs", FALLBACK_FAQS),
     fetchJson<typeof FALLBACK_LANDING>("/content/landing", FALLBACK_LANDING),
     fetchJson<Partial<SiteChrome>>("/content/site", {}),
     fetchJson<TestimonialOut[]>("/content/testimonials", []),
+    fetchJson<Array<{ id: number; title: string; description?: string;
+      scheduled_at: string | null; duration_minutes?: number }>>(
+      "/content/live-sessions", []),
   ]);
   const faqPairs = faqs.map(f => ({ q: f.question, a: f.answer }));
 
@@ -184,6 +187,11 @@ export default async function Landing() {
       <JsonLd data={organizationSchema({ chrome })} />
       <JsonLd data={courseSchema({ chrome })} />
       <JsonLd data={faqSchema(faqPairs)} />
+      {/* Upcoming live classes as EducationEvent — date-rich results. */}
+      {Array.isArray(liveSessions)
+        && liveSessionEventsSchema(liveSessions).map((ev, i) => (
+          <JsonLd key={`ev-${i}`} data={ev} />
+        ))}
 
       <SiteHeader active="home" />
       <main className="min-h-screen">

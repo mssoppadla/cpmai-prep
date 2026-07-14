@@ -3,6 +3,8 @@ import { Suspense } from "react";
 import "./globals.css";
 import { AssistantWidgetMount } from "@/components/assistant/AssistantWidgetMount";
 import { TrackerMount } from "@/components/tracker/TrackerMount";
+import { AdsScripts } from "@/components/ads/AdsScripts";
+import { ConsentBanner } from "@/components/ads/ConsentBanner";
 
 // Fallback is the REAL production domain — not a placeholder. iOS Safari
 // and Android Chrome share sheets prefer the og:url / canonical meta tags
@@ -101,6 +103,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {accepted:0,reason:"disabled"} which the tracker ignores). */}
         <Suspense fallback={null}>
           <TrackerMount />
+          {/* Third-party ad tags — consent-gated, admin-configured
+              (ads.* Runtime Settings). Render nothing until enabled
+              AND the visitor accepts the banner. */}
+          <AdsScripts />
+          <ConsentBanner />
         </Suspense>
       </body>
     </html>
