@@ -1131,6 +1131,11 @@ export interface CreateOrderOut {
   subtotal_amount: number;    // post-discount, pre-GST, INR paise
   gst_percent: number;
   gst_amount: number;         // 0 for non-INR orders (no Indian GST)
+  /** Gateway processing-fee pass-through. INR orders only — 0 for
+   *  non-INR (their FX markup is already inside `amount`). */
+  processing_fee_percent?: number;
+  processing_fee_amount?: number;   // INR paise
+  processing_fee_label?: string;
   offer_code: string | null;
   offer_applied: boolean;
   offer_reason: string | null;
@@ -1431,6 +1436,13 @@ export interface PriceQuoteOut {
   // accepts only whole units for some currencies (GBP confirmed in prod).
   // Zero for INR; non-zero when the pre-round total had fractional units.
   display_rounding_adjustment_minor?: number;
+  // Gateway processing-fee pass-through (INR rail only) — percent==0
+  // means "no fee line shown". Computed on (subtotal + GST); included
+  // in final_price_paise. Non-INR checkouts ignore these (they carry
+  // the display_markup_* international fee instead).
+  processing_fee_percent?: number;
+  processing_fee_paise?: number;
+  processing_fee_label?: string;
 }
 
 // ---------- Admin FX dashboard --------------------------------------------

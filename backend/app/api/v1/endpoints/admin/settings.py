@@ -449,6 +449,18 @@ EDITABLE: dict[str, Callable] = {
     # Pricing knobs (phase 1 + 2)
     "pricing.stack_offer_with_discount": _bool,
     "pricing.gst_percent":               _int_in(0, 100),
+    # GST on/off without losing the configured rate: "mandatory" charges
+    # gst_percent and shows the line; "optional" charges nothing and the
+    # line never renders. Unknown values are rejected here; the pricing
+    # service additionally fails toward "mandatory" if a bad value ever
+    # reaches the store directly.
+    "pricing.gst_mode":                  lambda v: v in ("mandatory",
+                                                          "optional"),
+    # Razorpay gateway-fee pass-through on the INR rail, computed on
+    # (subtotal + GST). 0 = fee off, no line. The international rail
+    # has its own FX-markup fee, so this is INR-only by design.
+    "pricing.processing_fee_percent":    _float_in(0.0, 50.0),
+    "pricing.processing_fee_label":      _short_str(60),
     # International pricing — admin-tunable currencies + FX rates.
     # See app/services/pricing_service.py for how these flow into a quote.
     # GST only applies to INR; non-INR currencies skip the GST line.

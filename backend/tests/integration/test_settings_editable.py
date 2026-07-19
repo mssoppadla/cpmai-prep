@@ -114,6 +114,9 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     # pricing.*
     "pricing.stack_offer_with_discount": True,
     "pricing.gst_percent":               18,
+    "pricing.gst_mode":                  "optional",
+    "pricing.processing_fee_percent":    2.36,
+    "pricing.processing_fee_label":      "Transaction fee",
     "pricing.supported_currencies":      ["INR", "USD", "EUR"],
     "pricing.fx_rates_inr_per_unit":     {"USD": 83.0, "EUR": 90.0},
     "pricing.fx_live_raw":               {"USD": 83.33, "EUR": 90.91},
@@ -347,6 +350,22 @@ def test_banner_animation_is_enum():
     for v in ("none", "pulse", "blink"):
         assert ok(v)
     assert not ok("shake")
+
+
+def test_gst_mode_is_enum():
+    ok = EDITABLE["pricing.gst_mode"]
+    assert ok("mandatory") and ok("optional")
+    assert not ok("maybe")
+    assert not ok("")
+    assert not ok(True)
+
+
+def test_processing_fee_percent_bounds():
+    ok = EDITABLE["pricing.processing_fee_percent"]
+    assert ok(0) and ok(2.36) and ok(50)
+    assert not ok(-1)
+    assert not ok(51)
+    assert not ok("2%")
 
 
 def test_testimonials_interval_bounds():

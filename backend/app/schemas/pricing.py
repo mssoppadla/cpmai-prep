@@ -54,6 +54,13 @@ class PriceQuoteOut(BaseModel):
     # remains transparent. Zero for INR.
     display_rounding_adjustment_minor: int = 0
 
+    # Gateway processing-fee pass-through (INR rail only) — percent==0
+    # means "no fee line shown". Non-INR checkouts ignore these (the
+    # international rail has its own display_markup_* fee line).
+    processing_fee_percent: float = 0.0
+    processing_fee_paise: int = 0
+    processing_fee_label: str = "Payment processing fee"
+
 
 class QuoteRequestIn(BaseModel):
     plan_slug: str

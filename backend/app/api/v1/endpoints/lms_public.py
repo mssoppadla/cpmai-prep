@@ -70,6 +70,33 @@ def _live_course_scope(db: Session):
     )
 
 
+def _visible_course(db: Session, slug: str, user: User | None) -> Course | None:
+    """Course by slug as seen by THIS viewer.
+
+    Published courses are public. Unpublished ("internal") courses are
+    visible only to users holding an active enrollment — an admin grant
+    or a subscription whose plan bundles the course. This is what lets
+    an operator run private cohort content (e.g. live-class recordings)
+    that never appears in the catalog, sitemap, or search, yet works as
+    a normal course for the students who were given access.
+
+    Returns None for everyone else — callers raise an opaque 404 (not
+    403) so the existence of internal courses can't be probed by slug.
+    """
+    c = db.query(Course).filter(
+        Course.tenant_id == get_current_tenant_id(),
+        Course.slug == slug,
+        Course.is_deleted.is_(False),
+    ).first()
+    if c is None:
+        return None
+    if c.is_published:
+        return c
+    if _active_enrollment(db, user, c.id) is not None:
+        return c
+    return None
+
+
 def _has_active_subscription_bundle(
     db: Session, user_id: int, course_id: int,
 ) -> Subscription | None:
@@ -300,8 +327,12 @@ def get_public_course(
     user: User | None = Depends(get_optional_user),
 ):
     """Full course detail — course + chapters + lessons + files.
-    Lesson bodies redacted for non-enrolled users (unless free_preview)."""
-    c = _live_course_scope(db).filter(Course.slug == slug).first()
+    Lesson bodies redacted for non-enrolled users (unless free_preview).
+
+    Unpublished courses resolve ONLY for enrolled viewers (see
+    _visible_course) — that's the "internal course" path: hidden from
+    the catalog, reachable from the enrolled student's dashboard."""
+    c = _visible_course(db, slug, user)
     if not c:
         raise NotFoundError("Course not found")
     enrolled = _active_enrollment(db, user, c.id) is not None
@@ -587,7 +618,7 @@ def list_course_announcements_public(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ):
-    c = _live_course_scope(db).filter(Course.slug == slug).first()
+    c = _visible_course(db, slug, user)
     if not c:
         raise NotFoundError("Course not found")
     if not _active_enrollment(db, user, c.id):
@@ -646,8 +677,12 @@ def upsert_my_note(
 # ============================================================ COURSE REVIEWS
 
 @router.get("/courses/{slug}/reviews", response_model=list[CourseReviewOut])
-def list_course_reviews(slug: str, db: Session = Depends(get_db)):
-    c = _live_course_scope(db).filter(Course.slug == slug).first()
+def list_course_reviews(
+    slug: str,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
+):
+    c = _visible_course(db, slug, user)
     if not c:
         raise NotFoundError("Course not found")
     return (db.query(CourseReview)

@@ -33,6 +33,23 @@ domestic India tax). Set the percent to 0 to disable GST entirely
 truncation (`subtotal * pct // 100`) — sufficient at typical price
 points; revisit if precise-rupee invoicing is ever required.
 
+`pricing.gst_mode` gates the whole GST block: "mandatory" (default)
+charges gst_percent as above; "optional" suppresses GST entirely —
+zero amount AND zero reported percent, so no GST line ever renders,
+without the admin having to zero out (and lose) the configured rate.
+
+Processing fee (`pricing.processing_fee_percent`, default 0) is a
+transparent pass-through of the Razorpay gateway fee, added AFTER
+GST on the full otherwise-charged amount (subtotal + GST) — that is
+the base Razorpay computes its fee on. INR-only: the international
+rail already breaks out its own FX-markup fee line. 0 = no fee, no
+line. The line's label is admin-editable
+(`pricing.processing_fee_label`). Same paise-truncation convention
+as GST. Note the fee is a close approximation, not an exact gross-up:
+Razorpay's cut applies to the final charged total (which includes the
+fee itself), so recovering it exactly needs percent set slightly
+above the nominal gateway rate (e.g. 2.42 to recover a 2.36% cut).
+
 Subtotal is clamped to >= 0; GST on a zero subtotal is zero.
 
 International currency support
@@ -119,6 +136,8 @@ class PriceQuote:
     subtotal_paise: int
 
     # GST breakdown — gst_percent==0 means "no GST line shown".
+    # When pricing.gst_mode == "optional", BOTH fields report 0 (the
+    # configured rate is suppressed, not just the amount).
     # NOTE: gst_paise is 0 when display_currency != "INR" (international
     # customers don't pay Indian GST). gst_percent is still reported as
     # the configured setting so the UI can decide whether to render the
@@ -127,8 +146,8 @@ class PriceQuote:
     gst_paise: int
 
     # Final INR price the user pays IF they're paying in INR
-    # (= subtotal + gst). This is the amount passed to Razorpay's
-    # order.create call when currency == "INR".
+    # (= subtotal + gst + processing fee). This is the amount passed to
+    # Razorpay's order.create call when currency == "INR".
     final_price_paise: int
 
     # The combine-toggle that was in effect at quote time. Stored on
@@ -206,6 +225,16 @@ class PriceQuote:
     # Zero for INR (paise are valid Razorpay-India amounts) and for
     # UNAVAILABLE (we fall back to INR). Non-zero for LIVE/STALE/OVERRIDE.
     display_rounding_adjustment_minor: int = 0
+
+    # ----- Gateway processing fee pass-through (INR rail only) -------
+    # Transparent line recovering the Razorpay fee from the buyer,
+    # computed on (subtotal + GST). percent==0 → no fee, no line.
+    # Non-INR checkouts ignore these (the international rail has its
+    # own display_markup_* fee); the fields still carry the INR-side
+    # reference values, mirroring how gst_* behaves.
+    processing_fee_percent: float = 0.0
+    processing_fee_paise: int = 0
+    processing_fee_label: str = "Payment processing fee"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -403,12 +432,42 @@ class PricingService:
     @staticmethod
     def _gst_percent() -> int:
         """0..100 admin-configurable GST. Clamped defensively in case an
-        admin types something out-of-range into Runtime Settings."""
+        admin types something out-of-range into Runtime Settings.
+
+        Returns 0 outright when ``pricing.gst_mode`` is "optional" —
+        GST suppressed without the admin losing the configured rate.
+        Unrecognised mode values fall back to "mandatory" (fail toward
+        tax compliance, not toward silently under-charging)."""
+        mode = str(settings_store.get("pricing.gst_mode", "mandatory")
+                   or "mandatory").strip().lower()
+        if mode == "optional":
+            return 0
         try:
             v = int(settings_store.get("pricing.gst_percent", 0) or 0)
         except (TypeError, ValueError):
             v = 0
         return max(0, min(100, v))
+
+    @staticmethod
+    def _processing_fee_percent() -> float:
+        """0..50 admin-configurable gateway-fee pass-through. 0 = off.
+        Same defensive clamping as GST — a typo'd setting must never
+        crash quote generation or produce a negative fee."""
+        try:
+            v = float(settings_store.get(
+                "pricing.processing_fee_percent", 0) or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        return max(0.0, min(50.0, v))
+
+    @staticmethod
+    def _processing_fee_label() -> str:
+        """Admin-editable display label for the fee line. Blank or
+        whitespace falls back to the default so the UI never renders
+        an unlabeled amount."""
+        raw = settings_store.get("pricing.processing_fee_label", "")
+        label = str(raw or "").strip()
+        return label or "Payment processing fee"
 
     @staticmethod
     def _supported_currencies() -> list[str]:
@@ -580,7 +639,14 @@ class PricingService:
         # for sub-rupee accuracy at our price points. If we ever issue
         # GSTIN-bearing invoices we'll need exact rounding rules.
         gst_paise = (subtotal * gst_percent) // 100
-        final_price = subtotal + gst_paise
+        # Gateway-fee pass-through, computed on the full otherwise-charged
+        # amount (subtotal + GST) — the base Razorpay's cut applies to.
+        # float // 100 floors, matching the paise-truncation convention.
+        fee_percent = cls._processing_fee_percent()
+        fee_paise = int(((subtotal + gst_paise) * fee_percent) // 100)
+        final_price = subtotal + gst_paise + fee_paise
+        # Non-INR display converts from the pre-GST subtotal, so neither
+        # GST nor the processing fee leaks into international charges.
         display = cls._build_display_block(target_currency, subtotal, final_price)
         return PriceQuote(
             plan_id=plan.id, plan_slug=plan.slug, plan_name=plan.name,
@@ -597,5 +663,8 @@ class PricingService:
             gst_paise=gst_paise,
             final_price_paise=final_price,
             stack_offer_with_discount=stack,
+            processing_fee_percent=fee_percent,
+            processing_fee_paise=fee_paise,
+            processing_fee_label=cls._processing_fee_label(),
             **display,
         )
