@@ -52,12 +52,18 @@ class CreateOrderOut(BaseModel):
     subtotal_amount: int         # post-discount, pre-GST, INR paise
     gst_percent: int
     gst_amount: int              # INR paise; 0 for non-INR orders
+    # Gateway processing-fee pass-through. INR orders only — 0 for
+    # non-INR (the international rail's FX markup is already inside
+    # ``amount``). Label is the admin-configured line text.
+    processing_fee_percent: float = 0.0
+    processing_fee_amount: int = 0   # INR paise
+    processing_fee_label: str = "Payment processing fee"
     offer_code: Optional[str]
     offer_applied: bool
     offer_reason: Optional[str]
-    # Reference INR final (= subtotal + gst). For non-INR orders the
-    # actual charge is in ``amount``/``currency``; this stays as the
-    # INR-side reference for receipts and admin audits.
+    # Reference INR final (= subtotal + gst + processing fee). For
+    # non-INR orders the actual charge is in ``amount``/``currency``;
+    # this stays as the INR-side reference for receipts and admin audits.
     final_inr_paise: int = 0
     # FX rate used (INR per 1 unit of charge currency). 1.0 for INR.
     fx_rate: float = 1.0

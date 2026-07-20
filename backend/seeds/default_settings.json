@@ -315,7 +315,22 @@
   {
     "key": "pricing.gst_percent",
     "value": 18,
-    "description": "GST percentage applied on top of the post-offer subtotal. Computed server-side and shown as a separate line in the order summary. Set to 0 to disable. GST applies to INR-currency checkouts ONLY — international currencies skip GST automatically."
+    "description": "GST percentage applied on top of the post-offer subtotal. Computed server-side and shown as a separate line in the order summary. Set to 0 to disable. GST applies to INR-currency checkouts ONLY — international currencies skip GST automatically. Only takes effect while pricing.gst_mode is 'mandatory'."
+  },
+  {
+    "key": "pricing.gst_mode",
+    "value": "mandatory",
+    "description": "GST switch for INR checkouts. 'mandatory' = charge pricing.gst_percent and show the GST line in the order summary. 'optional' = GST is NOT charged and the GST line does not appear at all — the configured percent is kept for when you switch back. International currencies never pay GST regardless of this setting."
+  },
+  {
+    "key": "pricing.processing_fee_percent",
+    "value": 0,
+    "description": "Payment processing fee percent added on INR checkouts, computed on (subtotal + GST) — passes the Razorpay gateway fee on to the customer as a transparent line item. 0 = no fee, no line shown. Razorpay's standard domestic fee is 2% + 18% GST on the fee = 2.36%; set slightly higher (e.g. 2.42) to recover the fee exactly, since Razorpay charges its percent on the final total which includes this fee. Non-INR checkouts are unaffected (they carry the separate international processing fee)."
+  },
+  {
+    "key": "pricing.processing_fee_label",
+    "value": "Payment processing fee",
+    "description": "Display label for the processing-fee line on the /pricing order summary and receipts, e.g. 'Payment processing fee' or 'Transaction fee'. Blank falls back to 'Payment processing fee'."
   },
   {
     "key": "pricing.supported_currencies",

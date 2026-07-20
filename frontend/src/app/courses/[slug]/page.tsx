@@ -9,7 +9,6 @@
  * which refetches once on mount to enrich with the viewer's state.
  */
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { fetchJson } from "@/lib/ssr";
 import type { CourseDetailPublicOut } from "@/types/api";
@@ -30,7 +29,10 @@ export async function generateMetadata(
   { params }: { params: { slug: string } },
 ): Promise<Metadata> {
   const detail = await loadCourse(params.slug);
-  if (!detail) return { title: "Course not found" };
+  // Anonymous fetch failing does NOT mean the course doesn't exist —
+  // internal (unpublished) courses only resolve for enrolled viewers,
+  // client-side. Either way this page variant must not be indexed.
+  if (!detail) return { title: "Course", robots: { index: false, follow: false } };
   const c = detail.course;
   const description = (c.subtitle || c.description || "")
     .replace(/\s+/g, " ").slice(0, 160);
@@ -51,7 +53,15 @@ export default async function CourseDetailPage(
   { params }: { params: { slug: string } },
 ) {
   const detail = await loadCourse(params.slug);
-  if (!detail) notFound();
+  if (!detail) {
+    // Not visible anonymously. Could be a genuinely missing slug OR an
+    // internal (unpublished) course the viewer is enrolled in — only
+    // the browser knows, because auth lives client-side. Render the
+    // client shell with no initial data: it refetches with the user's
+    // token and shows either the course or its own not-found state.
+    // Crawlers see a noindex'd loading shell, never course content.
+    return <CourseDetailClient params={params} initialDetail={null} />;
+  }
   const c = detail.course;
 
   const courseLd = {

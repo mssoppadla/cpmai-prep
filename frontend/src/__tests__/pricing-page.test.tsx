@@ -65,6 +65,24 @@ const QUOTE_WITH_GST = {
   final_price_paise: 118_000,
 };
 
+// GST mandatory (18%) + admin-enabled processing-fee pass-through
+// (2% of subtotal+GST = ₹23.60) → final ₹1,203.60.
+const QUOTE_WITH_GST_AND_FEE = {
+  ...QUOTE_WITH_GST,
+  processing_fee_percent: 2, processing_fee_paise: 2_360,
+  processing_fee_label: "Payment processing fee",
+  final_price_paise: 120_360,
+};
+
+// GST optional (backend reports percent 0 — no GST row) but the fee
+// still applies, on the bare subtotal.
+const QUOTE_FEE_ONLY = {
+  ...QUOTE_NO_OFFER,
+  processing_fee_percent: 2.36, processing_fee_paise: 2_360,
+  processing_fee_label: "Transaction fee",
+  final_price_paise: 102_360,
+};
+
 let pushed: string[] = [];
 
 beforeEach(() => {
@@ -179,6 +197,35 @@ describe("/pricing page", () => {
     // Total should reflect the GST-inclusive amount (₹1180.00 from 100k+18k paise).
     await waitFor(() => {
       expect(screen.getAllByText(/₹1180\.00/).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("renders the processing-fee line beneath GST when the quote includes both", async () => {
+    global.fetch = buildFetch(QUOTE_WITH_GST_AND_FEE);
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
+    await waitFor(() => {
+      expect(screen.getByText(/GST \(18%\)/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Payment processing fee \(2%\)/)).toBeInTheDocument();
+    expect(screen.getByText(/\+₹23\.60/)).toBeInTheDocument();
+    // Total includes GST + fee.
+    await waitFor(() => {
+      expect(screen.getAllByText(/₹1203\.60/).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("renders the fee line (custom label) with no GST row when GST is optional", async () => {
+    global.fetch = buildFetch(QUOTE_FEE_ONLY);
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
+    // Subtotal renders because a fee line is present…
+    await waitFor(() => {
+      expect(screen.getByText("Subtotal")).toBeInTheDocument();
+    });
+    // …with the admin's custom label, but no GST row at all.
+    expect(screen.getByText(/Transaction fee \(2\.36%\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/GST \(/)).toBeNull();
+    await waitFor(() => {
+      expect(screen.getAllByText(/₹1023\.60/).length).toBeGreaterThan(0);
     });
   });
 });

@@ -208,6 +208,95 @@ def test_public_course_shows_body_when_enrolled(
     assert r.json()["is_enrolled"] is True
 
 
+# ================================================ internal (unpublished) courses
+# An UNPUBLISHED course is an "internal" course: absent from the catalog
+# and sitemap, opaque-404 to the public, but fully usable by students the
+# admin enrolled (grant or plan bundle) — they reach it from their
+# dashboard. This is how live-class recordings are delivered to a private
+# cohort without ever listing the course publicly.
+
+@pytest.fixture
+def internal_course(db, default_tenant):
+    c = Course(slug="cohort-recordings", title="Cohort Recordings",
+               is_published=False)
+    db.add(c); db.commit(); db.refresh(c)
+    ch = Chapter(course_id=c.id, title="Week 1", position=10)
+    db.add(ch); db.commit(); db.refresh(ch)
+    db.add(Lesson(chapter_id=ch.id, lesson_type="text", title="Recording 1",
+                  position=10,
+                  body_blocks=[{"type": "paragraph", "content": "Video"}]))
+    db.commit()
+    return c
+
+
+def test_internal_course_404_for_anon(client, db, internal_course):
+    r = client.get(f"{PUB}/courses/{internal_course.slug}")
+    assert r.status_code == 404
+
+
+def test_internal_course_404_for_non_enrolled_user(
+    client, db, user, internal_course,
+):
+    """Opaque 404 (not 403) — existence of internal courses must not be
+    probeable by slug."""
+    r = client.get(f"{PUB}/courses/{internal_course.slug}",
+                   headers=auth_header(client, user.email))
+    assert r.status_code == 404
+
+
+def test_internal_course_full_tree_for_enrolled_user(
+    client, db, user, internal_course,
+):
+    db.add(Enrollment(user_id=user.id, course_id=internal_course.id,
+                      source="admin_grant"))
+    db.commit()
+    r = client.get(f"{PUB}/courses/{internal_course.slug}",
+                   headers=auth_header(client, user.email))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["is_enrolled"] is True
+    lsn = body["chapters"][0]["lessons"][0]
+    assert lsn["body_blocks"]          # full content, not redacted
+
+
+def test_internal_course_stays_out_of_catalog_even_when_enrolled(
+    client, db, user, internal_course,
+):
+    """The catalog is the public storefront — internal courses live on
+    the student's dashboard (via /me/enrollments), never in the list."""
+    db.add(Enrollment(user_id=user.id, course_id=internal_course.id,
+                      source="admin_grant"))
+    db.commit()
+    r = client.get(f"{PUB}/courses",
+                   headers=auth_header(client, user.email))
+    assert internal_course.slug not in [c["slug"] for c in r.json()]
+
+
+def test_internal_course_reviews_follow_visibility(
+    client, db, user, internal_course,
+):
+    # Not enrolled → opaque 404; enrolled → 200 (empty list is fine).
+    r = client.get(f"{PUB}/courses/{internal_course.slug}/reviews",
+                   headers=auth_header(client, user.email))
+    assert r.status_code == 404
+    db.add(Enrollment(user_id=user.id, course_id=internal_course.id,
+                      source="admin_grant"))
+    db.commit()
+    r2 = client.get(f"{PUB}/courses/{internal_course.slug}/reviews",
+                    headers=auth_header(client, user.email))
+    assert r2.status_code == 200
+
+
+def test_internal_course_self_enroll_refused(client, db, user, internal_course):
+    """Self-enrollment is a published-catalog affordance; internal
+    courses are invite-only (admin grant / plan bundle)."""
+    internal_course.enrollment_type = "free"
+    db.commit()
+    r = client.post(f"{PUB}/courses/{internal_course.slug}/enroll",
+                    headers=auth_header(client, user.email))
+    assert r.status_code == 404
+
+
 # ============================================================ enrollment
 
 def test_self_enroll_free_course(client, db, user, default_tenant):

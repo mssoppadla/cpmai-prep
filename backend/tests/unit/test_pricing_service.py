@@ -405,6 +405,171 @@ def test_gst_zero_subtotal_means_zero_gst(db, gst_18):
     assert q.final_price_paise == 0
 
 
+# ============================================== GST mode (optional/mandatory)
+def _settings(monkeypatch, values: dict):
+    """Patch SettingsStore.get with a dict of overrides; anything else
+    falls through to the caller-supplied default (matching prod when a
+    key is unseeded)."""
+    from app.core import settings_store as ss_module
+    monkeypatch.setattr(
+        ss_module.SettingsStore, "get",
+        lambda self, k, default=None: values.get(k, default))
+
+
+def test_gst_mode_optional_suppresses_gst_entirely(db, monkeypatch):
+    """mode=optional → percent AND amount report 0 (no line renders),
+    even though gst_percent stays configured at 18 for later."""
+    _settings(monkeypatch, {"pricing.gst_percent": 18,
+                             "pricing.gst_mode": "optional",
+                             "pricing.stack_offer_with_discount": False})
+    _make_plan(db, base=100_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_percent == 0
+    assert q.gst_paise == 0
+    assert q.final_price_paise == q.subtotal_paise == 100_000
+
+
+def test_gst_mode_mandatory_charges_configured_percent(db, monkeypatch):
+    _settings(monkeypatch, {"pricing.gst_percent": 18,
+                             "pricing.gst_mode": "mandatory",
+                             "pricing.stack_offer_with_discount": False})
+    _make_plan(db, base=100_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_percent == 18
+    assert q.gst_paise == 18_000
+    assert q.final_price_paise == 118_000
+
+
+def test_gst_mode_unset_defaults_to_mandatory(db, gst_18):
+    """Existing deployments have no gst_mode row — behavior must not
+    change (GST keeps being charged)."""
+    _make_plan(db, base=100_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_paise == 18_000
+
+
+def test_gst_mode_garbage_value_fails_toward_mandatory(db, monkeypatch):
+    """A bad value written directly to the store must not silently stop
+    GST collection."""
+    _settings(monkeypatch, {"pricing.gst_percent": 18,
+                             "pricing.gst_mode": "maybe?",
+                             "pricing.stack_offer_with_discount": False})
+    _make_plan(db, base=100_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_paise == 18_000
+
+
+# ============================================== processing fee pass-through
+def test_processing_fee_added_on_top_of_gst(db, monkeypatch):
+    """Fee computes on (subtotal + GST) — the base Razorpay's cut
+    applies to. ₹1,000 + 18% GST = ₹1,180; 2% of that = ₹23.60."""
+    _settings(monkeypatch, {"pricing.gst_percent": 18,
+                             "pricing.processing_fee_percent": 2,
+                             "pricing.stack_offer_with_discount": False})
+    _make_plan(db, base=100_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_paise == 18_000
+    assert q.processing_fee_percent == 2
+    assert q.processing_fee_paise == 2_360      # 2% of 118_000
+    assert q.final_price_paise == 120_360
+    # INR display block charges the fee-inclusive final.
+    assert q.display_amount_minor == 120_360
+
+
+def test_processing_fee_without_gst(db, monkeypatch):
+    """GST optional + fee on → fee computes on the bare subtotal."""
+    _settings(monkeypatch, {"pricing.gst_percent": 18,
+                             "pricing.gst_mode": "optional",
+                             "pricing.processing_fee_percent": 2.36,
+                             "pricing.stack_offer_with_discount": False})
+    _make_plan(db, base=100_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.gst_paise == 0
+    assert q.processing_fee_paise == 2_360      # floor(100_000 × 2.36%)
+    assert q.final_price_paise == 102_360
+
+
+def test_processing_fee_zero_means_no_fee_line(db, gst_18):
+    """Default (unseeded/0) → fee fields are 0, totals unchanged —
+    existing deployments see no price change from this feature."""
+    _make_plan(db, base=100_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.processing_fee_percent == 0
+    assert q.processing_fee_paise == 0
+    assert q.final_price_paise == 118_000       # subtotal + GST only
+
+
+def test_processing_fee_fractional_percent_floors_paise(db, monkeypatch):
+    """Paise-truncation convention holds for float percents:
+    999 × 2.36% = 23.57… → 23 paise, never rounded up."""
+    _settings(monkeypatch, {"pricing.gst_percent": 0,
+                             "pricing.processing_fee_percent": 2.36,
+                             "pricing.stack_offer_with_discount": False})
+    _make_plan(db, base=999)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.processing_fee_paise == 23
+    assert q.final_price_paise == 1_022
+
+
+def test_processing_fee_clamped_and_garbage_safe(db, monkeypatch):
+    """>50 clamps to 50; non-numeric garbage → 0, never crashes."""
+    _settings(monkeypatch, {"pricing.gst_percent": 0,
+                             "pricing.processing_fee_percent": 90,
+                             "pricing.stack_offer_with_discount": False})
+    _make_plan(db, base=10_000)
+    q = PricingService(db).quote("exam-bundle")
+    assert q.processing_fee_percent == 50
+    assert q.processing_fee_paise == 5_000
+
+    _settings(monkeypatch, {"pricing.gst_percent": 0,
+                             "pricing.processing_fee_percent": "lots",
+                             "pricing.stack_offer_with_discount": False})
+    q2 = PricingService(db).quote("exam-bundle")
+    assert q2.processing_fee_percent == 0
+    assert q2.processing_fee_paise == 0
+
+
+def test_processing_fee_label_configurable_with_fallback(db, monkeypatch):
+    _settings(monkeypatch, {"pricing.processing_fee_percent": 2,
+                             "pricing.processing_fee_label": "Transaction fee",
+                             "pricing.stack_offer_with_discount": False})
+    q = PricingService(db).quote(
+        _make_plan(db, base=10_000).slug)
+    assert q.processing_fee_label == "Transaction fee"
+
+    _settings(monkeypatch, {"pricing.processing_fee_percent": 2,
+                             "pricing.processing_fee_label": "   ",
+                             "pricing.stack_offer_with_discount": False})
+    q2 = PricingService(db).quote("exam-bundle")
+    assert q2.processing_fee_label == "Payment processing fee"
+
+
+def test_processing_fee_excluded_from_non_inr_charge(db, monkeypatch):
+    """International buyers must NOT pay the domestic gateway fee (nor
+    GST): the USD charge converts from the bare subtotal; fee/GST stay
+    in the INR reference fields only."""
+    now = datetime.now(timezone.utc).isoformat()
+    _settings(monkeypatch, {
+        "pricing.gst_percent": 18,
+        "pricing.processing_fee_percent": 2,
+        "pricing.stack_offer_with_discount": False,
+        "pricing.supported_currencies": ["INR", "USD"],
+        "pricing.fx_live_raw": {"USD": 100.0},
+        "pricing.fx_live_fetched_at": now,
+        "pricing.fx_markup_percent": 0.0,
+        "pricing.fx_overrides": {},
+    })
+    _make_plan(db, base=100_000)                # ₹1,000
+    q = PricingService(db).quote("exam-bundle", currency="USD")
+    assert q.display_currency == "USD"
+    # ₹1,000 at 100 INR/USD = $10.00 = 1000 cents — no GST, no fee.
+    assert q.display_subtotal_minor == 1_000
+    assert q.display_amount_minor == 1_000
+    # INR reference still carries both for receipts/audit.
+    assert q.gst_paise == 18_000
+    assert q.processing_fee_paise == 2_360
+
+
 # ============================================================ currencies
 # International pricing — live FX (Frankfurter) + transparent markup +
 # admin overrides. The display block in PriceQuote breaks out the

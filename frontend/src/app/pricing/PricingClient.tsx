@@ -618,15 +618,27 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
                              quote, currency, currentCurrencyOption.symbol)}`}
                            muted />
                     )}
-                    {/* GST line ONLY when the selected currency is INR.
-                        International customers don't pay Indian GST,
-                        and the backend already drops it from the charge. */}
-                    {quote && quote.gst_percent > 0 && currency === "INR" && (
+                    {/* GST + processing-fee lines ONLY when the selected
+                        currency is INR. International customers don't pay
+                        Indian GST (backend drops it from the charge), and
+                        they carry the separate international-fee line
+                        below instead of the domestic processing fee.
+                        gst_percent==0 (incl. pricing.gst_mode="optional")
+                        → no GST row; processing_fee 0 → no fee row. */}
+                    {quote && currency === "INR"
+                      && (quote.gst_percent > 0
+                          || (quote.processing_fee_paise ?? 0) > 0) && (
                       <>
                         <Row label="Subtotal"
                              value={`₹${(quote.subtotal_paise / 100).toFixed(2)}`} muted />
-                        <Row label={`GST (${quote.gst_percent}%)`}
-                             value={`+₹${(quote.gst_paise / 100).toFixed(2)}`} muted />
+                        {quote.gst_percent > 0 && (
+                          <Row label={`GST (${quote.gst_percent}%)`}
+                               value={`+₹${(quote.gst_paise / 100).toFixed(2)}`} muted />
+                        )}
+                        {(quote.processing_fee_paise ?? 0) > 0 && (
+                          <Row label={`${quote.processing_fee_label || "Payment processing fee"} (${quote.processing_fee_percent}%)`}
+                               value={`+₹${((quote.processing_fee_paise ?? 0) / 100).toFixed(2)}`} muted />
+                        )}
                       </>
                     )}
                     {/* For non-INR: GST is INR-only so we explicitly

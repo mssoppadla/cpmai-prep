@@ -215,6 +215,7 @@ def create_order(payload: CreateOrderIn,
                           "amount_minor": charge_amount_minor,
                           "amount_inr_paise": quote.final_price_paise,
                           "gst_paise": quote.gst_paise,
+                          "processing_fee_paise": quote.processing_fee_paise,
                           "fx_rate": quote.display_fx_rate,
                           "provider": provider.name})
 
@@ -234,6 +235,11 @@ def create_order(payload: CreateOrderIn,
         subtotal_amount=quote.subtotal_paise,
         gst_percent=quote.gst_percent if charge_currency == "INR" else 0,
         gst_amount=quote.gst_paise if charge_currency == "INR" else 0,
+        processing_fee_percent=(quote.processing_fee_percent
+                                 if charge_currency == "INR" else 0.0),
+        processing_fee_amount=(quote.processing_fee_paise
+                                if charge_currency == "INR" else 0),
+        processing_fee_label=quote.processing_fee_label,
         offer_code=quote.offer_code,
         offer_applied=quote.offer_applied,
         offer_reason=quote.offer_reason,

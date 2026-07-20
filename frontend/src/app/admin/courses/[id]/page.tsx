@@ -418,6 +418,13 @@ export default function CourseEditorPage({
                        onChange={(e) => onMeta({ is_published: e.target.checked })} />
                 <span className="text-sm font-medium">Published (visible in public catalog)</span>
               </label>
+              <p className="sm:col-span-2 text-xs text-slate-500 -mt-1">
+                Unpublished = internal course: hidden from the catalog, sitemap,
+                and search engines, but still fully accessible to students you
+                enroll (via the Enrollments panel or a plan bundle) — they reach
+                it from their dashboard. Publish only when it should be publicly
+                discoverable.
+              </p>
             </div>
           </section>
 
