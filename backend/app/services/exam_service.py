@@ -62,15 +62,20 @@ def _correct_set(question) -> set[str]:
 UNASSIGNED_DOMAIN = "Unassigned"
 
 
-def _domain_label(question) -> str:
-    """Canonical grouping key for a question's domain. Resolves legacy
-    spellings (name/slug) to the ECO domain code so groups merge; keeps
-    unrecognised free-text as-is; falls back to 'Unassigned' when blank."""
-    d = domain_registry.get(question.domain)
+def _domain_label_raw(domain: str | None) -> str:
+    """Canonical grouping key for a stored domain value. Resolves legacy
+    spellings (name/slug/free-text) to the ECO domain code so groups
+    merge; keeps unrecognised free-text as-is; falls back to
+    'Unassigned' when blank."""
+    d = domain_registry.get(domain)
     if d:
         return d.code
-    raw = (question.domain or "").strip()
+    raw = (domain or "").strip()
     return raw or UNASSIGNED_DOMAIN
+
+
+def _domain_label(question) -> str:
+    return _domain_label_raw(question.domain)
 
 
 def _build_domain_breakdown(domain_counts: dict[str, dict]) -> list[DomainBreakdown]:
@@ -96,6 +101,25 @@ def _build_domain_breakdown(domain_counts: dict[str, dict]) -> list[DomainBreakd
         return (order, r.domain_name.lower())
 
     rows.sort(key=sort_key)
+    return rows
+
+
+def _build_phase_breakdown(db: Session,
+                           phase_counts: dict[int, dict]) -> list[PhaseBreakdown]:
+    """Turn a {topic_id: {correct, total}} tally into PhaseBreakdowns
+    sorted in CPMAI phase order (unknown topics last)."""
+    topics = {t.id: t for t in db.query(Topic).all()}
+    rows = [
+        PhaseBreakdown(
+            topic_code=topics[tid].code if tid in topics else "?",
+            topic_name=topics[tid].name if tid in topics else "Unknown",
+            correct=v["correct"], total=v["total"],
+            percent=round((v["correct"] / v["total"]) * 100) if v["total"] else 0,
+        )
+        for tid, v in phase_counts.items()
+    ]
+    order_by_code = {t.code: t.order for t in topics.values()}
+    rows.sort(key=lambda p: order_by_code.get(p.topic_code, 99))
     return rows
 
 
@@ -455,22 +479,15 @@ class ExamService:
         session.score = score
         session.passed = passed
         session.time_taken_seconds = int((now - session.started_at).total_seconds())
+        # Freeze the full review payload as sat: later edits to the live
+        # questions (reworded stems, changed answer keys, removals from
+        # the set) must not rewrite what this candidate actually saw.
+        # get_result serves this snapshot; live reconstruction remains
+        # only for attempts submitted before the column existed.
+        session.result_snapshot = [r.model_dump(mode="json") for r in results]
         self.db.commit()
 
-        # Phase breakdown with topic codes
-        topics = {t.id: t for t in self.db.query(Topic).all()}
-        by_phase = [
-            PhaseBreakdown(
-                topic_code=topics[tid].code if tid in topics else "?",
-                topic_name=topics[tid].name if tid in topics else "Unknown",
-                correct=v["correct"], total=v["total"],
-                percent=round((v["correct"] / v["total"]) * 100) if v["total"] else 0,
-            )
-            for tid, v in phase_counts.items()
-        ]
-        by_phase.sort(key=lambda p: topics[next(
-            tid for tid in topics if topics[tid].code == p.topic_code
-        )].order if p.topic_code in {t.code for t in topics.values()} else 99)
+        by_phase = _build_phase_breakdown(self.db, phase_counts)
 
         actor_user_id = session.user_id  # None for anon
         audit_log(self.db, actor_user_id, "exam.attempt_submitted",
@@ -663,6 +680,14 @@ class ExamService:
             raise ConflictError(f"Attempt is {session.status}, not submitted.")
 
         es = self.db.get(ExamSet, session.exam_set_id)
+
+        # Attempts submitted since the snapshot column exists replay the
+        # frozen payload — the review shows exactly what the candidate
+        # sat, regardless of how the live questions/set changed since.
+        if session.result_snapshot:
+            return self._result_from_snapshot(session, es)
+
+        # Legacy attempts (no snapshot): reconstruct from live questions.
         question_map = {q.id: q for q in es.questions}
 
         correct = 0; incorrect = 0; unanswered = 0
@@ -709,19 +734,50 @@ class ExamService:
                 ],
             ))
 
-        topics = {t.id: t for t in self.db.query(Topic).all()}
-        by_phase = []
-        for tid, v in phase_counts.items():
-            t = topics.get(tid)
-            by_phase.append(PhaseBreakdown(
-                topic_code=t.code if t else "?",
-                topic_name=t.name if t else "Unknown",
-                correct=v["correct"], total=v["total"],
-                percent=round((v["correct"] / v["total"]) * 100) if v["total"] else 0,
-            ))
-        by_phase.sort(key=lambda p: topics.get(
-            next((tid for tid, t in topics.items() if t.code == p.topic_code), 0)
-        ).order if any(t.code == p.topic_code for t in topics.values()) else 99)
+        return SubmitAttemptOut(
+            id=session.id, score=session.score or 0,
+            passed=bool(session.passed),
+            correct_count=correct, incorrect_count=incorrect,
+            unanswered_count=unanswered,
+            time_taken_seconds=session.time_taken_seconds or 0,
+            questions=results,
+            by_phase=_build_phase_breakdown(self.db, phase_counts),
+            by_domain=_build_domain_breakdown(domain_counts),
+            exam_set_slug=es.slug if es else None,
+            exam_set_name=es.name if es else None,
+            practice_domain=session.practice_domain,
+        )
+
+    def _result_from_snapshot(self, session: "ExamSession",
+                              es: "ExamSet | None") -> SubmitAttemptOut:
+        """Rebuild a submitted attempt's result from the frozen snapshot
+        taken at submit. Counts and breakdowns are derived from the
+        snapshot itself (not live questions), so the whole result stays
+        internally consistent with the stored score forever."""
+        results = [QuestionResultView(**item) for item in session.result_snapshot]
+
+        correct = 0; incorrect = 0; unanswered = 0
+        phase_counts: dict[int, dict] = {}
+        domain_counts: dict[str, dict] = {}
+        for r in results:
+            answered = any(o.selected_by_user for o in r.options)
+            if not answered:
+                unanswered += 1
+            elif r.is_user_correct:
+                correct += 1
+            else:
+                incorrect += 1
+
+            slot = phase_counts.setdefault(r.topic_id, {"correct": 0, "total": 0})
+            slot["total"] += 1
+            if r.is_user_correct:
+                slot["correct"] += 1
+
+            dslot = domain_counts.setdefault(_domain_label_raw(r.domain),
+                                             {"correct": 0, "total": 0})
+            dslot["total"] += 1
+            if r.is_user_correct:
+                dslot["correct"] += 1
 
         return SubmitAttemptOut(
             id=session.id, score=session.score or 0,
@@ -729,7 +785,8 @@ class ExamService:
             correct_count=correct, incorrect_count=incorrect,
             unanswered_count=unanswered,
             time_taken_seconds=session.time_taken_seconds or 0,
-            questions=results, by_phase=by_phase,
+            questions=results,
+            by_phase=_build_phase_breakdown(self.db, phase_counts),
             by_domain=_build_domain_breakdown(domain_counts),
             exam_set_slug=es.slug if es else None,
             exam_set_name=es.name if es else None,
