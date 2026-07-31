@@ -62,3 +62,36 @@ def test_create_question_with_full_metadata(client, admin, db):
     assert body["domain"] == payload["domain"]
     assert body["enablers"] == payload["enablers"]
     assert any(o["reasoning"] for o in body["options"])
+
+
+def test_domain_canonicalized_on_write(client, admin, db):
+    """Any accepted spelling of an ECO domain is stored as its code, so
+    SQL filters / the editor dropdown / results grouping all agree.
+    Unrecognised free-text (previous test) is kept verbatim."""
+    headers = auth_header(client, admin.email)
+    from app.models.topic import Topic
+    bu = db.query(Topic).filter_by(code="BU").first()
+    opts = [
+        {"option_letter": "A", "text": "a", "is_correct": True},
+        {"option_letter": "B", "text": "b", "is_correct": False},
+    ]
+    r = client.post("/api/v1/admin/questions", headers=headers, json={
+        "stem": "Domain canonicalization test " + "x" * 20,
+        "topic_id": bu.id,
+        "domain": "D-I Trustworthy",   # legacy bulk-import spelling
+        "options": opts,
+    })
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["domain"] == "D-I"
+
+    # PATCH with the human name → stored as the code too.
+    r = client.patch(f"/api/v1/admin/questions/{body['id']}", headers=headers,
+                     json={"stem": body["stem"], "topic_id": bu.id,
+                           "domain": "Identify Business Needs and Solutions",
+                           "options": opts})
+    assert r.status_code == 200, r.text
+    assert r.json()["domain"] == "D-II"
+
+    from app.models.question import Question
+    assert db.get(Question, body["id"]).domain == "D-II"

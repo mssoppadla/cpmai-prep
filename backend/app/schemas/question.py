@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from app.core import domains as domain_registry
 from app.models.question import Difficulty, QuestionType
 
 
@@ -56,6 +57,22 @@ class QuestionAdminIn(BaseModel):
     stem: str
     topic_id: int
     domain: str | None = None
+
+    @field_validator("domain")
+    @classmethod
+    def _canonicalize_domain(cls, v: str | None) -> str | None:
+        # Store the ECO code ("D-I") whenever the value is any accepted
+        # spelling (name, slug, legacy "D-I Trustworthy" free-text) so
+        # results grouping, SQL domain filters, and the editor dropdown
+        # all agree. Unrecognised text is kept verbatim — it surfaces
+        # as its own "legacy" bucket rather than silently vanishing.
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        d = domain_registry.get(v)
+        return d.code if d else v
     task: str | None = None
     enablers: list[str] = []
     remarks: str | None = None

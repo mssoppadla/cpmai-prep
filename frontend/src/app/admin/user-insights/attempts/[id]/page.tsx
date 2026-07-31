@@ -17,7 +17,7 @@ import Link from "next/link";
 import { admin, content as contentApi, errMsg } from "@/lib/api";
 import type { SubmitAttemptOut, DomainOut } from "@/types/api";
 import { QuestionResultCard } from "@/components/exam/QuestionResultCard";
-import { matchesReviewFilters, type ReviewStatus } from "@/lib/examReview";
+import { makeCanon, matchesReviewFilters, type ReviewStatus } from "@/lib/examReview";
 
 export default function AdminAttemptResultPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,20 +36,8 @@ export default function AdminAttemptResultPage() {
 
   // Resolve a stored domain value to its canonical ECO code (mirrors the
   // aspirant page) so the review filter matches the breakdown rows even for
-  // legacy rows that stored a name/slug instead of the code.
-  const canon = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const d of domains) {
-      map.set(d.code.toLowerCase(), d.code);
-      map.set(d.name.toLowerCase(), d.code);
-      map.set(d.slug.toLowerCase(), d.code);
-    }
-    return (raw: string | null | undefined): string => {
-      const key = (raw ?? "").trim();
-      if (!key) return "Unassigned";
-      return map.get(key.toLowerCase()) ?? key;
-    };
-  }, [domains]);
+  // legacy rows that stored a name/slug/free-text spelling instead of the code.
+  const canon = useMemo(() => makeCanon(domains), [domains]);
 
   const visibleQuestions = useMemo(() => {
     if (!result) return [];

@@ -229,6 +229,12 @@ export default function QuestionEditorPage() {
               {domains.map(d => (
                 <option key={d.code} value={d.code}>{d.code} — {d.name}</option>
               ))}
+              {/* A stored value the registry can't resolve (legacy free-
+                  text) still needs to be visible — otherwise the select
+                  renders blank and saving silently drops the old value. */}
+              {form.domain && !domains.some(d => d.code === form.domain) && (
+                <option value={form.domain}>{form.domain} (legacy — please re-pick)</option>
+              )}
             </select>
             {suggestedDomain && form.domain !== suggestedDomain.code && (
               <button type="button"

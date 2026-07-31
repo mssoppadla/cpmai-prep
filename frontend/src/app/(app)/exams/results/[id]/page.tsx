@@ -8,7 +8,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { SubmitAttemptOut, DomainOut } from "@/types/api";
 import { QuestionResultCard } from "@/components/exam/QuestionResultCard";
 import {
-  matchesReviewFilters, type ReviewStatus,
+  makeCanon, matchesReviewFilters, type ReviewStatus,
 } from "@/lib/examReview";
 
 export default function ResultsPage() {
@@ -42,20 +42,8 @@ export default function ResultsPage() {
 
   // Resolve a stored domain value to its canonical ECO code, mirroring the
   // backend so the review filter matches the breakdown rows even for legacy
-  // rows that stored a name/slug instead of the code.
-  const canon = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const d of domains) {
-      map.set(d.code.toLowerCase(), d.code);
-      map.set(d.name.toLowerCase(), d.code);
-      map.set(d.slug.toLowerCase(), d.code);
-    }
-    return (raw: string | null | undefined): string => {
-      const key = (raw ?? "").trim();
-      if (!key) return "Unassigned";
-      return map.get(key.toLowerCase()) ?? key;
-    };
-  }, [domains]);
+  // rows that stored a name/slug/free-text spelling instead of the code.
+  const canon = useMemo(() => makeCanon(domains), [domains]);
 
   const visibleQuestions = useMemo(() => {
     if (!result) return [];
