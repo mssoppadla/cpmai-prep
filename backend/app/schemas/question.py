@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from app.core import domains as domain_registry
 from app.models.question import Difficulty, QuestionType
 
@@ -83,6 +83,12 @@ class QuestionAdminIn(BaseModel):
     explanation: str | None = None
     options: list[QuestionOptionIn]
     is_active: bool = True
+
+
+class QuestionBulkDeleteIn(BaseModel):
+    """Payload for the admin bulk-delete. Capped well above any real
+    question bank; the list endpoint pages at 1000 too."""
+    ids: list[int] = Field(min_length=1, max_length=1000)
 
 
 class _ExamSetRefForQuestion(BaseModel):

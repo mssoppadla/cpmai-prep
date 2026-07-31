@@ -19,6 +19,11 @@ export default function QuestionsListPage() {
   }>({ q: "", topic_id: "", domain: "", exam_set_id: "", tagged: "" });
   const [page, setPage] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  // Bulk delete: ids ticked by the admin. Survives paging so "select
+  // across pages" accumulates; any filter change clears it (the
+  // selection was made against a different result set).
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (p: number) => {
     try {
@@ -31,6 +36,20 @@ export default function QuestionsListPage() {
       setRows(await admin.questions.list(params));
       setPage(p);
     } catch (e) { console.error("[admin/questions] list", e); setErr(errMsg(e)); }
+  }, [filter]);
+
+  /** Current filter as list-endpoint params (no paging). */
+  const filterParams = useCallback(() => {
+    const params: {
+      q?: string; topic_id?: number; domain?: string;
+      exam_set_id?: number; tagged?: "any" | "none";
+    } = {};
+    if (filter.q) params.q = filter.q;
+    if (filter.topic_id) params.topic_id = Number(filter.topic_id);
+    if (filter.domain) params.domain = filter.domain;
+    if (filter.exam_set_id) params.exam_set_id = Number(filter.exam_set_id);
+    if (filter.tagged) params.tagged = filter.tagged;
+    return params;
   }, [filter]);
 
   useEffect(() => {
@@ -46,9 +65,68 @@ export default function QuestionsListPage() {
   }
 
   async function remove(id: number) {
-    if (!confirm("Delete this question? It will also be removed from any exam set it belongs to.")) return;
-    try { await admin.questions.delete(id); await load(page); }
+    if (!confirm("Delete this question? It will also be removed from any exam set it belongs to. Already-submitted attempts keep their frozen review.")) return;
+    try {
+      await admin.questions.delete(id);
+      setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+      await load(page);
+    }
     catch (e) { console.error("[admin/questions] delete", e); setErr(errMsg(e)); }
+  }
+
+  function toggleOne(id: number) {
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+
+  /** Header checkbox: tick/untick every row on the current page. */
+  function togglePage() {
+    if (!rows) return;
+    const allOn = rows.every(r => selected.has(r.id));
+    setSelected(prev => {
+      const n = new Set(prev);
+      for (const r of rows) { if (allOn) n.delete(r.id); else n.add(r.id); }
+      return n;
+    });
+  }
+
+  /** Select EVERY question matching the active filter, across all pages
+   *  (the list endpoint caps at 1000/page, so walk until a short page). */
+  async function selectAllFiltered() {
+    setBusy(true);
+    try {
+      const ids: number[] = [];
+      const LIMIT = 1000;
+      for (let offset = 0; ; offset += LIMIT) {
+        const batch = await admin.questions.list(
+          { ...filterParams(), limit: LIMIT, offset });
+        ids.push(...batch.map(q => q.id));
+        if (batch.length < LIMIT) break;
+      }
+      setSelected(new Set(ids));
+    } catch (e) { console.error("[admin/questions] select-all", e); setErr(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function removeSelected() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} question${ids.length === 1 ? "" : "s"}? They will also be removed from any exam sets. Already-submitted attempts keep their frozen review.`)) return;
+    setBusy(true);
+    try {
+      const res = await admin.questions.bulkDelete(ids);
+      setSelected(new Set());
+      await load(0);
+      if (res.missing.length > 0) {
+        setErr(`${res.deleted} deleted; ${res.missing.length} were already gone (list refreshed).`);
+      } else {
+        setErr(null);
+      }
+    } catch (e) { console.error("[admin/questions] bulk delete", e); setErr(errMsg(e)); }
+    finally { setBusy(false); }
   }
 
   // A full page means there are (probably) more rows beyond it.
@@ -82,7 +160,7 @@ export default function QuestionsListPage() {
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex gap-2 flex-wrap">
         <input value={filter.q}
                onChange={(e) => setFilter({ ...filter, q: e.target.value })}
-               onKeyDown={(e) => { if (e.key === "Enter") load(0); }}
+               onKeyDown={(e) => { if (e.key === "Enter") { setSelected(new Set()); load(0); } }}
                placeholder="Search stem…"
                className="flex-1 min-w-[180px] px-3 py-1.5 text-sm border border-slate-300 rounded" />
         <select value={filter.exam_set_id}
@@ -120,7 +198,7 @@ export default function QuestionsListPage() {
           <option value="any">Tagged in ≥1 set</option>
           <option value="none">Untagged (orphan)</option>
         </select>
-        <button onClick={() => load(0)}
+        <button onClick={() => { setSelected(new Set()); load(0); }}
                 className="px-4 py-1.5 bg-slate-700 text-white text-sm rounded
                            hover:bg-slate-800">
           Filter
@@ -138,10 +216,39 @@ export default function QuestionsListPage() {
          </div>
        ) : (
         <>
+        {/* Selection toolbar — bulk delete over the ticked rows. */}
+        <div className="flex items-center gap-3 mb-3 text-sm">
+          <span className="text-slate-600">
+            {selected.size} selected
+          </span>
+          <button onClick={selectAllFiltered} disabled={busy}
+                  className="text-indigo-600 hover:underline disabled:opacity-40">
+            Select all matching filter
+          </button>
+          {selected.size > 0 && (
+            <>
+              <button onClick={() => setSelected(new Set())} disabled={busy}
+                      className="text-slate-500 hover:underline disabled:opacity-40">
+                Clear selection
+              </button>
+              <button onClick={removeSelected} disabled={busy}
+                      className="px-3 py-1.5 bg-rose-600 text-white rounded
+                                 hover:bg-rose-700 disabled:opacity-40">
+                {busy ? "Deleting…" : `Delete ${selected.size} selected`}
+              </button>
+            </>
+          )}
+        </div>
         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-xs font-medium text-slate-500 uppercase">
+                <th className="px-4 py-3 w-8">
+                  <input type="checkbox"
+                         aria-label="Select all on this page"
+                         checked={rows.length > 0 && rows.every(r => selected.has(r.id))}
+                         onChange={togglePage} />
+                </th>
                 <th className="px-4 py-3">Stem</th>
                 <th className="px-4 py-3">Domain</th>
                 <th className="px-4 py-3">Phase</th>
@@ -153,6 +260,12 @@ export default function QuestionsListPage() {
             <tbody className="divide-y divide-slate-100">
               {rows.map(q => (
                 <tr key={q.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3">
+                    <input type="checkbox"
+                           aria-label={`Select question ${q.id}`}
+                           checked={selected.has(q.id)}
+                           onChange={() => toggleOne(q.id)} />
+                  </td>
                   <td className="px-4 py-3">
                     <div className="text-sm text-slate-900 line-clamp-2 max-w-md">
                       {q.stem}

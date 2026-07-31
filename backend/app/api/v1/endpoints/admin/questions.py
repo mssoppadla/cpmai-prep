@@ -8,9 +8,12 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.core.audit import audit_log
 from app.models.user import User
 from app.models.question import Question, QuestionOption, QuestionType
+from app.models.exam_session import ExamAttemptAnswer
 from app.models.exam_set import ExamSet, ExamSetQuestion
 from app.models.topic import Topic
-from app.schemas.question import QuestionAdminIn, QuestionAdminOut
+from app.schemas.question import (
+    QuestionAdminIn, QuestionAdminOut, QuestionBulkDeleteIn,
+)
 from app.services import question_excel
 from app.services.assistant.rag.ingest import reindex_quietly
 
@@ -387,11 +390,49 @@ def update_question(question_id: int, payload: QuestionAdminIn,
     return _attach_in_sets(db, [q])[0]
 
 
+def _delete_questions(db: Session, ids: list[int]) -> list[int]:
+    """Hard-delete questions and every reference that would otherwise
+    block the FK. Options and exam-set links go via ON DELETE CASCADE;
+    attempt-answer rows are removed explicitly (their FK has no
+    cascade). That is safe for history: every submitted attempt reads
+    its review from `result_snapshot` (0043/0044), not from answer
+    rows, and an in-progress attempt simply loses the question — the
+    same outcome as removing it from the set mid-sitting.
+
+    Returns the ids that actually existed and were deleted."""
+    existing = [qid for (qid,) in
+                db.query(Question.id).filter(Question.id.in_(ids)).all()]
+    if not existing:
+        return []
+    db.query(ExamAttemptAnswer).filter(
+        ExamAttemptAnswer.question_id.in_(existing)
+    ).delete(synchronize_session=False)
+    db.query(Question).filter(Question.id.in_(existing)).delete(
+        synchronize_session=False)
+    db.commit()
+    # Purge the RAG corpus entries for the deleted explanations.
+    for qid in existing:
+        reindex_quietly(db, "question_explanation", qid)
+    return existing
+
+
+@router.post("/bulk-delete")
+def bulk_delete_questions(payload: QuestionBulkDeleteIn,
+                          db: Session = Depends(get_db),
+                          admin: User = Depends(get_admin_user)):
+    """Delete many questions in one shot (the list page's select-all
+    flow). Ids that don't exist are reported back, not errored — the
+    admin's view may be stale after a concurrent delete."""
+    deleted = _delete_questions(db, payload.ids)
+    missing = sorted(set(payload.ids) - set(deleted))
+    audit_log(db, admin.id, "question.bulk_deleted",
+              {"count": len(deleted), "ids": deleted})
+    return {"deleted": len(deleted), "ids": deleted, "missing": missing}
+
+
 @router.delete("/{question_id}", status_code=204)
 def delete_question(question_id: int, db: Session = Depends(get_db),
                     admin: User = Depends(get_admin_user)):
-    q = db.get(Question, question_id)
-    if not q: raise NotFoundError()
-    db.delete(q); db.commit()
+    if not _delete_questions(db, [question_id]):
+        raise NotFoundError()
     audit_log(db, admin.id, "question.deleted", {"id": question_id})
-    reindex_quietly(db, "question_explanation", question_id)
