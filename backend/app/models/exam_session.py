@@ -27,6 +27,13 @@ class ExamSession(Base):
     score  = Column(Integer)
     passed = Column(Boolean)
     time_taken_seconds = Column(Integer)
+    # Frozen per-question review payload (list of QuestionResultView
+    # dicts) captured at submit, so the result a candidate saw survives
+    # later edits to the live questions (reworded stems, changed answer
+    # keys, removals from the set). NULL while in progress and on
+    # attempts submitted before this column existed — those fall back
+    # to live reconstruction in ExamService.get_result.
+    result_snapshot = Column(JSON, nullable=True)
 
     answers = relationship("ExamAttemptAnswer", back_populates="session",
                            cascade="all, delete-orphan")
