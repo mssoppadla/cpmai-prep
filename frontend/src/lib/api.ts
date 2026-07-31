@@ -881,6 +881,15 @@ export const admin = {
     async delete(id: number) {
       await request(`/admin/questions/${id}`, { method: "DELETE", authed: true });
     },
+    /** Delete many questions at once (the list page's select-all flow).
+     *  Ids that no longer exist are reported in `missing`, not errored. */
+    async bulkDelete(ids: number[]) {
+      const { data } = await request<{
+        deleted: number; ids: number[]; missing: number[];
+      }>("/admin/questions/bulk-delete",
+         { method: "POST", json: { ids }, authed: true });
+      return data;
+    },
   },
   examSets: {
     async list() {
