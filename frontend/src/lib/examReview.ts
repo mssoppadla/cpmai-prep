@@ -6,7 +6,7 @@
  * the questions I got wrong in Data Needs". Keeping the logic here (rather
  * than inline in the page) makes the combined behaviour unit-testable.
  */
-import type { QuestionResultView } from "@/types/api";
+import type { DomainOut, QuestionResultView } from "@/types/api";
 
 export type ReviewStatus = "correct" | "incorrect" | "unanswered";
 
@@ -15,6 +15,38 @@ export type ReviewStatus = "correct" | "incorrect" | "unanswered";
 export function questionStatus(q: QuestionResultView): ReviewStatus {
   if (q.is_user_correct) return "correct";
   return q.options.some((o) => o.selected_by_user) ? "incorrect" : "unanswered";
+}
+
+/** Build a resolver from a stored domain value to its canonical ECO code,
+ *  mirroring the backend registry (app/core/domains.py): exact code, name,
+ *  or slug (case-insensitive), a punctuation/'&'-tolerant spelling of the
+ *  name, or a legacy "code + label" string like "D-I Trustworthy" or
+ *  "D I - Trustworthy AI" with a recognisable leading code. Unresolvable
+ *  text passes through verbatim (its own "legacy" bucket); blank becomes
+ *  "Unassigned". */
+export function makeCanon(
+  domains: DomainOut[],
+): (raw: string | null | undefined) => string {
+  const norm = (s: string) =>
+    s.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim();
+  const map = new Map<string, string>();
+  const codes = new Map<string, string>();
+  for (const d of domains) {
+    map.set(d.code.toLowerCase(), d.code);
+    map.set(d.slug.toLowerCase(), d.code);
+    map.set(norm(d.name), d.code);
+    codes.set(d.code.toUpperCase(), d.code);
+  }
+  return (raw: string | null | undefined): string => {
+    const key = (raw ?? "").trim();
+    if (!key) return "Unassigned";
+    const hit = map.get(key.toLowerCase()) ?? map.get(norm(key));
+    if (hit) return hit;
+    // Leading ECO-code shapes seen in legacy data: "D-I Trustworthy",
+    // "D I - Trustworthy AI", "D III -Identify Data Needs".
+    const m = key.match(/^d[\s\-–—.]*([ivx]+)\b/i);
+    return (m && codes.get(`D-${m[1].toUpperCase()}`)) || key;
+  };
 }
 
 export interface ReviewFilters {

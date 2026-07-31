@@ -18,6 +18,7 @@ would add migration overhead without buying admin flexibility.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -45,6 +46,26 @@ _BY_SLUG: dict[str, Domain] = {d.slug: d for d in DOMAINS}
 # Lower-cased name → domain, so imports tolerate admins typing the label.
 _BY_NAME: dict[str, Domain] = {d.name.lower(): d for d in DOMAINS}
 
+
+def _norm(s: str) -> str:
+    """Punctuation-insensitive form of a label: lower-case, '&' read as
+    'and', every non-alphanumeric run collapsed to one space. Makes
+    'Identify Business Needs and Solutions' == 'Identify Business Needs
+    & Solutions'."""
+    s = s.lower().replace("&", " and ")
+    return re.sub(r"[^a-z0-9]+", " ", s).strip()
+
+
+# Normalised name → domain, for legacy free-text like the '&'→'and'
+# spellings that early bulk imports stored verbatim.
+_BY_NORM_NAME: dict[str, Domain] = {_norm(d.name): d for d in DOMAINS}
+
+# Leading ECO-code shapes seen in legacy data: "D-I Trustworthy",
+# "D I - Trustworthy AI", "D III -Identify Data Needs". A 'D', optional
+# separators, then the roman numeral (word-bounded, so "D-II …" can never
+# be read as "D-I", and words like "Digital" never match).
+_CODE_PREFIX = re.compile(r"^d[\s\-–—.]*([ivx]+)\b", re.IGNORECASE)
+
 # Phase (topic) code → domain code. Trustworthy (D-I) is never derived.
 _PHASE_TO_DOMAIN: dict[str, str] = {
     pc: d.code for d in DOMAINS for pc in d.phase_codes
@@ -57,15 +78,25 @@ def all_domains() -> tuple[Domain, ...]:
 
 def get(code: str | None) -> Domain | None:
     """Resolve a stored domain value to a Domain. Accepts the code
-    ("D-I"), the slug, or the human name (case-insensitive). Returns
-    None for blank/unknown values."""
+    ("D-I"), the slug, the human name (case-insensitive), a
+    punctuation/'&'-tolerant spelling of the name, or a legacy
+    "code + label" string like "D-I Trustworthy" (early bulk imports
+    stored these verbatim). Returns None for blank/unknown values."""
     if not code:
         return None
     key = code.strip()
-    return (_BY_CODE.get(key)
-            or _BY_CODE.get(key.upper())
-            or _BY_SLUG.get(key.lower())
-            or _BY_NAME.get(key.lower()))
+    d = (_BY_CODE.get(key)
+         or _BY_CODE.get(key.upper())
+         or _BY_SLUG.get(key.lower())
+         or _BY_NAME.get(key.lower())
+         or _BY_NORM_NAME.get(_norm(key)))
+    if d:
+        return d
+    # Legacy "code + label" values ("D-I Trustworthy", "D I - …"): a
+    # recognisable leading ECO code wins even when the trailing label
+    # has drifted from the canonical name.
+    m = _CODE_PREFIX.match(key)
+    return _BY_CODE.get(f"D-{m.group(1).upper()}") if m else None
 
 
 def is_valid_code(code: str | None) -> bool:
