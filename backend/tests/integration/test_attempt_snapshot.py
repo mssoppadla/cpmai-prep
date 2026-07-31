@@ -2,6 +2,8 @@
 submit time. Editing questions, changing answer keys, or removing
 questions from the set afterwards must not rewrite what the candidate
 saw — while NEW attempts always sit the current version of the set."""
+import sqlalchemy as sa
+
 from app.models.exam_session import ExamSession
 from app.models.exam_set import ExamSet, ExamSetQuestion
 from app.models.question import Question, QuestionOption, Difficulty
@@ -130,6 +132,71 @@ def test_new_attempt_sits_the_updated_set(client, user, db):
     assert stems[q1.id].startswith("REWRITTEN stem")
 
 
+def _run_backfill_migration(db):
+    """Execute migration 0044's upgrade() against the test DB, exactly
+    as `alembic upgrade head` would on prod."""
+    import importlib.util
+    import pathlib
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = (pathlib.Path(__file__).resolve().parents[2]
+            / "migrations" / "versions" / "0044_backfill_result_snapshot.py")
+    spec = importlib.util.spec_from_file_location("mig0044_under_test", path)
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+    engine = db.get_bind()
+    with engine.begin() as conn:
+        mig.op = Operations(MigrationContext.configure(conn))
+        mig.upgrade()
+
+
+def test_backfill_migration_freezes_pre_snapshot_attempts(client, user, db):
+    """Attempts submitted before 0043 (result_snapshot NULL) get a
+    snapshot derived from stored answers + current question data, and
+    it must be byte-equivalent to what submit() itself would freeze."""
+    headers = auth_header(client, user.email)
+    q1 = _q(db, topic_code="BU", domain="D-I", stem="Original stem q1")
+    q2 = _q(db, topic_code="DU", domain="D-I", stem="Original stem q2")
+    q3 = _q(db, topic_code="DU", domain="D-III", stem="Original stem q3")
+    es = _set_with(db, _admin(db), "backfill-set", [q1, q2, q3])
+
+    attempt, _ = _take_and_submit(client, headers, es.slug)
+
+    # Capture what new code froze, then null it to simulate a pre-0043
+    # attempt, and run the real backfill migration.
+    db.expire_all()
+    session = db.get(ExamSession, attempt["id"])
+    submit_written = session.result_snapshot
+    assert submit_written
+    # sa.null(), not None: sa.JSON binds Python None as JSON 'null'
+    # TEXT, while genuine pre-0043 rows hold SQL NULL — which is what
+    # the migration's WHERE targets.
+    db.query(ExamSession).filter_by(id=attempt["id"]).update(
+        {"result_snapshot": sa.null()})
+    db.commit()
+
+    _run_backfill_migration(db)
+
+    db.expire_all()
+    backfilled = db.get(ExamSession, attempt["id"]).result_snapshot
+    assert backfilled == submit_written
+
+    # And it actually freezes: mutate the set, review stays as sat.
+    _mutate_set(db, es, q1, q2)
+    result = client.get(f"/api/v1/exams/attempts/{attempt['id']}/result",
+                        headers=headers).json()
+    by_id = {q["id"]: q for q in result["questions"]}
+    assert len(result["questions"]) == 3
+    assert by_id[q1.id]["stem"].startswith("Original stem q1")
+    assert q2.id in by_id
+
+    # Idempotent: a second run must not touch submitted-with-snapshot rows.
+    _run_backfill_migration(db)
+    db.expire_all()
+    assert db.get(ExamSession, attempt["id"]).result_snapshot == backfilled
+
+
 def test_legacy_attempt_without_snapshot_falls_back_to_live(client, user, db):
     """Attempts submitted before the snapshot column existed keep the
     old behaviour: the review reflects the live question data."""
@@ -141,7 +208,7 @@ def test_legacy_attempt_without_snapshot_falls_back_to_live(client, user, db):
 
     attempt, _ = _take_and_submit(client, headers, es.slug)
     db.query(ExamSession).filter_by(id=attempt["id"]).update(
-        {"result_snapshot": None})
+        {"result_snapshot": sa.null()})
     db.commit()
     _mutate_set(db, es, q1, q2)
 
