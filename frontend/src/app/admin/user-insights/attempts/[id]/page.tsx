@@ -26,6 +26,8 @@ export default function AdminAttemptResultPage() {
   const [error, setError] = useState<string | null>(null);
   const [reviewFilter, setReviewFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | null>(null);
+  // Candidate's "Mark for review" flags — composes with the other axes.
+  const [reviewedFilter, setReviewedFilter] = useState(false);
 
   useEffect(() => {
     admin.exams.getResult(Number(id))
@@ -42,9 +44,10 @@ export default function AdminAttemptResultPage() {
   const visibleQuestions = useMemo(() => {
     if (!result) return [];
     return result.questions.filter((q) =>
-      matchesReviewFilters(q, { domain: reviewFilter, status: statusFilter, canon })
+      matchesReviewFilters(q, { domain: reviewFilter, status: statusFilter,
+                                reviewed: reviewedFilter, canon })
     );
-  }, [result, reviewFilter, statusFilter, canon]);
+  }, [result, reviewFilter, statusFilter, reviewedFilter, canon]);
 
   const toggleStatus = (s: ReviewStatus) =>
     setStatusFilter((cur) => (cur === s ? null : s));
@@ -107,6 +110,10 @@ export default function AdminAttemptResultPage() {
                      active={statusFilter === "correct"} onClick={() => toggleStatus("correct")} />
           <CountChip n={result.incorrect_count} label="incorrect"
                      active={statusFilter === "incorrect"} onClick={() => toggleStatus("incorrect")} />
+          <CountChip n={result.questions.filter((q) => q.marked_for_review).length}
+                     label="🔖 marked for review"
+                     active={reviewedFilter}
+                     onClick={() => setReviewedFilter((v) => !v)} />
           <CountChip n={result.unanswered_count} label="unanswered"
                      active={statusFilter === "unanswered"} onClick={() => toggleStatus("unanswered")} />
           <span className="ml-1">Time: {minutes}m {seconds}s</span>
@@ -195,9 +202,14 @@ export default function AdminAttemptResultPage() {
           </div>
         )}
 
-        {(statusFilter || reviewFilter) && (
+        {(statusFilter || reviewFilter || reviewedFilter) && (
           <div className="text-xs text-slate-600 mb-4 flex items-center gap-2 flex-wrap">
             <span>Showing {visibleQuestions.length} of {result.questions.length}</span>
+            {reviewedFilter && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800">
+                🔖 Marked for review
+              </span>
+            )}
             {statusFilter && (
               <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 capitalize">
                 {statusFilter}
@@ -208,7 +220,8 @@ export default function AdminAttemptResultPage() {
                 {labelFor(reviewFilter)}
               </span>
             )}
-            <button onClick={() => { setStatusFilter(null); setReviewFilter(null); }}
+            <button onClick={() => { setStatusFilter(null); setReviewFilter(null);
+                                     setReviewedFilter(false); }}
                     className="text-indigo-600 hover:underline">
               Clear filters
             </button>

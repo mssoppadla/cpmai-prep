@@ -180,7 +180,12 @@ def test_backfill_migration_freezes_pre_snapshot_attempts(client, user, db):
 
     db.expire_all()
     backfilled = db.get(ExamSession, attempt["id"]).result_snapshot
-    assert backfilled == submit_written
+    # 0044 is frozen at its shipped shape; fields added to the snapshot
+    # since (marked_for_review) are intentionally absent from backfilled
+    # payloads — get_result overlays them from the answer rows instead.
+    submit_shape = [{k: v for k, v in item.items() if k != "marked_for_review"}
+                    for item in submit_written]
+    assert backfilled == submit_shape
 
     # And it actually freezes: mutate the set, review stays as sat.
     _mutate_set(db, es, q1, q2)
@@ -195,6 +200,53 @@ def test_backfill_migration_freezes_pre_snapshot_attempts(client, user, db):
     _run_backfill_migration(db)
     db.expire_all()
     assert db.get(ExamSession, attempt["id"]).result_snapshot == backfilled
+
+
+def test_marked_for_review_survives_into_result(client, user, db):
+    """The 'Mark for review' flag set during the sitting must surface in
+    the post-submit result — fresh snapshots carry it, and attempts
+    whose snapshot predates the field get it overlaid from the answer
+    rows."""
+    headers = auth_header(client, user.email)
+    q1 = _q(db, topic_code="BU", domain="D-I", stem="Reviewed one")
+    q2 = _q(db, topic_code="DU", domain="D-III", stem="Not reviewed")
+    es = _set_with(db, _admin(db), "review-flag-set", [q1, q2])
+
+    attempt = client.post(f"/api/v1/exam-sets/{es.slug}/start",
+                          headers=headers).json()
+    client.patch(f"/api/v1/exams/attempts/{attempt['id']}/answer",
+                 headers=headers,
+                 json={"question_id": q1.id, "selected_letter": "B",
+                       "marked_for_review": True})
+    client.patch(f"/api/v1/exams/attempts/{attempt['id']}/answer",
+                 headers=headers,
+                 json={"question_id": q2.id, "selected_letter": "A"})
+    r = client.post(f"/api/v1/exams/attempts/{attempt['id']}/submit",
+                    headers=headers)
+    assert r.status_code == 200, r.text
+    flags = {q["id"]: q["marked_for_review"] for q in r.json()["questions"]}
+    assert flags == {q1.id: True, q2.id: False}
+
+    # Cold-load path (snapshot replay) returns the same flags.
+    result = client.get(f"/api/v1/exams/attempts/{attempt['id']}/result",
+                        headers=headers).json()
+    flags = {q["id"]: q["marked_for_review"] for q in result["questions"]}
+    assert flags == {q1.id: True, q2.id: False}
+
+    # Simulate a snapshot frozen BEFORE the field existed: strip the key
+    # from the stored payload — the overlay from answer rows must still
+    # surface the flag.
+    db.expire_all()
+    session = db.get(ExamSession, attempt["id"])
+    stripped = [{k: v for k, v in item.items() if k != "marked_for_review"}
+                for item in session.result_snapshot]
+    db.query(ExamSession).filter_by(id=attempt["id"]).update(
+        {"result_snapshot": stripped})
+    db.commit()
+    result = client.get(f"/api/v1/exams/attempts/{attempt['id']}/result",
+                        headers=headers).json()
+    flags = {q["id"]: q["marked_for_review"] for q in result["questions"]}
+    assert flags == {q1.id: True, q2.id: False}
 
 
 def test_legacy_attempt_without_snapshot_falls_back_to_live(client, user, db):

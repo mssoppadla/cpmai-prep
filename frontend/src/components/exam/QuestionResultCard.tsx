@@ -11,16 +11,25 @@ export function QuestionResultCard({
     <div className={`bg-white rounded-xl border p-6 ${
       result.is_user_correct ? "border-emerald-300" : "border-rose-200"
     }`}>
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 gap-2">
         <span className="text-xs font-medium text-slate-500">
           Question {index + 1}
         </span>
-        <span className={`text-xs font-semibold px-2 py-1 rounded ${
-          result.is_user_correct
-            ? "bg-emerald-100 text-emerald-800"
-            : "bg-rose-100 text-rose-800"
-        }`}>
-          {result.is_user_correct ? "✓ Correct" : userOption ? "✗ Incorrect" : "○ Unanswered"}
+        <span className="flex items-center gap-1.5">
+          {result.marked_for_review && (
+            <span className="text-xs font-medium px-2 py-1 rounded
+                             bg-amber-50 text-amber-800 border border-amber-200"
+                  title="You flagged this question with 'Mark for review' during the exam">
+              🔖 Marked for review
+            </span>
+          )}
+          <span className={`text-xs font-semibold px-2 py-1 rounded ${
+            result.is_user_correct
+              ? "bg-emerald-100 text-emerald-800"
+              : "bg-rose-100 text-rose-800"
+          }`}>
+            {result.is_user_correct ? "✓ Correct" : userOption ? "✗ Incorrect" : "○ Unanswered"}
+          </span>
         </span>
       </div>
 

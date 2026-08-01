@@ -20,6 +20,9 @@ export default function ResultsPage() {
   const [reviewFilter, setReviewFilter] = useState<string | null>(null);
   // Outcome filter, toggled from the score summary. null = all.
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | null>(null);
+  // "Marked for review" filter — composes with the other two axes, so
+  // Reviewed → Correct / Reviewed → Incorrect are one extra tap.
+  const [reviewedFilter, setReviewedFilter] = useState(false);
 
   useEffect(() => {
     // Try session cache first (fast), then fall back to API (cold load).
@@ -48,9 +51,10 @@ export default function ResultsPage() {
   const visibleQuestions = useMemo(() => {
     if (!result) return [];
     return result.questions.filter((q) =>
-      matchesReviewFilters(q, { domain: reviewFilter, status: statusFilter, canon })
+      matchesReviewFilters(q, { domain: reviewFilter, status: statusFilter,
+                                reviewed: reviewedFilter, canon })
     );
-  }, [result, reviewFilter, statusFilter, canon]);
+  }, [result, reviewFilter, statusFilter, reviewedFilter, canon]);
 
   const toggleStatus = (s: ReviewStatus) =>
     setStatusFilter((cur) => (cur === s ? null : s));
@@ -113,6 +117,10 @@ export default function ResultsPage() {
                      active={statusFilter === "incorrect"} onClick={() => toggleStatus("incorrect")} />
           <CountChip n={result.unanswered_count} label="unanswered"
                      active={statusFilter === "unanswered"} onClick={() => toggleStatus("unanswered")} />
+          <CountChip n={result.questions.filter((q) => q.marked_for_review).length}
+                     label="🔖 marked for review"
+                     active={reviewedFilter}
+                     onClick={() => setReviewedFilter((v) => !v)} />
           <span className="ml-1">Time: {minutes}m {seconds}s</span>
         </div>
         <div className="text-xs opacity-75 mt-1">Tap a count to filter the review below.</div>
@@ -215,9 +223,14 @@ export default function ResultsPage() {
           </div>
         )}
 
-        {(statusFilter || reviewFilter) && (
+        {(statusFilter || reviewFilter || reviewedFilter) && (
           <div className="text-xs text-slate-600 mb-4 flex items-center gap-2 flex-wrap">
             <span>Showing {visibleQuestions.length} of {result.questions.length}</span>
+            {reviewedFilter && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800">
+                🔖 Marked for review
+              </span>
+            )}
             {statusFilter && (
               <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 capitalize">
                 {statusFilter}
@@ -228,7 +241,8 @@ export default function ResultsPage() {
                 {labelFor(reviewFilter)}
               </span>
             )}
-            <button onClick={() => { setStatusFilter(null); setReviewFilter(null); }}
+            <button onClick={() => { setStatusFilter(null); setReviewFilter(null);
+                                     setReviewedFilter(false); }}
                     className="text-indigo-600 hover:underline">
               Clear filters
             </button>

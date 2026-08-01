@@ -179,6 +179,9 @@ export interface QuestionResultView {
   explanation: string | null;
   options: QuestionOptionResultOut[];
   is_user_correct: boolean;
+  /** Candidate flagged this question with "Mark for review" during the
+   *  sitting. Optional: absent on results served by older backends. */
+  marked_for_review?: boolean;
 }
 export interface QuestionOptionIn {
   option_letter: string;
