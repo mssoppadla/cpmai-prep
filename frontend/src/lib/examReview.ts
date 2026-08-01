@@ -54,16 +54,21 @@ export interface ReviewFilters {
   domain: string | null;
   /** Outcome to keep, or null for all outcomes. */
   status: ReviewStatus | null;
+  /** When true, keep only questions the candidate flagged with "Mark for
+   *  review" during the sitting. Composes with the other two axes, so
+   *  "Reviewed → Correct" and "Reviewed → Incorrect" just work. */
+  reviewed?: boolean;
   /** Resolves a question's stored domain value to its canonical code, so the
    *  filter matches the breakdown rows even for legacy name/slug values. */
   canon: (raw: string | null | undefined) => string;
 }
 
-/** True when a question passes BOTH the active domain and status filters.
- *  Either filter being null means "don't constrain on that axis", so the two
- *  compose: domain-only, status-only, both, or neither. */
+/** True when a question passes EVERY active filter axis. A null/false
+ *  axis means "don't constrain on it", so domain, outcome, and
+ *  marked-for-review compose freely. */
 export function matchesReviewFilters(q: QuestionResultView, f: ReviewFilters): boolean {
   if (f.domain && f.canon(q.domain) !== f.domain) return false;
   if (f.status && questionStatus(q) !== f.status) return false;
+  if (f.reviewed && !q.marked_for_review) return false;
   return true;
 }

@@ -51,6 +51,11 @@ class QuestionResultView(BaseModel):
     explanation: str | None = None
     options: list[QuestionOptionResultOut]
     is_user_correct: bool
+    # Whether the candidate flagged this question with "Mark for review"
+    # during the sitting. Defaults False so snapshots frozen before this
+    # field existed still parse (the snapshot replay overlays the flag
+    # from the surviving answer rows anyway).
+    marked_for_review: bool = False
 
 
 class QuestionAdminIn(BaseModel):

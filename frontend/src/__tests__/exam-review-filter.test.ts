@@ -6,13 +6,15 @@ import type { DomainOut, QuestionResultView } from "@/types/api";
 // Identity-ish canon: codes pass through; blank -> "Unassigned".
 const canon = (raw: string | null | undefined) => (raw ?? "").trim() || "Unassigned";
 
-function q(id: number, domain: string, status: Status): QuestionResultView {
+function q(id: number, domain: string, status: Status,
+           marked = false): QuestionResultView {
   const correct = status === "correct";
   const answeredWrong = status === "incorrect";
   return {
     id, stem: "", topic_id: 1, domain, task: null, enablers: [], remarks: null,
     difficulty: "medium", question_type: "single_choice", explanation: null,
     is_user_correct: correct,
+    marked_for_review: marked,
     options: [
       { option_letter: "A", text: "a", is_correct: false, reasoning: null,
         selected_by_user: answeredWrong },
@@ -104,5 +106,44 @@ describe("makeCanon — legacy domain spelling resolution", () => {
     const hit = legacy.filter((x) =>
       matchesReviewFilters(x, { domain: "D-I", status: null, canon }));
     expect(hit.map((x) => x.id)).toEqual([9]);
+  });
+});
+
+describe("marked-for-review filter — composes with status and domain", () => {
+  const canon = (raw: string | null | undefined) => (raw ?? "").trim() || "Unassigned";
+  const QS2: QuestionResultView[] = [
+    q(1, "D-I", "correct", true),
+    q(2, "D-I", "incorrect", true),
+    q(3, "D-III", "correct", false),
+    q(4, "D-III", "unanswered", true),
+    q(5, "D-I", "incorrect", false),
+  ];
+  const ids = (f: { domain: string | null; status: Status | null; reviewed?: boolean }) =>
+    QS2.filter((x) => matchesReviewFilters(x, { ...f, canon })).map((x) => x.id);
+
+  it("reviewed only → all flagged questions", () => {
+    expect(ids({ domain: null, status: null, reviewed: true })).toEqual([1, 2, 4]);
+  });
+  it("Reviewed → Correct", () => {
+    expect(ids({ domain: null, status: "correct", reviewed: true })).toEqual([1]);
+  });
+  it("Reviewed → Incorrect", () => {
+    expect(ids({ domain: null, status: "incorrect", reviewed: true })).toEqual([2]);
+  });
+  it("Reviewed → Unanswered", () => {
+    expect(ids({ domain: null, status: "unanswered", reviewed: true })).toEqual([4]);
+  });
+  it("reviewed composes with the domain axis too", () => {
+    expect(ids({ domain: "D-I", status: null, reviewed: true })).toEqual([1, 2]);
+    expect(ids({ domain: "D-III", status: "correct", reviewed: true })).toEqual([]);
+  });
+  it("reviewed false/omitted leaves the other axes untouched", () => {
+    expect(ids({ domain: null, status: "incorrect" })).toEqual([2, 5]);
+  });
+  it("questions missing the field (older backend) never match reviewed", () => {
+    const legacy = { ...q(9, "D-I", "correct") };
+    delete legacy.marked_for_review;
+    expect(matchesReviewFilters(legacy, { domain: null, status: null, reviewed: true, canon }))
+      .toBe(false);
   });
 });

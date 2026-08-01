@@ -460,6 +460,7 @@ class ExamService:
                 question_type=q.question_type,
                 explanation=q.explanation,
                 is_user_correct=is_correct,
+                marked_for_review=bool(ans.marked_for_review),
                 options=[
                     QuestionOptionResultOut(
                         option_letter=o.option_letter, text=o.text,
@@ -724,6 +725,7 @@ class ExamService:
                 question_type=q.question_type,
                 explanation=q.explanation,
                 is_user_correct=bool(ans.is_correct),
+                marked_for_review=bool(ans.marked_for_review),
                 options=[
                     QuestionOptionResultOut(
                         option_letter=o.option_letter, text=o.text,
@@ -755,6 +757,17 @@ class ExamService:
         snapshot itself (not live questions), so the whole result stays
         internally consistent with the stored score forever."""
         results = [QuestionResultView(**item) for item in session.result_snapshot]
+
+        # Overlay "marked for review" from the answer rows: snapshots
+        # frozen before the field existed (incl. the 0044 backfill)
+        # don't carry it, but the flag survives on ExamAttemptAnswer.
+        # The snapshot value is the fallback for answers deleted since
+        # (e.g. when the question itself was removed).
+        marked = {a.question_id: bool(a.marked_for_review)
+                  for a in session.answers}
+        for r in results:
+            if r.id in marked:
+                r.marked_for_review = marked[r.id]
 
         correct = 0; incorrect = 0; unanswered = 0
         phase_counts: dict[int, dict] = {}
