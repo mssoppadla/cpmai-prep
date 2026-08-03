@@ -74,9 +74,6 @@ export default async function PublicContentPage({ params }: Props) {
         <article className="max-w-3xl mx-auto px-6 py-10">
           <header className="mb-6">
             <h1 className="text-4xl font-bold text-slate-900 mb-2">{page.title}</h1>
-            <p className="text-xs text-slate-500">
-              Updated {new Date(page.updated_at).toLocaleDateString()}
-            </p>
           </header>
           <div className="prose-cms">
             <RenderBlocks blocks={page.blocks} />

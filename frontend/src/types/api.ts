@@ -183,6 +183,21 @@ export interface QuestionResultView {
    *  sitting. Optional: absent on results served by older backends. */
   marked_for_review?: boolean;
 }
+/** One data point of the Threshold Explorer lab. */
+export interface ThresholdCase {
+  score: number;
+  actual: 0 | 1;
+}
+/** Dataset behind /labs/threshold-explorer, admin-managed. */
+export interface ThresholdExplorerConfig {
+  mode: "cases" | "counts";
+  threshold: number;
+  cases: ThresholdCase[];
+  tp: number;
+  fp: number;
+  fn: number;
+  tn: number;
+}
 export interface QuestionOptionIn {
   option_letter: string;
   text: string;

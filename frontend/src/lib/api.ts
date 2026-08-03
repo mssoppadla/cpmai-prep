@@ -10,6 +10,7 @@ import type {
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
   FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
   TestimonialOut, TestimonialAdminOut, TestimonialIn,
+  ThresholdExplorerConfig,
   ContentPageOut, ContentPageCreateIn, ContentPageUpdateIn,
   ContentPagePublicOut, ContentPageNavItemOut,
   CmsGeneratePageIn, CmsGeneratePageOut,
@@ -609,6 +610,12 @@ export const content = {
     const { data } = await request<FaqOut[]>("/content/faqs");
     return data;
   },
+  /** Dataset for the public Threshold Explorer lab (admin-managed). */
+  async thresholdLab(): Promise<ThresholdExplorerConfig> {
+    const { data } = await request<ThresholdExplorerConfig>(
+      "/content/labs/threshold-explorer");
+    return data;
+  },
   async testimonials(): Promise<TestimonialOut[]> {
     const { data } = await request<TestimonialOut[]>("/content/testimonials");
     return data;
@@ -888,6 +895,19 @@ export const admin = {
         deleted: number; ids: number[]; missing: number[];
       }>("/admin/questions/bulk-delete",
          { method: "POST", json: { ids }, authed: true });
+      return data;
+    },
+  },
+  labs: {
+    async getThresholdLab(): Promise<ThresholdExplorerConfig> {
+      const { data } = await request<ThresholdExplorerConfig>(
+        "/admin/labs/threshold-explorer", { authed: true });
+      return data;
+    },
+    async saveThresholdLab(cfg: ThresholdExplorerConfig): Promise<ThresholdExplorerConfig> {
+      const { data } = await request<ThresholdExplorerConfig>(
+        "/admin/labs/threshold-explorer",
+        { method: "PUT", json: cfg, authed: true });
       return data;
     },
   },

@@ -49,6 +49,7 @@ const GROUPS: NavGroupDef[] = [
       { href: "/admin/faqs",          label: "FAQs" },
       { href: "/admin/landing-banner", label: "Live Class Banner", badge: "NEW" },
       { href: "/admin/testimonials",  label: "Testimonials", badge: "NEW" },
+      { href: "/admin/threshold-explorer", label: "Threshold Explorer", badge: "NEW" },
       { href: "/admin/rag-sources",   label: "RAG Sources" },
     ],
   },
