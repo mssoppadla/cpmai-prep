@@ -11,9 +11,18 @@ from app.models.testimonial import Testimonial
 from app.models.zoom import ZoomSession
 from app.models.topic import Topic
 from app.schemas.faq import FaqOut
+from app.schemas.labs import ThresholdExplorerConfig
 from app.schemas.testimonial import TestimonialOut
 
 router = APIRouter()
+
+
+@router.get("/labs/threshold-explorer", response_model=ThresholdExplorerConfig)
+def threshold_explorer_config():
+    """Dataset for the public Threshold Explorer lab. Admin-managed via
+    /admin/labs/threshold-explorer; ships a built-in demo until then."""
+    from app.api.v1.endpoints.admin.labs import load_threshold_config
+    return load_threshold_config()
 
 
 @router.get("/topics")

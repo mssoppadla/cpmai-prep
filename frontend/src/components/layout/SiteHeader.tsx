@@ -66,7 +66,7 @@ function destinationFor(role: UserOut["role"]): string {
   return role === "admin" || role === "super_admin" ? "/admin" : "/dashboard";
 }
 
-export type ActiveNav = "home" | "courses" | "exams" | "faqs" | "pricing" | null;
+export type ActiveNav = "home" | "courses" | "exams" | "faqs" | "pricing" | "labs" | null;
 
 export function SiteHeader({ active = null }: { active?: ActiveNav }) {
   const router = useRouter();
@@ -162,6 +162,7 @@ export function SiteHeader({ active = null }: { active?: ActiveNav }) {
               {item.label}
             </Link>
           ))}
+          {navLink("labs", "/labs", "Labs")}
         </nav>
 
         {/* Spacer pushes auth area to the right */}
@@ -252,6 +253,7 @@ export function SiteHeader({ active = null }: { active?: ActiveNav }) {
                 {item.label}
               </Link>
             ))}
+            {navLink("labs", "/labs", "Labs")}
             {!me && GOOGLE_CLIENT_ID && (
               <div className="py-2 px-3">
                 <GoogleSignInButton
