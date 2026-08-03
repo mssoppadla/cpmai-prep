@@ -33,6 +33,9 @@ export default function ExamAttemptPage() {
   const [index, setIndex] = useState(0);
   const [error, setError] = useState<{ message: string; code: string; status: number } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Set when the countdown reached zero — shows the "time's up" notice
+  // while the auto-submit is in flight.
+  const [timeUp, setTimeUp] = useState(false);
   const [marked, setMarked] = useState<Record<number, boolean>>({});
   const [annotations, setAnnotations] = useState<AnnotationsByQ>({});
   const [tool, setTool] = useState<Tool>("none");
@@ -93,12 +96,16 @@ export default function ExamAttemptPage() {
     setTool("none");
   }, [index]);
 
-  // Countdown
+  // Countdown. At zero the attempt auto-submits so the answers given so
+  // far are always captured (the backend also finalizes timed-out
+  // attempts server-side, so even a failed request here can't void the
+  // sitting). The interval keeps ticking at 0 on purpose: if the
+  // auto-submit request fails transiently, the next tick retries it.
   useEffect(() => {
     if (!attempt) return;
     tickRef.current = setInterval(() => {
       setSecondsLeft((s) => {
-        if (s <= 1 && attempt) { void confirmSubmit(); return 0; }
+        if (s <= 1 && attempt) { setTimeUp(true); void confirmSubmit(); return 0; }
         return s - 1;
       });
     }, 1000);
@@ -315,6 +322,13 @@ export default function ExamAttemptPage() {
 
   return (
     <main className="max-w-3xl mx-auto px-6 py-8">
+      {timeUp && (
+        <div className="mb-4 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-sm font-medium"
+             role="alert" aria-live="assertive">
+          ⏰ Time&apos;s up — submitting your answers automatically. Everything you
+          answered is captured; the rest counts as unanswered…
+        </div>
+      )}
       {/* Top utility row — quick exit back to home/FAQs or learner dashboard. */}
       <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
         <Link href="/dashboard" className="hover:text-indigo-600">

@@ -342,10 +342,12 @@ class ExamService:
     def get_attempt(self, actor: "User | str | None",
                     attempt_id: int) -> ExamAttemptOut:
         session = self._load_session(actor, attempt_id)
-        # Auto-expire if time is up
-        if session.status == "in_progress" and session.expires_at < datetime.now(timezone.utc):
-            session.status = "expired"
-            self.db.commit()
+        # Time up → auto-submit. The sitting is finalized with whatever
+        # was answered (the rest counts as unanswered) so the result is
+        # always captured — a time-out never voids the attempt.
+        if session.status == "in_progress" and \
+                session.expires_at < datetime.now(timezone.utc):
+            self._finalize(session)
         es = self.db.get(ExamSet, session.exam_set_id)
         return self._serialize_attempt(session, es)
 
@@ -409,10 +411,24 @@ class ExamService:
     # ---------------------------------------------------------------- submit
     def submit(self, actor: "User | str | None",
                attempt_id: int) -> SubmitAttemptOut:
-        session = self._load_session(actor, attempt_id)
-        if session.status != "in_progress":
-            raise ConflictError(f"Already {session.status}.")
+        """Finalize a sitting and freeze its result.
 
+        Accepts BOTH `in_progress` and `expired` attempts: when the
+        clock runs out the answers the candidate saved are still the
+        candidate's answers, so time-up finalizes the sitting instead
+        of voiding it (unanswered questions simply count as
+        unanswered). Only an already-finalized attempt is rejected."""
+        session = self._load_session(actor, attempt_id)
+        if session.status not in ("in_progress", "expired"):
+            raise ConflictError(f"Already {session.status}.")
+        return self._finalize(session)
+
+    def _finalize(self, session: "ExamSession") -> SubmitAttemptOut:
+        """Score the sitting from its saved answers and freeze the
+        result (status, score, snapshot). Callers own the status guard;
+        this is also invoked directly by the read paths to auto-submit
+        timed-out attempts (where the actor may be an admin viewing
+        someone else's attempt, so re-loading by actor is wrong)."""
         now = datetime.now(timezone.utc)
         es = self.db.get(ExamSet, session.exam_set_id)
         questions = es.questions
@@ -475,11 +491,17 @@ class ExamService:
         score = round((correct / total) * 100) if total else 0
         passed = score >= (es.passing_score if es else 70)
 
+        # A time-up submit (auto or late) never reports more time than
+        # the sitting actually allowed.
+        timed_out = now >= session.expires_at
         session.status = "submitted"
         session.submitted_at = now
         session.score = score
         session.passed = passed
-        session.time_taken_seconds = int((now - session.started_at).total_seconds())
+        session.time_taken_seconds = min(
+            int((now - session.started_at).total_seconds()),
+            int((session.expires_at - session.started_at).total_seconds()),
+        )
         # Freeze the full review payload as sat: later edits to the live
         # questions (reworded stems, changed answer keys, removals from
         # the set) must not rewrite what this candidate actually saw.
@@ -493,7 +515,8 @@ class ExamService:
         actor_user_id = session.user_id  # None for anon
         audit_log(self.db, actor_user_id, "exam.attempt_submitted",
                   {"session_id": session.id, "score": score, "passed": passed,
-                   "anonymous": actor_user_id is None})
+                   "anonymous": actor_user_id is None,
+                   "timed_out": timed_out})
         emit_event(self.db, "exam.submitted", user_id=actor_user_id,
                    metadata={"exam_set_id": es.id if es else None,
                              "exam_session_id": session.id,
@@ -677,6 +700,12 @@ class ExamService:
         """Cold-load a submitted attempt's result. Reconstructs reasoning view.
         admin=True (via the admin-gated endpoint) lets a support/admin view ANY user's attempt."""
         session = self._load_session(actor, attempt_id, admin=admin)
+        # A timed-out sitting that was never explicitly submitted is
+        # finalized on first view — the result is captured, not lost.
+        now = datetime.now(timezone.utc)
+        if session.status == "expired" or (
+                session.status == "in_progress" and session.expires_at < now):
+            self._finalize(session)
         if session.status != "submitted":
             raise ConflictError(f"Attempt is {session.status}, not submitted.")
 
