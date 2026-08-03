@@ -97,13 +97,21 @@ fi
 # ------------------------------------------------------------------------------
 # 4. Firewall
 # ------------------------------------------------------------------------------
-say "Configuring ufw firewall (22, 80, 443)"
+say "Configuring ufw firewall (22, 80, 443 tcp+udp)"
 ufw --force reset >/dev/null
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp     comment 'SSH'
 ufw allow 80/tcp     comment 'HTTP (Caddy ACME challenge + 301 to https)'
 ufw allow 443/tcp    comment 'HTTPS'
+# HTTP/3: Caddy listens on udp/443 (QUIC) and advertises `Alt-Svc: h3`
+# with a 30-day lifetime on every response. If the firewall drops UDP
+# 443, browsers that cached the h3 hint hang trying QUIC before falling
+# back to TCP — surfacing as intermittent "connection timed out" for
+# SOME users while the site looks healthy everywhere else (incident
+# 2026-08-03). Either allow QUIC (this rule) or disable h3 in Caddy —
+# never advertise what the firewall eats.
+ufw allow 443/udp    comment 'HTTP/3 QUIC (Caddy advertises Alt-Svc h3)'
 ufw --force enable
 ok "ufw active: $(ufw status | head -1 | tr -s ' ')"
 
