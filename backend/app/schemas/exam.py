@@ -114,5 +114,8 @@ class AttemptHistoryOut(BaseModel):
     time_taken_seconds: int
     # NULL while in_progress (drafts have no submission time yet).
     submitted_at: datetime | None = None
-    # Drafts: when the clock runs out. Lets the UI show remaining time.
+    # Drafts: wall-clock deadline as of last activity (stale while
+    # paused — display remaining_seconds instead).
     expires_at: datetime | None = None
+    # Drafts: paused-clock budget left. None for submitted rows.
+    remaining_seconds: int | None = None

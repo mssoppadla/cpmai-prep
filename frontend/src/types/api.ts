@@ -348,8 +348,11 @@ export interface AttemptHistoryOut {
   time_taken_seconds: number;
   /** NULL while the attempt is a draft. */
   submitted_at: string | null;
-  /** Draft deadline — lets the UI show remaining time. */
+  /** Draft deadline as of last activity — stale while paused; prefer
+   *  remaining_seconds for display. */
   expires_at: string | null;
+  /** Drafts: paused-clock active-time budget left. Null for submitted. */
+  remaining_seconds: number | null;
 }
 
 // ---------- Leads ----------------------------------------------------------

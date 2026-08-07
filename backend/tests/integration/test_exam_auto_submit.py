@@ -47,15 +47,22 @@ def _admin(db):
 
 
 def _start_answer_expire(client, headers, db, slug, q_answered):
-    """Start an attempt, answer one question, then force the clock past
-    the limit (simulating the sitting timing out)."""
+    """Start an attempt, answer one question, then drain the clock
+    (simulating the sitting timing out).
+
+    Since the pause-on-leave timer (0046), "time is up" means the
+    ACTIVE-TIME BUDGET is exhausted — a past `expires_at` alone is just
+    what a paused draft looks like while the candidate is away, and must
+    stay resumable. Drain both so the simulation matches the contract.
+    """
     attempt = client.post(f"/api/v1/exam-sets/{slug}/start",
                           headers=headers).json()
     client.patch(f"/api/v1/exams/attempts/{attempt['id']}/answer",
                  headers=headers,
                  json={"question_id": q_answered, "selected_letter": "B"})
     db.query(ExamSession).filter_by(id=attempt["id"]).update(
-        {"expires_at": datetime.now(timezone.utc) - timedelta(seconds=5)})
+        {"expires_at": datetime.now(timezone.utc) - timedelta(seconds=5),
+         "remaining_seconds": 0})
     db.commit()
     return attempt
 

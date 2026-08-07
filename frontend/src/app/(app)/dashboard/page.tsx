@@ -504,8 +504,11 @@ function ExamHistorySection() {
                 </div>
                 <div className="text-xs text-amber-700 mt-0.5">
                   Draft in progress — your answers so far are saved
-                  {a.expires_at && (
-                    <> · time left until {new Date(a.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</>
+                  {/* Paused-clock budget — the timer only runs while the
+                      exam screen is open, so show duration, not a
+                      wall-clock deadline. */}
+                  {a.remaining_seconds != null && a.remaining_seconds > 0 && (
+                    <> · {Math.floor(a.remaining_seconds / 60)}m {a.remaining_seconds % 60}s left (timer paused)</>
                   )}
                 </div>
               </div>
@@ -679,6 +682,25 @@ function AttemptsManagerModal({ slug, attempts, onClose, onDeleted }: {
           {attempts.length === 0 ? (
             <p className="text-sm text-slate-500">No attempts left for this set.</p>
           ) : (
+            <>
+            <label className="flex items-center gap-3 px-3 py-2 mb-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer">
+              <input
+                type="checkbox"
+                checked={checked.size === attempts.length && attempts.length > 0}
+                ref={(el) => {
+                  // Indeterminate look when some-but-not-all are picked.
+                  if (el) el.indeterminate =
+                    checked.size > 0 && checked.size < attempts.length;
+                }}
+                onChange={() =>
+                  setChecked(checked.size === attempts.length
+                    ? new Set()
+                    : new Set(attempts.map((a) => a.id)))}
+                aria-label="Select all attempts"
+                className="w-4 h-4 accent-indigo-600"
+              />
+              Select all ({attempts.length})
+            </label>
             <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
               {attempts.map((a) => {
                 const isDraft = a.status === "in_progress";
@@ -735,6 +757,7 @@ function AttemptsManagerModal({ slug, attempts, onClose, onDeleted }: {
                 );
               })}
             </ul>
+            </>
           )}
         </div>
 

@@ -22,7 +22,22 @@ class ExamSession(Base):
     practice_domain = Column(String(8), nullable=True, index=True)
     started_at  = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     submitted_at = Column(DateTime(timezone=True))
+    # Wall-clock deadline as of the last activity event. Kept in sync
+    # with remaining_seconds (expires_at = last_activity_at + remaining)
+    # so the frontend countdown and the in-exam expiry checks keep
+    # working unchanged. While the candidate is AWAY the clock is
+    # paused: expires_at goes stale and resume recomputes it from
+    # remaining_seconds — liveness checks must use remaining_seconds,
+    # not expires_at (see ExamService._draft_is_live).
     expires_at   = Column(DateTime(timezone=True), nullable=False)
+    # Active-time budget left, in seconds (pause-on-leave timer). NULL
+    # only on legacy rows predating migration 0046.
+    remaining_seconds = Column(Integer, nullable=True)
+    # When the budget was last charged (heartbeat / answer save / pause).
+    last_activity_at = Column(DateTime(timezone=True), nullable=True)
+    # True when the sitting was finalized by the clock, not a deliberate
+    # candidate submit — drives the "Auto-submitted — time expired" label.
+    auto_submitted = Column(Boolean, nullable=False, default=False)
     status = Column(String(16), nullable=False, default="in_progress")
     score  = Column(Integer)
     passed = Column(Boolean)

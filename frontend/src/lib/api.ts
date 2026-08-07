@@ -426,12 +426,41 @@ export const exams = {
       "/exams/attempts", { authed: true });
     return data;
   },
-  async submit(id: number): Promise<SubmitAttemptOut> {
+  async submit(id: number, opts?: { auto?: boolean }): Promise<SubmitAttemptOut> {
+    // auto=true marks the time-up path so the result is labeled
+    // "Auto-submitted — time expired" instead of a deliberate submit.
     const { data } = await request<SubmitAttemptOut>(
-      `/exams/attempts/${id}/submit`,
+      `/exams/attempts/${id}/submit${opts?.auto ? "?auto=true" : ""}`,
       { method: "POST", authed: true, withAnon: true }
     );
     return data;
+  },
+  /** Pause-on-leave timer tick — fired every 30s while the exam page is
+   *  visible. Returns the remaining active-time budget so the local
+   *  countdown can resync with the server. */
+  async heartbeat(id: number): Promise<number> {
+    const { data } = await request<{ remaining_seconds: number }>(
+      `/exams/attempts/${id}/heartbeat`,
+      { method: "POST", authed: true, withAnon: true });
+    return data.remaining_seconds;
+  },
+  /** Final timer tick on leaving the exam screen (the pause signal —
+   *  the server freezes the clock at the last tick). keepalive lets the
+   *  request survive tab close/navigation; fire-and-forget. */
+  pauseBeacon(id: number): void {
+    try {
+      const t = typeof window !== "undefined"
+        ? window.localStorage.getItem("cpmai.access") : null;
+      const anon = typeof window !== "undefined"
+        ? window.localStorage.getItem("cpmai.anon_token") : null;
+      const headers: Record<string, string> = {};
+      if (t) headers["Authorization"] = `Bearer ${t}`;
+      if (anon) headers["X-Anon-Token"] = anon;
+      void fetch(`${BASE}/exams/attempts/${id}/heartbeat`, {
+        method: "POST", headers, keepalive: true,
+        credentials: "same-origin",
+      }).catch(() => {});
+    } catch { /* best-effort — the 90s server-side charge cap covers a lost beacon */ }
   },
   /** Delete one of the caller's own attempts — prune a past result from
    *  history or discard an in-progress draft. Ownership enforced

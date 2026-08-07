@@ -41,6 +41,16 @@ def delete_attempt(attempt_id: int, db: Session = Depends(get_db),
     ExamService(db).delete_attempt(actor, attempt_id)
 
 
+@router.post("/attempts/{attempt_id}/heartbeat")
+def heartbeat(attempt_id: int, db: Session = Depends(get_db),
+              actor=Depends(get_actor)):
+    """Pause-on-leave timer tick. The exam page fires this every 30s
+    while visible, and once (keepalive) on leave — the pause signal is
+    simply the absence of further ticks. Returns the remaining active-
+    time budget so the client countdown can resync."""
+    return {"remaining_seconds": ExamService(db).heartbeat(actor, attempt_id)}
+
+
 @router.patch("/attempts/{attempt_id}/answer", status_code=204)
 def save_answer(attempt_id: int, payload: AnswerIn,
                 db: Session = Depends(get_db),
@@ -49,9 +59,12 @@ def save_answer(attempt_id: int, payload: AnswerIn,
 
 
 @router.post("/attempts/{attempt_id}/submit", response_model=SubmitAttemptOut)
-def submit_attempt(attempt_id: int, db: Session = Depends(get_db),
+def submit_attempt(attempt_id: int, auto: bool = False,
+                   db: Session = Depends(get_db),
                    actor=Depends(get_actor)):
-    return ExamService(db).submit(actor, attempt_id)
+    """`auto=true` = the exam page's time-up path — labels the result
+    "Auto-submitted — time expired" instead of a deliberate submit."""
+    return ExamService(db).submit(actor, attempt_id, auto=auto)
 
 
 @router.get("/attempts/{attempt_id}/result", response_model=SubmitAttemptOut)
