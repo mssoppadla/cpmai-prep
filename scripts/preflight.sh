@@ -33,6 +33,66 @@ deferred() { DEFERRED+=("$*"); }
 START=$(date +%s)
 
 # ------------------------------------------------------------------------------
+# Migration safety gate — guarded tables must never lose rows
+# ------------------------------------------------------------------------------
+# deploy.sh's data-preservation guard ABORTS the deploy and auto-rolls-back
+# when any GUARDED_TABLE (scripts/preserve_users_check.py) has fewer rows
+# after migrate+restart than before. On 2026-08-07 a migration that
+# DELETEd duplicate exam_sessions rows sailed through pytest and a manual
+# `alembic upgrade`, then killed the prod deploy — nothing local had
+# exercised the guard. This static gate catches that class BEFORE push:
+# any changed migration that DELETEs / TRUNCATEs / DROPs a guarded table
+# fails the push with the soft-removal rule.
+#
+# Deliberate escape hatch for a reviewed, intentional cleanup:
+#     ALLOW_GUARDED_DELETE=1 git push
+# (You'll also need SKIP_BACKUP=0 thinking on the deploy side — see
+# docs/vps-deployment-lessons.md rows 39-40.)
+#
+# Always runs (even with SKIP_FRONTEND/SKIP_BACKEND) — it's <100ms.
+GUARDED_TABLES=$(sed -n '/^GUARDED_TABLES = (/,/^)/p' scripts/preserve_users_check.py \
+                   | grep -o '"[a-z_]*"' | tr -d '"')
+MIG_BASE=$(git merge-base origin/main HEAD 2>/dev/null || true)
+if [ -n "$MIG_BASE" ] && [ -n "$GUARDED_TABLES" ]; then
+  CHANGED_MIGRATIONS=$(git diff --name-only "$MIG_BASE" -- backend/migrations/versions/ 2>/dev/null || true)
+  GUARD_HITS=""
+  for f in $CHANGED_MIGRATIONS; do
+    [ -f "$f" ] || continue      # deleted/renamed file — nothing to scan
+    for t in $GUARDED_TABLES; do
+      if grep -Eiq "(delete[[:space:]]+from|truncate([[:space:]]+table)?|drop[[:space:]]+table([[:space:]]+if[[:space:]]+exists)?)[[:space:]]+${t}\b" "$f" \
+         || grep -Eq "op\.drop_table\([\"']${t}[\"']" "$f"; then
+        GUARD_HITS="${GUARD_HITS}  ${f}: destructive statement on guarded table '${t}'\n"
+      fi
+    done
+  done
+  if [ -n "$GUARD_HITS" ]; then
+    if [ -n "${ALLOW_GUARDED_DELETE:-}" ]; then
+      warn "ALLOW_GUARDED_DELETE=1 — allowing destructive migration on guarded table(s):"
+      printf "%b" "$GUARD_HITS" >&2
+      warn "the deploy-side guard will still trip unless this is truly intentional"
+    else
+      printf "%b" "$GUARD_HITS" >&2
+      die "migration deletes rows from a GUARDED table — the prod deploy WILL abort and auto-roll-back (2026-08-07 incident).
+  Rule: mark rows with a status every read path filters out ('abandoned' / 'deleted'); never DELETE from guarded tables.
+  Guarded tables: $(echo $GUARDED_TABLES | tr '\n' ' ')
+  Intentional reviewed cleanup? Re-run with ALLOW_GUARDED_DELETE=1"
+    fi
+  else
+    ok "migration safety gate: no destructive statements on guarded tables"
+  fi
+  ran "migration safety gate (guarded-table DELETE scan)"
+
+  # Non-fatal nudge: deploy-critical files changed → rehearse the real
+  # deploy sequence locally, not just the test suites (lesson #39/#40).
+  DEPLOYISH=$(git diff --name-only "$MIG_BASE" -- backend/migrations scripts/vps docker-compose.yml docker-compose.prod.yml backend/migrations/env.py 2>/dev/null || true)
+  if [ -n "$DEPLOYISH" ]; then
+    warn "deploy-critical files changed (migrations / scripts/vps / compose):"
+    echo "$DEPLOYISH" | sed 's/^/    /' >&2
+    warn "→ run ./scripts/rehearse_deploy.sh against the local DB before deploying"
+  fi
+fi
+
+# ------------------------------------------------------------------------------
 # Frontend — vitest unit tests + strict next build
 # ------------------------------------------------------------------------------
 if [ -z "${SKIP_FRONTEND:-}" ]; then
