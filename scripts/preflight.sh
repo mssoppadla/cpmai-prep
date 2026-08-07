@@ -36,8 +36,14 @@ START=$(date +%s)
 # Frontend — vitest unit tests + strict next build
 # ------------------------------------------------------------------------------
 if [ -z "${SKIP_FRONTEND:-}" ]; then
-  if [ ! -d frontend/node_modules ]; then
-    warn "frontend/node_modules missing — running npm ci first"
+  # Self-heal a missing OR half-broken install. Checking only the
+  # directory is not enough: node_modules/.bin (the executable shims)
+  # can vanish on its own — antivirus quarantine, cleanup tools,
+  # interrupted npm — leaving 400+ packages intact but `npm test`
+  # failing with a baffling "'vitest' is not recognized"
+  # (2026-08-07: a sandbox cleanup emptied .bin and the push died here).
+  if [ ! -d frontend/node_modules ] || [ ! -e frontend/node_modules/.bin/vitest ]; then
+    warn "frontend/node_modules missing or broken (.bin/vitest absent) — running npm ci first"
     ( cd frontend && npm ci --no-audit --no-fund )
   fi
 
