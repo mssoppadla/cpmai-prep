@@ -83,7 +83,22 @@ if $DC exec -T backend sh -c 'test -d /app/uploads' 2>/dev/null; then
     # if a different system user can browse the dir.
     chmod 0600 "$UPLOADS_FILE"
     USIZE=$(du -h "$UPLOADS_FILE" | cut -f1)
-    ok "uploads snapshot ${USIZE}"
+    # An empty uploads dir produces a ~100-byte archive. That's valid tar
+    # but almost certainly means the uploads were LOST (as on 2026-08-07,
+    # when a broken restore wiped them and the next pre-deploy backup
+    # dutifully archived the emptiness). Shout — a later restore of this
+    # file would just certify the loss. restore.sh refuses <1KB archives
+    # for the same reason.
+    UBYTES=$(stat -c %s "$UPLOADS_FILE" 2>/dev/null || stat -f %z "$UPLOADS_FILE")
+    if [ "${UBYTES:-0}" -lt 1024 ]; then
+      warn "═══════════════════════════════════════════════════════════"
+      warn "uploads snapshot is only ${UBYTES} bytes — /app/uploads looks"
+      warn "EMPTY. If that's unexpected, restore uploads from an older"
+      warn "full-size .uploads.tar.gz BEFORE trusting this backup."
+      warn "═══════════════════════════════════════════════════════════"
+    else
+      ok "uploads snapshot ${USIZE}"
+    fi
   fi
 else
   warn "backend has no /app/uploads dir (skipped) — is the cpmai-uploads volume mounted?"
@@ -101,20 +116,33 @@ say "Pruning old backups..."
 # can fail noisily without aborting the surrounding deploy.
 (
   set +e
-  # Daily — keep 30 most recent
+  # Daily — keep 30 most recent sql/env (small), but only 7 uploads
+  # tarballs: at ~2 GB each, 30 of them is ~60 GB of near-identical
+  # archives — THE disk eater found on 2026-08-07 (76/96 GB used while
+  # the app itself needs ~2 GB). Uploads change rarely; a week of
+  # dailies plus the pre-deploy copies below is ample coverage.
   ls -1t "$BACKUP_DIR"/*__daily.sql.gz 2>/dev/null \
     | tail -n +31 | xargs -r rm -f
   ls -1t "$BACKUP_DIR"/*__daily.env.tar.gz 2>/dev/null \
     | tail -n +31 | xargs -r rm -f
   ls -1t "$BACKUP_DIR"/*__daily.uploads.tar.gz 2>/dev/null \
-    | tail -n +31 | xargs -r rm -f
+    | tail -n +8 | xargs -r rm -f
   # Pre-deploy older than 14 days
   find "$BACKUP_DIR" -maxdepth 1 -name '*__pre-deploy-*' -mtime +14 -print -delete 2>/dev/null \
     | sed 's/^/  pruned /'
-  # Manual / arbitrary tags older than 30 days
+  # Pre-deploy UPLOADS tarballs additionally capped at the 5 most recent
+  # regardless of age: at ~2 GB each, a burst of deploys can eat the disk
+  # inside the 14-day window (2026-08-07: 67% → 81% in one day). The
+  # matching .sql.gz files stay the full 14 days — they're small and
+  # they're the actual rollback target; uploads rarely change per-deploy.
+  ls -1t "$BACKUP_DIR"/*__pre-deploy-*.uploads.tar.gz 2>/dev/null \
+    | tail -n +6 | xargs -r rm -f
+  # Manual / arbitrary tags older than 30 days — ALL three suffixes.
+  # (Was .sql.gz only, which stranded 2 GB uploads tarballs forever.)
   find "$BACKUP_DIR" -maxdepth 1 \
     ! -name '*__daily*' ! -name '*__pre-deploy-*' \
-    -name '*.sql.gz' -mtime +30 -print -delete 2>/dev/null \
+    \( -name '*.sql.gz' -o -name '*.env.tar.gz' -o -name '*.uploads.tar.gz' \) \
+    -mtime +30 -print -delete 2>/dev/null \
     | sed 's/^/  pruned /'
   exit 0
 )
