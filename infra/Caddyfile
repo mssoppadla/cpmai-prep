@@ -31,9 +31,19 @@
 }
 
 # Apex domain → Next.js frontend
+#
+# Upstream rules (both learned the hard way — incident 2026-08-07, when
+# applying this file over the drifted live config 502'd all of prod):
+#   1. MUST be 127.0.0.1, never "localhost": prod compose publishes the
+#      containers on 127.0.0.1 only (IPv4), and Caddy resolves localhost
+#      to ::1 first → connection refused.
+#   2. Ports are the HOST ports the VPS env actually sets —
+#      FRONTEND_HOST_PORT=3001 / BACKEND_HOST_PORT=8001 (the compose
+#      defaults of 3000/8000 are NOT what prod runs). If you change the
+#      env, change this file in the same PR.
 cpmaiexamprep.com {
     encode gzip zstd
-    reverse_proxy localhost:3000
+    reverse_proxy 127.0.0.1:3001
 
     # Security headers — already set by FastAPI for /api but harmless
     # to repeat at the edge for the static frontend.
@@ -62,7 +72,7 @@ www.cpmaiexamprep.com {
 # API subdomain → FastAPI backend
 api.cpmaiexamprep.com {
     encode gzip zstd
-    reverse_proxy localhost:8000
+    reverse_proxy 127.0.0.1:8001
 
     log {
         output file /var/log/caddy/api-access.log {

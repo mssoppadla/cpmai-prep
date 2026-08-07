@@ -76,6 +76,18 @@ def get_actor(
         user = db.get(User, int(payload["sub"]))
         if user and user.is_active:
             return user
+    # A PRESENT-but-invalid bearer (expired, blacklisted, deleted user)
+    # must 401 — NOT silently fall through to the anon identity. The old
+    # fallback created anon-owned drafts for signed-in users whose access
+    # token had quietly expired; once their token refreshed, every answer
+    # save 403'd (wrong owner) and resume opened a fresh empty attempt —
+    # their answers were stranded on a draft they could never reach
+    # (prod incident 2026-08-07). A 401 instead lets the frontend's
+    # silent-refresh interceptor do its job: refresh, replay, correct
+    # owner. Anonymous fallback now applies only when the client sent no
+    # Authorization header at all.
+    if authorization:
+        raise UnauthorizedError("Token expired or invalid.")
     if x_anon_token and 8 <= len(x_anon_token) <= 64:
         return x_anon_token
     return None

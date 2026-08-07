@@ -30,11 +30,21 @@ def test_history_lists_submitted_attempt(client, user, sample_exam_set):
     assert h["submitted_at"]
 
 
-def test_history_excludes_in_progress(client, user, sample_exam_set):
+def test_history_includes_draft_with_status(client, user, sample_exam_set):
+    """A live draft IS listed — as status="in_progress" — so the dashboard
+    can render a Resume row per set and the attempts manager can show
+    every instance. (Contract flipped 2026-08-07; the list used to be
+    submitted-only.) Drafts have no submitted_at and are never labeled
+    auto-submitted."""
     headers = auth_header(client, user.email)
     client.post(f"/api/v1/exam-sets/{sample_exam_set.slug}/start", headers=headers)
-    # Not submitted yet → not in history.
-    assert client.get("/api/v1/exams/attempts", headers=headers).json() == []
+    rows = client.get("/api/v1/exams/attempts", headers=headers).json()
+    assert len(rows) == 1
+    d = rows[0]
+    assert d["status"] == "in_progress"
+    assert d["submitted_at"] is None
+    assert d["auto_submitted"] is False
+    assert d["expires_at"]
 
 
 def test_history_requires_signed_in_user(client):

@@ -337,12 +337,19 @@ export interface AttemptHistoryOut {
   exam_set_name: string | null;
   exam_set_slug: string | null;
   practice_domain: string | null;
+  /** "in_progress" (live draft — resumable) or "submitted". */
+  status: "in_progress" | "submitted";
+  /** Finalized by the clock (time expired), not by the candidate. */
+  auto_submitted: boolean;
   score: number;
   passed: boolean;
   total_questions: number;
   correct_count: number;
   time_taken_seconds: number;
-  submitted_at: string;
+  /** NULL while the attempt is a draft. */
+  submitted_at: string | null;
+  /** Draft deadline — lets the UI show remaining time. */
+  expires_at: string | null;
 }
 
 // ---------- Leads ----------------------------------------------------------

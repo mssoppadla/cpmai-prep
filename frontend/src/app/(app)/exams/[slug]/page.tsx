@@ -163,14 +163,13 @@ export default function ExamAttemptPage() {
     auth.me().then(setMe).catch(() => setMe(null));
   }, []);
 
-  // Start the attempt on mount, restore local annotations / marked.
-  // `?domain=D-I` switches this into a focused domain-practice drill over
-  // just that domain's questions in the set (reached from the results
-  // screen). No query param → a normal full-set sitting.
-  useEffect(() => {
-    const domain = typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("domain")
-      : null;
+  // Continue-or-discard prompt: shown when this set already has a live
+  // draft and the visitor did NOT arrive via an explicit Resume link
+  // (?resume=1). null = undecided/not needed.
+  const [askDraft, setAskDraft] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+
+  const beginAttempt = useCallback((domain: string | null) => {
     const starting = domain
       ? examsApi.startDomainPractice(slug, domain)
       : examsApi.startAttempt(slug);
@@ -211,8 +210,57 @@ export default function ExamAttemptPage() {
         console.error("[exam] start", e);
         setError(toApiErr(e));
       });
-    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
+
+  // On mount: if this set already has a live draft and the visitor did
+  // not arrive via an explicit Resume link, ask continue-or-discard
+  // BEFORE starting (starting silently resumes, which surprised users
+  // who wanted a fresh sitting). Domain-practice drills skip the prompt
+  // — they're reached from the results screen with clear intent.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const domain = params.get("domain");
+    const explicitResume = params.get("resume") === "1";
+    let cancelled = false;
+    (async () => {
+      if (!domain && !explicitResume) {
+        try {
+          const s = await examsApi.getSet(slug);
+          if (cancelled) return;
+          if (s.in_progress) { setAskDraft(true); return; }
+        } catch { /* can't check → fall through to normal start */ }
+      }
+      if (!cancelled) beginAttempt(domain);
+    })();
+    return () => {
+      cancelled = true;
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
+  }, [slug, beginAttempt]);
+
+  /** "Discard & start fresh": delete the live draft, then open a clean
+   *  sitting. Start-then-delete is used to obtain the draft's id — the
+   *  start endpoint resumes (never duplicates), so this is safe. */
+  const discardAndStart = useCallback(async () => {
+    setDiscarding(true);
+    try {
+      const draft = await examsApi.startAttempt(slug);
+      await examsApi.deleteAttempt(draft.id);
+      try {
+        localStorage.removeItem(annKey(draft.id));
+        localStorage.removeItem(markKey(draft.id));
+        localStorage.removeItem(pendKey(draft.id));
+      } catch { /* ignore */ }
+      setAskDraft(false);
+      beginAttempt(null);
+    } catch (e) {
+      console.error("[exam] discard draft", e);
+      setError(toApiErr(e));
+    } finally {
+      setDiscarding(false);
+    }
+  }, [slug, beginAttempt]);
 
   useEffect(() => {
     if (!attempt) return;
@@ -444,6 +492,47 @@ export default function ExamAttemptPage() {
             </div>
           </div>
         )}
+      </main>
+    );
+  }
+  // Continue-or-discard choice — shown before any attempt is started
+  // when a live draft exists for this set.
+  if (askDraft && !attempt) {
+    return (
+      <main className="max-w-2xl mx-auto px-6 py-10">
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h1 className="text-xl font-bold text-slate-900 mb-2">
+            You have an exam in progress
+          </h1>
+          <p className="text-sm text-slate-600 mb-5">
+            There's a saved draft for this set — your answers so far are
+            kept. Continue where you left off, or discard it and start a
+            fresh sitting (the draft and its answers are deleted
+            permanently).
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              onClick={() => { setAskDraft(false); beginAttempt(null); }}
+              disabled={discarding}
+              className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              Continue my draft
+            </button>
+            <button
+              onClick={() => void discardAndStart()}
+              disabled={discarding}
+              className="px-5 py-2.5 bg-white text-rose-700 text-sm font-medium border border-rose-300 rounded-lg hover:bg-rose-50 disabled:opacity-50"
+            >
+              {discarding ? "Discarding…" : "Discard draft & start fresh"}
+            </button>
+            <Link
+              href="/dashboard"
+              className="px-5 py-2.5 bg-white text-slate-700 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50 text-center"
+            >
+              Back to dashboard
+            </Link>
+          </div>
+        </div>
       </main>
     );
   }
