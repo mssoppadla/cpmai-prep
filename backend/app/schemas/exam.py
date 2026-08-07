@@ -91,17 +91,28 @@ class SubmitAttemptOut(BaseModel):
 
 
 class AttemptHistoryOut(BaseModel):
-    """One past (submitted) attempt, for the learner's exam-history list.
-    Lightweight — the full per-domain breakdown + review lives on the
-    results screen, reached via this `id`."""
+    """One attempt for the learner's exam-history list / attempts manager.
+    Includes live drafts (status="in_progress") alongside submitted
+    results; the full per-domain breakdown + review lives on the results
+    screen, reached via this `id` (submitted attempts only)."""
     id: int
     exam_set_name: str | None = None
     exam_set_slug: str | None = None
     # Set when this was a domain-practice drill rather than a full sitting.
     practice_domain: str | None = None
+    # "in_progress" (a live draft — resumable) or "submitted".
+    status: str = "submitted"
+    # True when the sitting was finalized by the clock, not the candidate
+    # (time ran out; answered questions scored, rest unanswered). Rendered
+    # as "Auto-submitted — time expired" so it's never mistaken for a
+    # deliberately submitted result or a draft.
+    auto_submitted: bool = False
     score: int
     passed: bool
     total_questions: int
     correct_count: int
     time_taken_seconds: int
-    submitted_at: datetime
+    # NULL while in_progress (drafts have no submission time yet).
+    submitted_at: datetime | None = None
+    # Drafts: when the clock runs out. Lets the UI show remaining time.
+    expires_at: datetime | None = None

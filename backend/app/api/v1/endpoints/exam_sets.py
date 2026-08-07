@@ -1,7 +1,7 @@
 """User-facing exam set endpoints."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_actor, get_optional_user
@@ -84,22 +84,29 @@ def get_set(slug: str, db: Session = Depends(get_db),
 
 @router.post("/{slug}/start", response_model=ExamAttemptOut, status_code=201)
 def start_attempt(slug: str, db: Session = Depends(get_db),
-                  actor=Depends(get_actor)):
+                  actor=Depends(get_actor),
+                  x_anon_token: str | None = Header(default=None,
+                                                    alias="X-Anon-Token")):
     """Start (or resume) an attempt.
 
     Accepts either a signed-in user (Bearer token) or an anonymous browser-
     bound session (X-Anon-Token header — minted client-side). Premium sets
-    reject anonymous callers up front; free sets are open to either.
+    reject anonymous callers up front; free sets are open to either. The
+    anon token is also passed through for signed-in users so an orphaned
+    anon draft from this browser can be adopted (see _adopt_orphan_draft).
     """
-    return ExamService(db).start_attempt(actor, slug)
+    return ExamService(db).start_attempt(actor, slug, anon_token=x_anon_token)
 
 
 @router.post("/{slug}/practice/{domain_code}/start",
              response_model=ExamAttemptOut, status_code=201)
 def start_domain_practice(slug: str, domain_code: str,
                           db: Session = Depends(get_db),
-                          actor=Depends(get_actor)):
+                          actor=Depends(get_actor),
+                          x_anon_token: str | None = Header(default=None,
+                                                            alias="X-Anon-Token")):
     """Start (or resume) a focused practice over one ECO domain's questions
     within a set. Reached from the results screen's per-domain drill-down.
     Same access rules as a full sitting (premium paywall still applies)."""
-    return ExamService(db).start_domain_practice(actor, slug, domain_code)
+    return ExamService(db).start_domain_practice(actor, slug, domain_code,
+                                                 anon_token=x_anon_token)

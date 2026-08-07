@@ -596,6 +596,27 @@ ok "reclaimed: images=${PRUNED_IMG:-0B}  builder=${PRUNED_BLD:-0B}"
 # command (image prune, etc.) failing won't tear down a healthy deploy.
 disarm_rollback
 
+# ── Caddyfile drift check (lesson #39) ────────────────────────────────
+# Deploy NEVER touches the host Caddy; when the repo Caddyfile and the
+# live /etc/caddy/Caddyfile diverge, applying the repo file blindly has
+# 502'd all of prod before (2026-08-07: live ports were 3001/8001 while
+# the repo said localhost:3000/8000). Warn loudly, don't fail — the
+# operator decides. Safe apply procedure: docs/vps-deployment-lessons.md
+# row 39 (diff first → admin-API hot load → verify STATUS CODE →
+# sudo persist with validate + reload).
+if [ -r /etc/caddy/Caddyfile ] && [ -f infra/Caddyfile ]; then
+  if ! diff -q infra/Caddyfile /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    warn "─────────────────────────────────────────────────────────────"
+    warn "infra/Caddyfile ≠ /etc/caddy/Caddyfile (Caddy config drift!)"
+    warn "Deploy does NOT apply Caddy changes. Before applying, read"
+    warn "docs/vps-deployment-lessons.md row 39 — diff first, hot-load"
+    warn "via the admin API, verify with a status code, then persist."
+    warn "─────────────────────────────────────────────────────────────"
+  else
+    ok "Caddyfile in sync with /etc/caddy/Caddyfile"
+  fi
+fi
+
 ELAPSED=$(( $(date +%s) - START_TS ))
 echo
 echo "${G}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${X}"

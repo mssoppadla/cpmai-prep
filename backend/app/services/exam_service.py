@@ -152,8 +152,38 @@ class ExamService:
         return es
 
     # ------------------------------------------------------------------ start
+    def _adopt_orphan_draft(self, user: "User", exam_set_id: int,
+                            anon_token: str | None,
+                            practice_domain: str | None) -> "ExamSession | None":
+        """Claim an anon-owned in-progress draft for a signed-in user.
+
+        Healing path for the expired-token incident (2026-08-07): a draft
+        created while the user's access token had silently expired was
+        owned by their browser's anon token, so their signed-in identity
+        could never save to it or resume it. When the same browser (same
+        anon token) starts the set while signed in, transfer the draft to
+        the account instead of stranding the answers on an unreachable
+        session.
+        """
+        if not anon_token:
+            return None
+        orphan = self.db.query(ExamSession).filter_by(
+            anon_token=anon_token, exam_set_id=exam_set_id,
+            status="in_progress", practice_domain=practice_domain,
+            user_id=None,
+        ).first()
+        if not orphan:
+            return None
+        orphan.user_id = user.id
+        orphan.anon_token = None
+        self.db.commit()
+        audit_log(self.db, user.id, "exam.attempt_adopted",
+                  {"exam_set_id": exam_set_id, "session_id": orphan.id})
+        return orphan
+
     def start_attempt(self, actor: "User | str | None",
-                      exam_set_slug: str) -> ExamAttemptOut:
+                      exam_set_slug: str,
+                      anon_token: str | None = None) -> ExamAttemptOut:
         es = self._load_set_for_attempt(actor, exam_set_slug)
         if not es.questions:
             raise ConflictError("Exam set has no questions yet.")
@@ -174,6 +204,8 @@ class ExamService:
                 practice_domain=None,
             )
         existing = existing_q.first()
+        if existing is None and isinstance(actor, User):
+            existing = self._adopt_orphan_draft(actor, es.id, anon_token, None)
         if existing and existing.expires_at > datetime.now(timezone.utc):
             # Backfill answer rows for any questions added to the set
             # AFTER this session started, so they're answerable now.
@@ -211,16 +243,27 @@ class ExamService:
 
     # -------------------------------------------------------------- history
     def list_attempts(self, user: "User") -> list[AttemptHistoryOut]:
-        """The signed-in user's submitted attempts, newest first — their
-        exam history. Anonymous attempts are intentionally excluded (they
-        aren't bound to an account). Counts come from one grouped query
-        over the answer rows, so this stays O(1) round-trips."""
+        """The signed-in user's attempts, newest first: submitted results
+        AND live drafts (status="in_progress"), so the dashboard can show
+        a draft row + a latest-result row per set and the attempts-manager
+        window can list every instance. Anonymous attempts are
+        intentionally excluded (they aren't bound to an account). Counts
+        come from one grouped query over the answer rows, so this stays
+        O(1) round-trips."""
+        now = datetime.now(timezone.utc)
         sessions = (self.db.query(ExamSession)
                     .filter(ExamSession.user_id == user.id,
-                            ExamSession.status == "submitted")
+                            ExamSession.status.in_(["in_progress",
+                                                    "submitted"]))
                     .order_by(ExamSession.submitted_at.desc().nullslast(),
                               ExamSession.id.desc())
                     .all())
+        # A timed-out draft is finalized on sight (same lazy rule as
+        # get_result) so it lists as an auto-submitted result, never as a
+        # resumable draft the exam page would refuse anyway.
+        for s in sessions:
+            if s.status == "in_progress" and s.expires_at < now:
+                self._finalize(s)
         if not sessions:
             return []
         sids = [s.id for s in sessions]
@@ -244,19 +287,26 @@ class ExamService:
                 exam_set_name=es.name if es else None,
                 exam_set_slug=es.slug if es else None,
                 practice_domain=s.practice_domain,
+                status=s.status,
+                # Finalized at-or-after the deadline = the clock submitted
+                # it, not the candidate.
+                auto_submitted=bool(s.submitted_at and s.expires_at
+                                    and s.submitted_at >= s.expires_at),
                 score=s.score or 0,
                 passed=bool(s.passed),
                 total_questions=total,
                 correct_count=correct,
                 time_taken_seconds=s.time_taken_seconds or 0,
                 submitted_at=s.submitted_at,
+                expires_at=s.expires_at,
             ))
         return out
 
     # -------------------------------------------------------- domain practice
     def start_domain_practice(self, actor: "User | str | None",
                               exam_set_slug: str,
-                              domain_code: str) -> ExamAttemptOut:
+                              domain_code: str,
+                              anon_token: str | None = None) -> ExamAttemptOut:
         """Start (or resume) a focused practice attempt over the questions
         of one ECO domain *within a set the caller already has access to*.
 
@@ -287,6 +337,9 @@ class ExamService:
                 practice_domain=domain.code,
             )
         existing = existing_q.first()
+        if existing is None and isinstance(actor, User):
+            existing = self._adopt_orphan_draft(actor, es.id, anon_token,
+                                                domain.code)
         if existing and existing.expires_at > datetime.now(timezone.utc):
             self._ensure_answer_rows(existing, es)
             return self._serialize_attempt(existing, es)

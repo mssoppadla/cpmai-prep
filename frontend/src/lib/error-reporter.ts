@@ -32,6 +32,10 @@ export interface ClientErrorReport {
 export function reportClientError(err: ClientErrorReport): void {
   try {
     if (typeof window === "undefined") return;
+    // Never fire in unit tests — the extra fetch would consume other
+    // tests' mocked responses (observed: a mocked "network down" in one
+    // test corrupting the next test's fetch queue).
+    if (process.env.NODE_ENV === "test") return;
     // Never report failures of the report call itself — loop guard.
     if (err.path?.includes("/errors/report")) return;
     if (sentCount >= MAX_PER_PAGE) return;

@@ -420,71 +420,56 @@ function MyCoursesSection() {
 }
 
 /**
- * Exam history — the learner's past submitted attempts. Each row links back
- * into the full results screen (by-domain breakdown + question review), so a
- * candidate can always return to see which domains they scored high/low on
- * and where to focus. Attempts persist server-side; this just surfaces them.
+ * Exam history — drafts and submitted results, kept strictly apart.
+ *
+ * Per set the learner sees up to two rows:
+ *   - a DRAFT row (only while a live, unexpired, unsubmitted sitting
+ *     exists) — always opens exam-taking mode to continue it;
+ *   - the latest SUBMITTED row — always opens the results view.
+ * Attempts the clock finished get an explicit "Auto-submitted — time
+ * expired" label so they're never mistaken for drafts.
+ *
+ * The 🗑 on a row opens the attempts-manager window for that set: every
+ * instance (drafts + all past results) with a View link each and
+ * multi-select delete — replacing the old single-delete that looked
+ * like it "didn't work" when the next-older attempt surfaced in place
+ * of the deleted one.
  */
 function ExamHistorySection() {
   const [attempts, setAttempts] = useState<AttemptHistoryOut[] | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  // Sets with a live in-progress draft, keyed by slug. A draft never
-  // replaces the latest submitted result below — both render side by
-  // side until the new sitting is submitted (then the draft chip goes
-  // and the fresh result takes over as latest).
-  const [draftSets, setDraftSets] = useState<ExamSetSummaryOut[]>([]);
+  // Slug of the set whose attempts-manager window is open; null = closed.
+  const [manageSlug, setManageSlug] = useState<string | null>(null);
 
   useEffect(() => {
     examsApi.listAttempts().then(setAttempts).catch(() => setAttempts([]));
-    examsApi.listSets()
-      .then((sets) => setDraftSets(sets.filter((s) => s.in_progress)))
-      .catch(() => { /* draft chips are enrichment — history still renders */ });
   }, []);
 
-  // Deleting the shown (latest) attempt re-runs the collapse below, so an
-  // older attempt for the same set surfaces in its place — history prunes
-  // one sitting at a time, never a whole set's record at once.
-  async function handleDelete(id: number) {
-    if (!window.confirm(
-      "Delete this attempt? Its score and domain breakdown are removed "
-      + "permanently — this can't be undone.")) return;
-    setDeletingId(id);
-    try {
-      await examsApi.deleteAttempt(id);
-      setAttempts((prev) => prev?.filter((a) => a.id !== id) ?? prev);
-    } catch (e) {
-      window.alert(`Couldn't delete the attempt: ${errMsg(e)}`);
-    } finally {
-      setDeletingId(null);
-    }
-  }
+  const drafts = useMemo(
+    () => (attempts ?? []).filter((a) => a.status === "in_progress"),
+    [attempts]);
 
-  // Collapse to the single most-recent attempt per exam set (a domain-practice
-  // run is treated as its own "set" so it doesn't hide the full-set result).
-  // Keeps the list readable when a learner has retried a set many times.
+  // Collapse submitted attempts to the single most-recent per exam set
+  // (a domain-practice run is its own "set" so it doesn't hide the
+  // full-set result). The manager window shows the rest.
   const latest = useMemo(() => {
-    if (!attempts) return [];
     const byKey = new Map<string, AttemptHistoryOut>();
-    for (const a of attempts) {
+    for (const a of attempts ?? []) {
+      if (a.status !== "submitted") continue;
       const key = `${a.exam_set_slug ?? a.exam_set_name ?? "set"}::${a.practice_domain ?? ""}`;
       const prev = byKey.get(key);
-      if (!prev || new Date(a.submitted_at) > new Date(prev.submitted_at)) {
+      if (!prev || new Date(a.submitted_at ?? 0) > new Date(prev.submitted_at ?? 0)) {
         byKey.set(key, a);
       }
     }
     return [...byKey.values()].sort(
-      (x, y) => +new Date(y.submitted_at) - +new Date(x.submitted_at),
+      (x, y) => +new Date(y.submitted_at ?? 0) - +new Date(x.submitted_at ?? 0),
     );
   }, [attempts]);
 
   if (attempts === null) return null; // resolve quietly; no flash
 
-  const draftSlugs = new Set(
-    draftSets.map((s) => s.slug).filter(Boolean));
-  // Drafts on sets that have no submitted result yet get their own row
-  // below; drafts on sets WITH a result show as a chip on that row.
-  const draftOnlySets = draftSets.filter(
-    (s) => !latest.some((a) => a.exam_set_slug === s.slug && !a.practice_domain));
+  const manageAttempts = manageSlug === null ? [] :
+    attempts.filter((a) => a.exam_set_slug === manageSlug);
 
   return (
     <section className="max-w-5xl mx-auto px-6 pb-8">
@@ -492,22 +477,36 @@ function ExamHistorySection() {
         Your exam history
       </h2>
       <p className="text-sm text-slate-500 mb-3">
-        Your most recent attempt for each set — revisit it to see which domains
-        you scored high or low on, and where to focus next.
+        Drafts you can continue, and your most recent result for each set.
       </p>
 
-      {draftOnlySets.length > 0 && (
+      {/* Draft rows — rendered ONLY while a live draft exists; opening one
+          always resumes exam-taking mode. ?resume=1 skips the
+          continue-or-discard prompt (this click IS the continue choice). */}
+      {drafts.length > 0 && (
         <div className="bg-white rounded-xl border border-amber-200 divide-y divide-amber-100 overflow-hidden mb-3">
-          {draftOnlySets.map((s) => (
+          {drafts.map((a) => (
             <Link
-              key={s.id}
-              href={`/exams/${s.slug}`}
+              key={a.id}
+              href={`/exams/${a.exam_set_slug}${a.practice_domain
+                ? `?domain=${encodeURIComponent(a.practice_domain)}&resume=1`
+                : "?resume=1"}`}
               className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-amber-50"
             >
               <div className="min-w-0">
-                <div className="text-sm font-medium text-slate-900 truncate">{s.name}</div>
+                <div className="text-sm font-medium text-slate-900 truncate">
+                  {a.exam_set_name ?? "Exam"}
+                  {a.practice_domain && (
+                    <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      Practice: {a.practice_domain}
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-amber-700 mt-0.5">
-                  In progress — your answers so far are saved
+                  Draft in progress — your answers so far are saved
+                  {a.expires_at && (
+                    <> · time left until {new Date(a.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</>
+                  )}
                 </div>
               </div>
               <span className="text-xs font-semibold text-white bg-indigo-600 rounded px-2.5 py-1 shrink-0">
@@ -518,7 +517,7 @@ function ExamHistorySection() {
         </div>
       )}
 
-      {latest.length === 0 && draftOnlySets.length === 0 && (
+      {latest.length === 0 && drafts.length === 0 && (
         <p className="text-sm text-slate-500 bg-white border border-slate-200 rounded-xl p-5">
           No completed exams yet — finish a set and your result will appear here,
           so you can come back to your domain breakdown anytime.
@@ -527,7 +526,7 @@ function ExamHistorySection() {
       {latest.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
           {latest.map((a) => {
-            const dt = new Date(a.submitted_at);
+            const dt = a.submitted_at ? new Date(a.submitted_at) : null;
             const mins = Math.floor(a.time_taken_seconds / 60);
             const secs = a.time_taken_seconds % 60;
             return (
@@ -544,38 +543,21 @@ function ExamHistorySection() {
                         Practice: {a.practice_domain}
                       </span>
                     )}
+                    {a.auto_submitted && (
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-300"
+                            title="The exam clock ran out; everything answered was scored, the rest counted as unanswered">
+                        Auto-submitted — time expired
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-slate-500 mt-0.5">
-                    {dt.toLocaleDateString()}{" "}
+                    {dt && <>{dt.toLocaleDateString()}{" "}
                     {dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    {" · "}{a.correct_count}/{a.total_questions} correct
+                    {" · "}</>}{a.correct_count}/{a.total_questions} correct
                     {" · "}{mins}m {secs}s
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  {/* A new draft on this set never hides this result —
-                      both show until the draft is submitted, then the
-                      fresh result replaces this row as latest. (span,
-                      not Link: rows can't nest anchors.) */}
-                  {!a.practice_domain && a.exam_set_slug
-                    && draftSlugs.has(a.exam_set_slug) && (
-                    <span
-                      role="link" tabIndex={0}
-                      onClick={(e) => {
-                        e.preventDefault(); e.stopPropagation();
-                        window.location.href = `/exams/${a.exam_set_slug}`;
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault(); e.stopPropagation();
-                          window.location.href = `/exams/${a.exam_set_slug}`;
-                        }
-                      }}
-                      className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded px-2 py-1 hover:bg-amber-100 cursor-pointer"
-                    >
-                      ⏸ Resume draft →
-                    </span>
-                  )}
                   <span className={`text-lg font-bold tabular-nums ${
                     a.passed ? "text-emerald-700" : "text-rose-600"
                   }`}>
@@ -593,14 +575,13 @@ function ExamHistorySection() {
                     onClick={(e) => {
                       // Row is a Link — keep the click from navigating.
                       e.preventDefault(); e.stopPropagation();
-                      void handleDelete(a.id);
+                      setManageSlug(a.exam_set_slug);
                     }}
-                    disabled={deletingId === a.id}
-                    title="Delete this attempt permanently"
-                    aria-label={`Delete attempt on ${a.exam_set_name ?? "exam"}`}
-                    className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                    title="Manage all attempts for this set (view / delete)"
+                    aria-label={`Manage attempts on ${a.exam_set_name ?? "exam"}`}
+                    className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                   >
-                    {deletingId === a.id ? "…" : "🗑"}
+                    🗑
                   </button>
                 </div>
               </Link>
@@ -608,7 +589,175 @@ function ExamHistorySection() {
           })}
         </div>
       )}
+
+      {manageSlug !== null && (
+        <AttemptsManagerModal
+          slug={manageSlug}
+          attempts={manageAttempts}
+          onClose={() => setManageSlug(null)}
+          onDeleted={(ids) => {
+            setAttempts((prev) =>
+              prev?.filter((a) => !ids.includes(a.id)) ?? prev);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+/**
+ * Attempts-manager window for one set: every attempt (drafts + results)
+ * with View per row and multi-select delete. Opened from the 🗑 on a
+ * history row so "delete" always shows the full picture instead of
+ * silently revealing the next-older attempt.
+ */
+function AttemptsManagerModal({ slug, attempts, onClose, onDeleted }: {
+  slug: string;
+  attempts: AttemptHistoryOut[];
+  onClose: () => void;
+  onDeleted: (ids: number[]) => void;
+}) {
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const setName = attempts[0]?.exam_set_name ?? slug;
+
+  function toggle(id: number) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function deleteSelected() {
+    if (checked.size === 0) return;
+    if (!window.confirm(
+      `Delete ${checked.size} attempt${checked.size === 1 ? "" : "s"} permanently? `
+      + "Scores and answers are removed — this can't be undone.")) return;
+    setBusy(true); setError(null);
+    const deleted: number[] = [];
+    try {
+      for (const id of checked) {
+        await examsApi.deleteAttempt(id);
+        deleted.push(id);
+      }
+    } catch (e) {
+      setError(`Some deletions failed: ${errMsg(e)}`);
+    } finally {
+      if (deleted.length > 0) onDeleted(deleted);
+      setChecked(new Set());
+      setBusy(false);
+      if (deleted.length === attempts.length || attempts.length - deleted.length === 0) onClose();
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/50" onClick={onClose} aria-hidden />
+      <div className="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl max-h-[80vh] flex flex-col"
+           role="dialog" aria-modal="true" aria-label={`All attempts for ${setName}`}>
+        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          <div>
+            <h3 className="font-semibold text-slate-900">All attempts — {setName}</h3>
+            <p className="text-xs text-slate-500">
+              View any attempt, or select several to delete.
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close"
+                  className="p-1.5 rounded text-slate-500 hover:bg-slate-100">✕</button>
+        </div>
+
+        {error && (
+          <div className="mx-4 mt-3 px-3 py-2 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm">
+            {error}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {attempts.length === 0 ? (
+            <p className="text-sm text-slate-500">No attempts left for this set.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+              {attempts.map((a) => {
+                const isDraft = a.status === "in_progress";
+                const dt = a.submitted_at ? new Date(a.submitted_at) : null;
+                return (
+                  <li key={a.id} className="flex items-center gap-3 px-3 py-2.5 bg-white">
+                    <input
+                      type="checkbox"
+                      checked={checked.has(a.id)}
+                      onChange={() => toggle(a.id)}
+                      aria-label={`Select attempt from ${dt ? dt.toLocaleString() : "draft"}`}
+                      className="w-4 h-4 accent-indigo-600"
+                    />
+                    <div className="flex-1 min-w-0 text-sm">
+                      {isDraft ? (
+                        <span className="font-medium text-amber-700">
+                          Draft in progress
+                          {a.practice_domain && ` · Practice: ${a.practice_domain}`}
+                        </span>
+                      ) : (
+                        <span className="text-slate-900">
+                          {dt?.toLocaleDateString()}{" "}
+                          {dt?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {" · "}
+                          <span className={a.passed ? "text-emerald-700 font-semibold" : "text-rose-600 font-semibold"}>
+                            {a.score}%
+                          </span>
+                          {" · "}{a.correct_count}/{a.total_questions} correct
+                          {a.practice_domain && ` · Practice: ${a.practice_domain}`}
+                          {a.auto_submitted && (
+                            <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-300">
+                              Auto-submitted — time expired
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    {isDraft ? (
+                      <Link
+                        href={`/exams/${a.exam_set_slug}${a.practice_domain
+                          ? `?domain=${encodeURIComponent(a.practice_domain)}&resume=1`
+                          : "?resume=1"}`}
+                        className="text-xs font-semibold text-white bg-indigo-600 rounded px-2.5 py-1 shrink-0"
+                      >
+                        Resume →
+                      </Link>
+                    ) : (
+                      <Link href={`/exams/results/${a.id}`}
+                            className="text-sm text-indigo-600 hover:underline shrink-0">
+                        View
+                      </Link>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between p-4 border-t border-slate-200">
+          <span className="text-xs text-slate-500">
+            {checked.size} selected
+          </span>
+          <div className="flex gap-2">
+            <button onClick={onClose}
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
+              Close
+            </button>
+            <button
+              onClick={() => void deleteSelected()}
+              disabled={busy || checked.size === 0}
+              className="px-4 py-2 text-sm font-medium text-white bg-rose-600 rounded-lg hover:bg-rose-700 disabled:opacity-50"
+            >
+              {busy ? "Deleting…" : `Delete selected (${checked.size})`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
