@@ -68,8 +68,16 @@ def upgrade() -> None:
     # 2026-08-07 flood). Keep the newest draft per (owner, set, domain),
     # delete the empty older ones, and let the partial unique index stop
     # the race at the database.
+    # NOTHING is deleted: `exam_sessions` and `exam_attempt_answers` are
+    # GUARDED_TABLES (scripts/preserve_users_check.py) and deploy.sh
+    # aborts + auto-rolls-back when a guarded table loses rows — which
+    # is exactly what killed the first attempt at this deploy
+    # (2026-08-07). Abandoned sittings are STATUS-MARKED instead, which
+    # hides them everywhere (all reads filter to in_progress/submitted)
+    # while preserving every row and the audit trail.
     op.execute("""
-        DELETE FROM exam_sessions s
+        UPDATE exam_sessions s
+           SET status = 'abandoned'
          WHERE s.status = 'in_progress'
            AND EXISTS (
                SELECT 1 FROM exam_sessions n

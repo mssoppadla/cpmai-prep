@@ -60,8 +60,8 @@ export default function AdminUserInsightsPage() {
   async function deleteAttempt(attemptId: number) {
     if (!selected) return;
     if (!window.confirm(
-      "Delete this attempt for the selected user? Score and answers are "
-      + "removed permanently — this can't be undone.")) return;
+      "Remove this attempt from the selected user's history? It disappears "
+      + "from their dashboard and yours — you can't undo this.")) return;
     try {
       await admin.exams.deleteAttempt(attemptId);
       setData(await admin.users.insights(selected.id));
@@ -186,7 +186,7 @@ export default function AdminUserInsightsPage() {
                           </Link>
                           <button
                             onClick={() => void deleteAttempt(a.id)}
-                            title="Delete this attempt permanently"
+                            title="Remove this attempt from the user's history"
                             className="ml-3 text-rose-600 hover:underline"
                           >
                             Delete

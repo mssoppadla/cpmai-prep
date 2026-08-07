@@ -580,7 +580,7 @@ function ExamHistorySection() {
                       e.preventDefault(); e.stopPropagation();
                       setManageSlug(a.exam_set_slug);
                     }}
-                    title="Manage all attempts for this set (view / delete)"
+                    title="Manage all attempts for this set (view / remove)"
                     aria-label={`Manage attempts on ${a.exam_set_name ?? "exam"}`}
                     className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                   >
@@ -637,8 +637,8 @@ function AttemptsManagerModal({ slug, attempts, onClose, onDeleted }: {
   async function deleteSelected() {
     if (checked.size === 0) return;
     if (!window.confirm(
-      `Delete ${checked.size} attempt${checked.size === 1 ? "" : "s"} permanently? `
-      + "Scores and answers are removed — this can't be undone.")) return;
+      `Remove ${checked.size} attempt${checked.size === 1 ? "" : "s"} from your history? `
+      + "They disappear from your dashboard and results — you can't undo this.")) return;
     setBusy(true); setError(null);
     const deleted: number[] = [];
     try {

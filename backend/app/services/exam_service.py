@@ -277,8 +277,11 @@ class ExamService:
         if existing and not self._draft_is_live(existing) \
                 and not self._has_any_answer(existing.id):
             # A timed-out draft with NOTHING answered has no result worth
-            # freezing — discard instead of minting a 0% history row.
-            self.db.delete(existing)
+            # freezing — mark abandoned instead of minting a 0% history
+            # row. Marked, never deleted: exam_sessions is a guarded
+            # table and deploy.sh aborts when guarded rows disappear
+            # (incident 2026-08-07).
+            existing.status = "abandoned"
             self.db.commit()
 
         now = datetime.now(timezone.utc)
@@ -355,7 +358,7 @@ class ExamService:
         for s in sessions:
             if s.status == "in_progress" and not self._draft_is_live(s, now):
                 if not self._has_any_answer(s.id):
-                    self.db.delete(s)
+                    s.status = "abandoned"   # marked, never deleted
                     self.db.commit()
                     continue
                 if finalized < _FINALIZE_CAP:
@@ -761,17 +764,26 @@ class ExamService:
 
     def delete_attempt(self, actor: "User | str | None",
                        attempt_id: int, admin: bool = False) -> None:
-        """Delete an attempt (any status) with its answer rows.
+        """Remove an attempt from the owner's history (any status).
 
-        Owner path: a user prunes their own history, or discards an
+        Owner path: a user prunes their history, or discards an
         in-progress draft to start the set fresh. Anonymous attempts are
-        deletable by the matching X-Anon-Token holder. Admin path: an
+        removable by the matching X-Anon-Token holder. Admin path: an
         admin removes an attempt while reviewing a candidate's exam
-        details (endpoint is admin-gated). The answers relationship
-        cascades (delete-orphan), so the rows go with the session.
+        details (endpoint is admin-gated).
+
+        SOFT removal by design. `exam_sessions` and
+        `exam_attempt_answers` are GUARDED_TABLES — deploy.sh aborts and
+        auto-rolls-back when a guarded table loses rows, so a hard
+        DELETE here would turn "a user tidied their history during a
+        deploy window" into a failed production deploy (the same guard
+        that stopped migration 0046 on 2026-08-07). Marked rows are
+        filtered out of every read path, so the attempt is gone as far
+        as users and admins are concerned; account-level erasure stays
+        with the GDPR delete-account flow.
         """
         session = self._load_session(actor, attempt_id, admin=admin)
-        self.db.delete(session)
+        session.status = "deleted"
         self.db.commit()
 
     # -------------------------------------------------------------- helpers
@@ -797,6 +809,10 @@ class ExamService:
                       attempt_id: int, admin: bool = False) -> ExamSession:
         session = self.db.get(ExamSession, attempt_id)
         if not session:
+            raise NotFoundError("Attempt not found.")
+        # Soft-removed sittings are gone as far as every caller is
+        # concerned (see delete_attempt for why rows survive).
+        if session.status in ("deleted", "abandoned"):
             raise NotFoundError("Attempt not found.")
         if admin:
             return session          # admin support view: any user's attempt (endpoint is admin-gated)
