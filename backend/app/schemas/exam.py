@@ -6,7 +6,12 @@ from app.schemas.exam_set import ExamSetSummaryOut
 from app.schemas.question import QuestionAttemptView, QuestionResultView
 
 
-AttemptStatus = Literal["in_progress", "submitted", "expired"]
+# "abandoned" = an expired sitting nobody answered; "deleted" = removed
+# from history by its owner or an admin. Both are soft states: the rows
+# survive (exam_sessions is a GUARDED_TABLE — deploy.sh aborts when
+# guarded rows vanish) but every read path filters them out.
+AttemptStatus = Literal["in_progress", "submitted", "expired",
+                        "abandoned", "deleted"]
 
 
 class ExamAttemptOut(BaseModel):

@@ -64,18 +64,46 @@ def test_paused_draft_with_stale_deadline_is_still_resumable(client, user, db,
         > datetime.now(timezone.utc)
 
 
-def test_drained_zero_answer_draft_is_discarded_not_scored(client, user, db,
+def test_drained_zero_answer_draft_is_abandoned_not_scored(client, user, db,
                                                            sample_exam_set):
+    """Empty drained draft disappears from every view — but the ROW
+    survives: exam_sessions is a GUARDED_TABLE and deploy.sh aborts when
+    guarded rows vanish (incident 2026-08-07)."""
     headers = auth_header(client, user.email)
     a = _start(client, headers, sample_exam_set.slug)
     s = db.get(ExamSession, a["id"])
     s.remaining_seconds = 0
     db.commit()
 
-    # History sweep: the empty drained draft vanishes — no 0% junk row.
+    # History sweep: no 0% junk row, and no resumable draft either.
     rows = client.get("/api/v1/exams/attempts", headers=headers).json()
     assert all(x["id"] != a["id"] for x in rows)
-    assert db.get(ExamSession, a["id"]) is None
+    # Row preserved, marked — and unreachable through the API.
+    db.expire_all()
+    assert db.get(ExamSession, a["id"]).status == "abandoned"
+    assert client.get(f"/api/v1/exams/attempts/{a['id']}",
+                      headers=headers).status_code == 404
+
+
+def test_removed_attempt_is_soft_and_row_survives(client, user, db,
+                                                  sample_exam_set):
+    """Deleting from history is a SOFT removal for the same guard
+    reason: a user tidying their history mid-deploy must not abort a
+    production deploy."""
+    headers = auth_header(client, user.email)
+    a = _start(client, headers, sample_exam_set.slug)
+    client.post(f"/api/v1/exams/attempts/{a['id']}/submit", headers=headers)
+
+    r = client.delete(f"/api/v1/exams/attempts/{a['id']}", headers=headers)
+    assert r.status_code == 204
+    # Gone from history and unreachable …
+    rows = client.get("/api/v1/exams/attempts", headers=headers).json()
+    assert all(x["id"] != a["id"] for x in rows)
+    assert client.get(f"/api/v1/exams/attempts/{a['id']}/result",
+                      headers=headers).status_code == 404
+    # … but the row (and its answers) are still there.
+    db.expire_all()
+    assert db.get(ExamSession, a["id"]).status == "deleted"
 
 
 def test_drained_draft_with_answers_auto_submits_honestly(client, user, db,
