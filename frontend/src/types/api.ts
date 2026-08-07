@@ -246,6 +246,11 @@ export interface ExamSetSummaryOut {
   cover_image_url: string | null;
   question_count: number;
   user_attempts: number;
+  /** Signed-in user has an unexpired in-progress sitting (draft) on this
+   *  set. One draft per (user, set); the start endpoint resumes it, so
+   *  the UI shows "Resume" instead of "Start". Optional: absent in
+   *  anonymous/SSR responses and older fixtures — treat as false. */
+  in_progress?: boolean;
 }
 export interface ExamSetAdminIn {
   name: string;

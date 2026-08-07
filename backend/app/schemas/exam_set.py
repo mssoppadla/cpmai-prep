@@ -15,6 +15,11 @@ class ExamSetSummaryOut(BaseModel):
     cover_image_url: str | None = None
     question_count: int = 0
     user_attempts: int = 0
+    # True when the current signed-in user has an unexpired in-progress
+    # sitting (a "draft") on this set. One draft per (user, set) — the
+    # start endpoint resumes it instead of opening a second one, so the
+    # frontend renders "Resume" instead of "Start".
+    in_progress: bool = False
 
     class Config:
         from_attributes = True

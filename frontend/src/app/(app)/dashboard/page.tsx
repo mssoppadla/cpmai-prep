@@ -427,10 +427,37 @@ function MyCoursesSection() {
  */
 function ExamHistorySection() {
   const [attempts, setAttempts] = useState<AttemptHistoryOut[] | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  // Sets with a live in-progress draft, keyed by slug. A draft never
+  // replaces the latest submitted result below — both render side by
+  // side until the new sitting is submitted (then the draft chip goes
+  // and the fresh result takes over as latest).
+  const [draftSets, setDraftSets] = useState<ExamSetSummaryOut[]>([]);
 
   useEffect(() => {
     examsApi.listAttempts().then(setAttempts).catch(() => setAttempts([]));
+    examsApi.listSets()
+      .then((sets) => setDraftSets(sets.filter((s) => s.in_progress)))
+      .catch(() => { /* draft chips are enrichment — history still renders */ });
   }, []);
+
+  // Deleting the shown (latest) attempt re-runs the collapse below, so an
+  // older attempt for the same set surfaces in its place — history prunes
+  // one sitting at a time, never a whole set's record at once.
+  async function handleDelete(id: number) {
+    if (!window.confirm(
+      "Delete this attempt? Its score and domain breakdown are removed "
+      + "permanently — this can't be undone.")) return;
+    setDeletingId(id);
+    try {
+      await examsApi.deleteAttempt(id);
+      setAttempts((prev) => prev?.filter((a) => a.id !== id) ?? prev);
+    } catch (e) {
+      window.alert(`Couldn't delete the attempt: ${errMsg(e)}`);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   // Collapse to the single most-recent attempt per exam set (a domain-practice
   // run is treated as its own "set" so it doesn't hide the full-set result).
@@ -452,6 +479,13 @@ function ExamHistorySection() {
 
   if (attempts === null) return null; // resolve quietly; no flash
 
+  const draftSlugs = new Set(
+    draftSets.map((s) => s.slug).filter(Boolean));
+  // Drafts on sets that have no submitted result yet get their own row
+  // below; drafts on sets WITH a result show as a chip on that row.
+  const draftOnlySets = draftSets.filter(
+    (s) => !latest.some((a) => a.exam_set_slug === s.slug && !a.practice_domain));
+
   return (
     <section className="max-w-5xl mx-auto px-6 pb-8">
       <h2 className="text-lg font-semibold text-slate-900 mb-1">
@@ -462,12 +496,35 @@ function ExamHistorySection() {
         you scored high or low on, and where to focus next.
       </p>
 
-      {latest.length === 0 ? (
+      {draftOnlySets.length > 0 && (
+        <div className="bg-white rounded-xl border border-amber-200 divide-y divide-amber-100 overflow-hidden mb-3">
+          {draftOnlySets.map((s) => (
+            <Link
+              key={s.id}
+              href={`/exams/${s.slug}`}
+              className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-amber-50"
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-900 truncate">{s.name}</div>
+                <div className="text-xs text-amber-700 mt-0.5">
+                  In progress — your answers so far are saved
+                </div>
+              </div>
+              <span className="text-xs font-semibold text-white bg-indigo-600 rounded px-2.5 py-1 shrink-0">
+                Resume →
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {latest.length === 0 && draftOnlySets.length === 0 && (
         <p className="text-sm text-slate-500 bg-white border border-slate-200 rounded-xl p-5">
           No completed exams yet — finish a set and your result will appear here,
           so you can come back to your domain breakdown anytime.
         </p>
-      ) : (
+      )}
+      {latest.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
           {latest.map((a) => {
             const dt = new Date(a.submitted_at);
@@ -496,6 +553,29 @@ function ExamHistorySection() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
+                  {/* A new draft on this set never hides this result —
+                      both show until the draft is submitted, then the
+                      fresh result replaces this row as latest. (span,
+                      not Link: rows can't nest anchors.) */}
+                  {!a.practice_domain && a.exam_set_slug
+                    && draftSlugs.has(a.exam_set_slug) && (
+                    <span
+                      role="link" tabIndex={0}
+                      onClick={(e) => {
+                        e.preventDefault(); e.stopPropagation();
+                        window.location.href = `/exams/${a.exam_set_slug}`;
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault(); e.stopPropagation();
+                          window.location.href = `/exams/${a.exam_set_slug}`;
+                        }
+                      }}
+                      className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded px-2 py-1 hover:bg-amber-100 cursor-pointer"
+                    >
+                      ⏸ Resume draft →
+                    </span>
+                  )}
                   <span className={`text-lg font-bold tabular-nums ${
                     a.passed ? "text-emerald-700" : "text-rose-600"
                   }`}>
@@ -509,6 +589,19 @@ function ExamHistorySection() {
                     {a.passed ? "Passed" : "Keep practicing"}
                   </span>
                   <span className="text-indigo-600 text-sm hidden sm:inline">View →</span>
+                  <button
+                    onClick={(e) => {
+                      // Row is a Link — keep the click from navigating.
+                      e.preventDefault(); e.stopPropagation();
+                      void handleDelete(a.id);
+                    }}
+                    disabled={deletingId === a.id}
+                    title="Delete this attempt permanently"
+                    aria-label={`Delete attempt on ${a.exam_set_name ?? "exam"}`}
+                    className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    {deletingId === a.id ? "…" : "🗑"}
+                  </button>
                 </div>
               </Link>
             );

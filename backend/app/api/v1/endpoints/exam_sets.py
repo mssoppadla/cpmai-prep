@@ -1,5 +1,8 @@
 """User-facing exam set endpoints."""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_actor, get_optional_user
 from app.core.exceptions import NotFoundError
@@ -13,7 +16,8 @@ from app.services.exam_service import ExamService
 router = APIRouter()
 
 
-def _to_summary(es: ExamSet, user_attempts: int = 0) -> ExamSetSummaryOut:
+def _to_summary(es: ExamSet, user_attempts: int = 0,
+                in_progress: bool = False) -> ExamSetSummaryOut:
     return ExamSetSummaryOut(
         id=es.id, name=es.name, slug=es.slug, description=es.description,
         difficulty=es.difficulty, time_limit_minutes=es.time_limit_minutes,
@@ -21,6 +25,7 @@ def _to_summary(es: ExamSet, user_attempts: int = 0) -> ExamSetSummaryOut:
         cover_image_url=es.cover_image_url,
         question_count=len(es.questions),
         user_attempts=user_attempts,
+        in_progress=in_progress,
     )
 
 
@@ -31,12 +36,29 @@ def list_active_sets(db: Session = Depends(get_db),
             .order_by(ExamSet.display_order, ExamSet.id).all())
     if not user:
         return [_to_summary(es) for es in sets]
+    set_ids = [s.id for s in sets]
+    # Was `dict(query(exam_set_id, id))` — which mapped set → session ID,
+    # so "user_attempts" displayed a row id, not a count. Aggregate
+    # properly.
     counts = dict(
-        db.query(ExamSession.exam_set_id, ExamSession.id)
-          .filter(ExamSession.user_id == user.id, ExamSession.exam_set_id.in_(
-              [s.id for s in sets])).all()
+        db.query(ExamSession.exam_set_id, func.count(ExamSession.id))
+          .filter(ExamSession.user_id == user.id,
+                  ExamSession.exam_set_id.in_(set_ids))
+          .group_by(ExamSession.exam_set_id).all()
     )
-    return [_to_summary(es, counts.get(es.id, 0)) for es in sets]
+    # Sets where this user has a live draft (unexpired in-progress
+    # sitting) → the frontend offers Resume instead of Start.
+    drafts = {
+        row[0] for row in
+        db.query(ExamSession.exam_set_id)
+          .filter(ExamSession.user_id == user.id,
+                  ExamSession.exam_set_id.in_(set_ids),
+                  ExamSession.status == "in_progress",
+                  ExamSession.expires_at > datetime.now(timezone.utc))
+          .all()
+    }
+    return [_to_summary(es, counts.get(es.id, 0), es.id in drafts)
+            for es in sets]
 
 
 @router.get("/{slug}", response_model=ExamSetSummaryOut)
@@ -46,11 +68,18 @@ def get_set(slug: str, db: Session = Depends(get_db),
     if not es:
         raise NotFoundError("Exam set not found.")
     n = 0
+    draft = False
     if user:
         n = db.query(ExamSession).filter_by(
             user_id=user.id, exam_set_id=es.id,
         ).count()
-    return _to_summary(es, n)
+        draft = db.query(ExamSession).filter(
+            ExamSession.user_id == user.id,
+            ExamSession.exam_set_id == es.id,
+            ExamSession.status == "in_progress",
+            ExamSession.expires_at > datetime.now(timezone.utc),
+        ).first() is not None
+    return _to_summary(es, n, draft)
 
 
 @router.post("/{slug}/start", response_model=ExamAttemptOut, status_code=201)

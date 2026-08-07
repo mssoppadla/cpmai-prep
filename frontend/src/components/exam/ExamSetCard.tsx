@@ -31,6 +31,20 @@ export function ExamSetCard({ set }: { set: ExamSetSummaryOut }) {
           ⭐ Premium — subscription required
         </div>
       )}
+      {/* Live draft: entering the set resumes the same sitting (server
+          keeps one in-progress attempt per user per set), so this card
+          becomes an explicit Resume affordance instead of a generic
+          start link. */}
+      {set.in_progress && (
+        <div className="mt-3 flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <span className="text-xs font-medium text-amber-800">
+            ⏸ Attempt in progress — your answers so far are saved
+          </span>
+          <span className="text-xs font-semibold text-white bg-indigo-600 rounded px-2.5 py-1">
+            Resume →
+          </span>
+        </div>
+      )}
       {set.user_attempts > 0 && (
         <div className="mt-3 text-xs text-slate-500">
           You have {set.user_attempts} previous attempt{set.user_attempts === 1 ? "" : "s"}

@@ -36,3 +36,4 @@ from app.models.social import Campaign, CampaignRun                  # noqa
 from app.models.email_template import EmailTemplate                  # noqa
 from app.models.testimonial import Testimonial                       # noqa
 from app.models.email_automation import EmailAutomation, EmailOutbox  # noqa
+from app.models.error_log import ErrorLog                             # noqa
