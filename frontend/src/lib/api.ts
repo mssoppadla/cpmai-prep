@@ -52,6 +52,34 @@ import type {
   CampaignCreateIn, CampaignUpdateIn, CampaignOut,
   CampaignRunOut, MarkPostedIn, WorkflowMetaOut,
 } from "@/types/api";
+import { reportClientError, classifyNetworkError } from "@/lib/error-reporter";
+
+/** /admin/error-logs/summary response. */
+export interface ErrorLogSummary {
+  window_minutes: number;
+  since: string;
+  total: number;
+  affected_users: number;
+  affected_anons: number;
+  by_source: { source: string; count: number }[];
+  top_types: { error_type: string; count: number }[];
+  top_paths: { path: string; count: number }[];
+}
+
+/** One row of /admin/error-logs. */
+export interface ErrorLogRow {
+  id: number;
+  created_at: string | null;
+  source: string;
+  error_type: string;
+  status_code: number | null;
+  path: string | null;
+  method: string | null;
+  message: string | null;
+  user_id: number | null;
+  anon_id: string | null;
+  user_agent: string | null;
+}
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -208,17 +236,43 @@ async function request<T>(path: string, opts: FetchOpts = {}): Promise<{
     const at = getOrCreateAnonToken();
     if (at) headers.set("X-Anon-Token", at);
   }
-  const res = await fetch(`${BASE}${path}`, {
-    ...opts,
-    headers,
-    // Auth is carried in the Authorization header (Bearer token from
-    // localStorage), not cookies. Forcing credentials: "include" on every
-    // request triggered credentialed CORS on anonymous endpoints like
-    // POST /leads — and against a wildcard CORS origin the browser
-    // rejects the response, surfacing as `TypeError: Failed to fetch`.
-    credentials: opts.credentials ?? "same-origin",
-    body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...opts,
+      headers,
+      // Auth is carried in the Authorization header (Bearer token from
+      // localStorage), not cookies. Forcing credentials: "include" on every
+      // request triggered credentialed CORS on anonymous endpoints like
+      // POST /leads — and against a wildcard CORS origin the browser
+      // rejects the response, surfacing as `TypeError: Failed to fetch`.
+      credentials: opts.credentials ?? "same-origin",
+      body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body,
+    });
+  } catch (e) {
+    // The request died on the wire (QUIC stall, dropped connection,
+    // DNS) — the one failure class the backend can't log itself. Report
+    // it for /admin/error-logs, then rethrow unchanged so callers keep
+    // their existing behavior. Fire-and-forget; never blocks or loops
+    // (the reporter uses its own fetch + throttling + self-path guard).
+    reportClientError({
+      source: "network",
+      error_type: classifyNetworkError(e),
+      message: e instanceof Error ? e.message : String(e),
+      path,
+      method: opts.method ?? "GET",
+    });
+    throw e;
+  }
+  if (res.status >= 500) {
+    reportClientError({
+      source: "api",
+      error_type: `HTTP_${res.status}`,
+      path,
+      method: opts.method ?? "GET",
+      status_code: res.status,
+    });
+  }
 
   // 401 silent-refresh interceptor.
   // When an authed request comes back 401 (likely access-token expiry),
@@ -378,6 +432,13 @@ export const exams = {
       { method: "POST", authed: true, withAnon: true }
     );
     return data;
+  },
+  /** Delete one of the caller's own attempts — prune a past result from
+   *  history or discard an in-progress draft. Ownership enforced
+   *  server-side (user id or anon token must match). */
+  async deleteAttempt(id: number): Promise<void> {
+    await request(`/exams/attempts/${id}`,
+      { method: "DELETE", authed: true, withAnon: true });
   },
 };
 
@@ -1412,6 +1473,21 @@ export const admin = {
       return data;
     },
   },
+  /** Client error feed (/admin/error-logs). `minutes` is the look-back
+   *  window — dashboard presets 5m/10m/1h/24h, admin-configurable. */
+  errorLogs: {
+    async summary(minutes: number) {
+      const { data } = await request<ErrorLogSummary>(
+        `/admin/error-logs/summary?minutes=${minutes}`, { authed: true });
+      return data;
+    },
+    async list(p: { minutes: number; source?: string; error_type?: string;
+                    limit?: number; offset?: number }) {
+      const { data } = await request<{ total: number; rows: ErrorLogRow[] }>(
+        `/admin/error-logs${qs(p)}`, { authed: true });
+      return data;
+    },
+  },
   cmsAi: {
     async generatePage(p: CmsGeneratePageIn) {
       const { data } = await request<CmsGeneratePageOut>(
@@ -1832,6 +1908,12 @@ export const admin = {
       const { data } = await request<SubmitAttemptOut>(
         `/admin/exams/attempts/${attemptId}/result`, { authed: true });
       return data;
+    },
+    /** Delete any user's attempt (answers cascade). Used from the user
+     *  insights view to clear a broken or stale sitting on request. */
+    async deleteAttempt(id: number): Promise<void> {
+      await request(`/admin/exams/attempts/${id}`,
+        { method: "DELETE", authed: true });
     },
   },
   users: {

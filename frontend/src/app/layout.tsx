@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { AssistantWidgetMount } from "@/components/assistant/AssistantWidgetMount";
 import { TrackerMount } from "@/components/tracker/TrackerMount";
+import { ErrorReporterMount } from "@/components/errors/ErrorReporterMount";
 import { AdsScripts } from "@/components/ads/AdsScripts";
 import { ConsentBanner } from "@/components/ads/ConsentBanner";
 
@@ -71,6 +72,10 @@ export const metadata: Metadata = {
     title: "CPMAI Prep",
     statusBarStyle: "default",
   },
+  // Chrome deprecated the apple- prefixed tag (console warning on every
+  // page); the standard tag must accompany it. appleWebApp above still
+  // emits the apple one for iOS Safari.
+  other: { "mobile-web-app-capable": "yes" },
   icons: {
     icon: [
       { url: "/icons/icon.svg", type: "image/svg+xml" },
@@ -94,6 +99,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Chat widget — follows signed-in users across every page.
             Self-hides for anon visitors (so marketing pages stay clean). */}
         <AssistantWidgetMount />
+        {/* Error reporter — window-level uncaught-error hooks feeding
+            /admin/error-logs. API-level failures are reported from
+            lib/api.ts directly. */}
+        <ErrorReporterMount />
         {/* Visitor Insights tracker — captures page views, active
             time, scroll depth, CTA clicks for the /admin/insights
             dashboard. Wrapped in Suspense because useSearchParams()

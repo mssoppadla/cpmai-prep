@@ -54,6 +54,20 @@ export default function AdminUserInsightsPage() {
     finally { setLoading(false); }
   }
 
+  // Remove one attempt (answers cascade server-side), then refetch the
+  // insights so the summary stats (counts / best / avg) stay consistent
+  // with the table instead of drifting from a local splice.
+  async function deleteAttempt(attemptId: number) {
+    if (!selected) return;
+    if (!window.confirm(
+      "Delete this attempt for the selected user? Score and answers are "
+      + "removed permanently — this can't be undone.")) return;
+    try {
+      await admin.exams.deleteAttempt(attemptId);
+      setData(await admin.users.insights(selected.id));
+    } catch (e) { setErr(errMsg(e)); }
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       <div>
@@ -165,11 +179,18 @@ export default function AdminUserInsightsPage() {
                         </td>
                         <td className="py-2 pr-3">{a.time_taken_seconds ? fmtDuration(a.time_taken_seconds) : "—"}</td>
                         <td className="py-2 pr-3 text-slate-500">{fmtDate(a.submitted_at)}</td>
-                        <td className="py-2">
+                        <td className="py-2 whitespace-nowrap">
                           <Link href={`/admin/user-insights/attempts/${a.id}`}
                                 className="text-indigo-600 hover:underline">
                             View
                           </Link>
+                          <button
+                            onClick={() => void deleteAttempt(a.id)}
+                            title="Delete this attempt permanently"
+                            className="ml-3 text-rose-600 hover:underline"
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))}

@@ -10,6 +10,26 @@
 # To add another subdomain (e.g. n8n.cpmaiexamprep.com), append a new
 # block at the bottom — Caddy issues a fresh cert on the next reload.
 
+# HTTP/3 (QUIC) is disabled deliberately. Caddy's default is to listen
+# on udp/443 and stamp `Alt-Svc: h3` with a 30-day lifetime on every
+# response; when udp/443 is dropped anywhere on the path (host firewall,
+# provider edge, corporate/mobile networks), browsers that cached the
+# hint stall on QUIC before falling back to TCP. That surfaced as
+# ERR_QUIC_PROTOCOL_ERROR + multi-second page loads for SOME users while
+# the site looked healthy on every probe (incidents 2026-08-03 and
+# 2026-08-06). h1+h2 over TCP works everywhere; never advertise what the
+# network may eat.
+#
+# NOTE: deploy.sh does NOT converge this file. To apply on the VPS:
+#     sudo cp infra/Caddyfile /etc/caddy/Caddyfile
+#     sudo caddy validate --config /etc/caddy/Caddyfile
+#     sudo systemctl reload caddy      # reload, NOT restart — zero downtime
+{
+    servers {
+        protocols h1 h2
+    }
+}
+
 # Apex domain → Next.js frontend
 cpmaiexamprep.com {
     encode gzip zstd

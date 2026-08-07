@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ApiError, auth, exams as examsApi, errMsg } from "@/lib/api";
-import type { ExamAttemptOut, UserOut } from "@/types/api";
+import type { AnswerIn, ExamAttemptOut, UserOut } from "@/types/api";
 import {
   QuestionCard, type QuestionRanges, type Tool,
 } from "@/components/exam/QuestionCard";
@@ -13,6 +13,25 @@ type AnnotationsByQ = Record<number, QuestionRanges>;
 
 const annKey  = (attemptId: number) => `cpmai.exam.annotations.${attemptId}`;
 const markKey = (attemptId: number) => `cpmai.exam.marked.${attemptId}`;
+/** Answers whose PATCH hasn't been confirmed by the server yet. Backed by
+ *  localStorage so a network drop, tab crash, or reload mid-save never
+ *  loses the selection — on the next load (or the retry tick) they are
+ *  replayed. save_answer is an idempotent upsert server-side, so
+ *  replaying an already-saved answer is harmless. */
+const pendKey = (attemptId: number) => `cpmai.exam.pending.${attemptId}`;
+
+type PendingByQ = Record<number, AnswerIn>;
+
+function readPending(attemptId: number): PendingByQ {
+  try { return JSON.parse(localStorage.getItem(pendKey(attemptId)) ?? "{}"); }
+  catch { return {}; }
+}
+function writePending(attemptId: number, p: PendingByQ) {
+  try {
+    if (Object.keys(p).length === 0) localStorage.removeItem(pendKey(attemptId));
+    else localStorage.setItem(pendKey(attemptId), JSON.stringify(p));
+  } catch { /* storage full/blocked — retry loop still holds it in memory */ }
+}
 
 /** Convert any thrown error into a discriminated-friendly shape. */
 function toApiErr(e: unknown): { message: string; code: string; status: number } {
@@ -36,6 +55,9 @@ export default function ExamAttemptPage() {
   // Set when the countdown reached zero — shows the "time's up" notice
   // while the auto-submit is in flight.
   const [timeUp, setTimeUp] = useState(false);
+  // Non-fatal submit failure (network drop). Shown as a banner so the
+  // sitting stays on screen for a retry — never the full error page.
+  const [submitIssue, setSubmitIssue] = useState<string | null>(null);
   const [marked, setMarked] = useState<Record<number, boolean>>({});
   const [annotations, setAnnotations] = useState<AnnotationsByQ>({});
   const [tool, setTool] = useState<Tool>("none");
@@ -43,6 +65,97 @@ export default function ExamAttemptPage() {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [me, setMe] = useState<UserOut | null | undefined>(undefined);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Answers awaiting server confirmation (see pendKey). Kept in a ref so
+  // the retry tick and event handlers always see the live queue without
+  // re-subscribing; pendingCount mirrors it into state for the banner.
+  const pendingRef = useRef<PendingByQ>({});
+  const [pendingCount, setPendingCount] = useState(0);
+  const flushingRef = useRef(false);
+
+  const setPending = useCallback((attemptId: number, next: PendingByQ) => {
+    pendingRef.current = next;
+    writePending(attemptId, next);
+    setPendingCount(Object.keys(next).length);
+  }, []);
+
+  /** Try to push one answer to the server. Returns true when the queue
+   *  entry can be dropped (saved, or a non-retryable rejection). Network
+   *  failures and 5xx/429 keep the entry queued for the retry tick. */
+  const trySave = useCallback(async (attemptId: number, payload: AnswerIn): Promise<boolean> => {
+    try {
+      await examsApi.saveAnswer(attemptId, payload);
+      return true;
+    } catch (e) {
+      if (e instanceof ApiError && e.status < 500 && e.status !== 429) {
+        // Server understood and rejected (409 time-up, 401, bad shape) —
+        // retrying the same payload can't succeed. Surface auth/paywall
+        // fatally; time-up is handled by the auto-submit path.
+        if (e.status === 401 || e.status === 402) setError(toApiErr(e));
+        else console.error("[exam] saveAnswer rejected", e);
+        return true;
+      }
+      // Timeout / connection drop / QUIC stall / 5xx — keep for retry.
+      console.warn("[exam] saveAnswer queued for retry", e);
+      return false;
+    }
+  }, []);
+
+  /** Replay every queued answer, oldest first. Serial on purpose — one
+   *  in-flight request on a struggling connection beats a burst. */
+  const flushPending = useCallback(async (attemptId: number) => {
+    if (flushingRef.current) return;
+    flushingRef.current = true;
+    try {
+      for (const [qid, payload] of Object.entries(pendingRef.current)) {
+        const done = await trySave(attemptId, payload);
+        if (done) {
+          const next = { ...pendingRef.current };
+          delete next[Number(qid)];
+          setPending(attemptId, next);
+        }
+      }
+    } finally {
+      flushingRef.current = false;
+    }
+  }, [trySave, setPending]);
+
+  /** Queue an answer (survives reload) and attempt the save now. The UI
+   *  has already been updated optimistically by the caller — a transient
+   *  failure shows the "saving in background" banner, never the fatal
+   *  error screen that used to eat the whole exam. */
+  const queueSave = useCallback(async (attemptId: number, payload: AnswerIn) => {
+    setPending(attemptId, { ...pendingRef.current, [payload.question_id]: payload });
+    const done = await trySave(attemptId, payload);
+    if (done) {
+      // Only drop if a later selection for the same question hasn't
+      // replaced the queued payload while this request was in flight.
+      if (pendingRef.current[payload.question_id] === payload) {
+        const next = { ...pendingRef.current };
+        delete next[payload.question_id];
+        setPending(attemptId, next);
+      }
+    }
+  }, [trySave, setPending]);
+
+  // Retry tick: every 5s replay whatever is still unconfirmed. Also
+  // fires once immediately after a reload that restored a queue.
+  useEffect(() => {
+    if (!attempt) return;
+    const iv = setInterval(() => {
+      if (Object.keys(pendingRef.current).length > 0) void flushPending(attempt.id);
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [attempt, flushPending]);
+
+  // Warn before closing the tab while answers are still unconfirmed.
+  // (They'd be replayed on the next visit thanks to localStorage, but a
+  // heads-up beats silent uncertainty during a timed sitting.)
+  useEffect(() => {
+    if (pendingCount === 0) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [pendingCount]);
 
   // Resolve auth state in parallel with starting the attempt — used to
   // surface an "anonymous: result won't be saved" banner for guest users.
@@ -63,6 +176,26 @@ export default function ExamAttemptPage() {
       : examsApi.startAttempt(slug);
     starting
       .then((a) => {
+        // Replay answers that never got server confirmation before the
+        // last unload (network drop / crash mid-save). They overlay the
+        // server's user_answers so the palette and selections match what
+        // the candidate actually chose; the retry tick syncs them up.
+        const restored = readPending(a.id);
+        pendingRef.current = restored;
+        setPendingCount(Object.keys(restored).length);
+        if (Object.keys(restored).length > 0) {
+          const overlay: Record<number, string | null> = {};
+          const overlayMarked: Record<number, boolean> = {};
+          for (const p of Object.values(restored)) {
+            overlay[p.question_id] = p.selected_letters !== undefined && p.selected_letters !== null
+              ? ([...p.selected_letters].sort().join(",") || null)
+              : (p.selected_letter ?? null);
+            overlayMarked[p.question_id] = p.marked_for_review ?? false;
+          }
+          a = { ...a, user_answers: { ...a.user_answers, ...overlay } };
+          setMarked((m) => ({ ...m, ...overlayMarked }));
+          void flushPending(a.id);
+        }
         setAttempt(a);
         const secs = Math.max(0,
           Math.floor((new Date(a.expires_at).getTime() - Date.now()) / 1000));
@@ -71,7 +204,7 @@ export default function ExamAttemptPage() {
           const ann = JSON.parse(localStorage.getItem(annKey(a.id)) ?? "{}");
           setAnnotations(ann);
           const mk = JSON.parse(localStorage.getItem(markKey(a.id)) ?? "{}");
-          setMarked(mk);
+          setMarked((m) => ({ ...mk, ...m }));
         } catch { /* ignore */ }
       })
       .catch((e) => {
@@ -141,41 +274,32 @@ export default function ExamAttemptPage() {
     const wire = arrToWire(letters);
     const next = { ...attempt, user_answers: { ...attempt.user_answers, [q.id]: wire } };
     setAttempt(next);
-    try {
-      // Send the right field for the question's type — server enforces
-      // the shape (mismatch returns 409).
-      const payload =
-        q.question_type === "multi_choice"
-          ? { question_id: q.id, selected_letters: letters,
-              marked_for_review: marked[q.id] ?? false }
-          : { question_id: q.id, selected_letter: letters[0] ?? null,
-              marked_for_review: marked[q.id] ?? false };
-      await examsApi.saveAnswer(attempt.id, payload);
-    } catch (e) {
-      console.error("[exam] saveAnswer", e);
-      setError(toApiErr(e));
-    }
-  }, [attempt, index, marked]);
+    // Send the right field for the question's type — server enforces
+    // the shape (mismatch returns 409). Queued + retried on network
+    // failure so a timeout never costs the candidate their selection.
+    const payload =
+      q.question_type === "multi_choice"
+        ? { question_id: q.id, selected_letters: letters,
+            marked_for_review: marked[q.id] ?? false }
+        : { question_id: q.id, selected_letter: letters[0] ?? null,
+            marked_for_review: marked[q.id] ?? false };
+    await queueSave(attempt.id, payload);
+  }, [attempt, index, marked, queueSave]);
 
   const toggleReview = useCallback(async () => {
     if (!attempt) return;
     const q = attempt.questions[index];
     const next = { ...marked, [q.id]: !(marked[q.id] ?? false) };
     setMarked(next);
-    try {
-      const arr = wireToArr(attempt.user_answers[q.id]);
-      const payload =
-        q.question_type === "multi_choice"
-          ? { question_id: q.id, selected_letters: arr,
-              marked_for_review: next[q.id] }
-          : { question_id: q.id, selected_letter: arr[0] ?? null,
-              marked_for_review: next[q.id] };
-      await examsApi.saveAnswer(attempt.id, payload);
-    } catch (e) {
-      console.error("[exam] saveAnswer mark", e);
-      setError(toApiErr(e));
-    }
-  }, [attempt, index, marked]);
+    const arr = wireToArr(attempt.user_answers[q.id]);
+    const payload =
+      q.question_type === "multi_choice"
+        ? { question_id: q.id, selected_letters: arr,
+            marked_for_review: next[q.id] }
+        : { question_id: q.id, selected_letter: arr[0] ?? null,
+            marked_for_review: next[q.id] };
+    await queueSave(attempt.id, payload);
+  }, [attempt, index, marked, queueSave]);
 
   const handleRangesChange = useCallback((q_id: number, next: QuestionRanges) => {
     setAnnotations((all) => ({ ...all, [q_id]: next }));
@@ -184,16 +308,51 @@ export default function ExamAttemptPage() {
   async function confirmSubmit() {
     if (!attempt || submitting) return;
     setSubmitting(true);
+    setSubmitIssue(null);
     try {
-      const result = await examsApi.submit(attempt.id);
+      // Push any still-unconfirmed answers first so the score reflects
+      // everything the candidate selected, not just what survived the
+      // network. Submit proceeds even if some remain queued — the server
+      // scores what it has, and a voided sitting is worse than a scored
+      // one missing a flaky answer.
+      await flushPending(attempt.id);
+      // Submit with in-place retries. QUIC stalls / connection drops
+      // surface as TypeError ("Failed to fetch"), not ApiError — those
+      // deserve another shot, not the fatal error screen (which used to
+      // eat the whole sitting on one flaky submit; incident 2026-08-07,
+      // QUIC_TOO_MANY_RTOS on /attempts/601/submit).
+      let result = null;
+      for (let i = 0; ; i++) {
+        try {
+          result = await examsApi.submit(attempt.id);
+          break;
+        } catch (e) {
+          const transient = !(e instanceof ApiError) ||
+                            e.status >= 500 || e.status === 429;
+          if (!transient || i >= 2) throw e;
+          await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, i)));
+        }
+      }
       try {
         localStorage.removeItem(annKey(attempt.id));
         localStorage.removeItem(markKey(attempt.id));
+        localStorage.removeItem(pendKey(attempt.id));
       } catch { /* ignore */ }
       router.push(`/exams/results/${result.id}`);
     } catch (e) {
       console.error("[exam] submit", e);
-      setError(toApiErr(e));
+      if (e instanceof ApiError) {
+        // The server responded and refused — a real state problem
+        // (already submitted, ownership, expiry). Full error screen.
+        setError(toApiErr(e));
+      } else {
+        // Network never delivered the request. The attempt is still
+        // in_progress server-side and everything answered is saved —
+        // keep the exam on screen and let the candidate retry.
+        setSubmitIssue(
+          "Couldn't reach the server to submit — your answers are safe. "
+          + "Check your connection and press Submit again.");
+      }
       setSubmitting(false);
     }
   }
@@ -300,6 +459,7 @@ export default function ExamAttemptPage() {
         markedIds={reviewIds}
         unansweredCount={unansweredCount}
         submitting={submitting}
+        issue={submitIssue}
         onJumpTo={(qid) => {
           const i = attempt.questions.findIndex((qq) => qq.id === qid);
           if (i >= 0) setIndex(i);
@@ -327,6 +487,20 @@ export default function ExamAttemptPage() {
              role="alert" aria-live="assertive">
           ⏰ Time&apos;s up — submitting your answers automatically. Everything you
           answered is captured; the rest counts as unanswered…
+        </div>
+      )}
+      {pendingCount > 0 && (
+        <div className="mb-4 px-4 py-2.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 text-sm"
+             role="status" aria-live="polite">
+          <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse mr-2 align-middle" />
+          Connection hiccup — {pendingCount} answer{pendingCount === 1 ? "" : "s"} saving
+          in the background. Keep going; nothing is lost.
+        </div>
+      )}
+      {submitIssue && (
+        <div className="mb-4 px-4 py-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm"
+             role="alert" aria-live="assertive">
+          ⚠ {submitIssue}
         </div>
       )}
       {/* Top utility row — quick exit back to home/FAQs or learner dashboard. */}
@@ -486,12 +660,15 @@ interface ReviewScreenProps {
   markedIds: number[];
   unansweredCount: number;
   submitting: boolean;
+  /** Non-fatal submit failure (network) — shown inline so the candidate
+   *  can simply press Submit again. */
+  issue?: string | null;
   onJumpTo: (questionId: number) => void;
   onEnd: () => void;
   onSubmit: () => void;
 }
 function ReviewScreen({
-  attempt, markedIds, unansweredCount, submitting,
+  attempt, markedIds, unansweredCount, submitting, issue,
   onJumpTo, onEnd, onSubmit,
 }: ReviewScreenProps) {
   const markedQs = attempt.questions
@@ -553,6 +730,12 @@ function ReviewScreen({
         </div>
       )}
 
+      {issue && (
+        <div className="mb-4 px-4 py-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm"
+             role="alert" aria-live="assertive">
+          ⚠ {issue}
+        </div>
+      )}
       <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
         <button onClick={onEnd}
                 className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">

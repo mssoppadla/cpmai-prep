@@ -554,6 +554,21 @@ class ExamService:
             practice_domain=session.practice_domain,
         )
 
+    def delete_attempt(self, actor: "User | str | None",
+                       attempt_id: int, admin: bool = False) -> None:
+        """Delete an attempt (any status) with its answer rows.
+
+        Owner path: a user prunes their own history, or discards an
+        in-progress draft to start the set fresh. Anonymous attempts are
+        deletable by the matching X-Anon-Token holder. Admin path: an
+        admin removes an attempt while reviewing a candidate's exam
+        details (endpoint is admin-gated). The answers relationship
+        cascades (delete-orphan), so the rows go with the session.
+        """
+        session = self._load_session(actor, attempt_id, admin=admin)
+        self.db.delete(session)
+        self.db.commit()
+
     # -------------------------------------------------------------- helpers
     def _ensure_answer_rows(self, session: "ExamSession", es: "ExamSet") -> None:
         """Make sure there's a one-to-one mapping between this attempt's

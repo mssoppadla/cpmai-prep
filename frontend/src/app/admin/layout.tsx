@@ -125,6 +125,7 @@ const GROUPS: NavGroupDef[] = [
       { href: "/admin/payment-providers", label: "Payment Providers" },
       { href: "/admin/geoip",             label: "GeoIP" },
       { href: "/admin/observability",     label: "Observability", badge: "NEW" },
+      { href: "/admin/error-logs",        label: "Error Logs", badge: "NEW" },
     ],
   },
 ];
@@ -145,6 +146,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     let cancelled = false;
+
+    // Fast path: a previously verified admin identity is cached per tab.
+    // Render the shell immediately from cache instead of blocking every
+    // navigation into /admin on a /users/me round trip ("Checking
+    // access…"). The background re-verify below still runs on every
+    // mount — if the session expired or the role changed, the cache is
+    // dropped and the user is bounced exactly as before. Server-side
+    // RBAC remains the real gate; this cache only skips the blocking
+    // spinner, it grants nothing.
+    try {
+      const cached = window.sessionStorage.getItem("cpmai.admin_me");
+      if (cached) {
+        const me = JSON.parse(cached) as UserOut;
+        if (["admin", "super_admin"].includes(me.role)) setUser(me);
+      }
+    } catch { /* corrupt cache — background verify decides */ }
+
     (async () => {
       try {
         const me = await auth.me();
@@ -152,17 +170,25 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         if (!["admin", "super_admin"].includes(me.role)) {
           // Regular users get bounced to their own dashboard, not the
           // marketing landing page.
+          window.sessionStorage.removeItem("cpmai.admin_me");
           router.replace("/dashboard");
           return;
         }
+        window.sessionStorage.setItem("cpmai.admin_me", JSON.stringify(me));
         setUser(me);
       } catch (e) {
         if (cancelled) return;
         // Try refreshing the token first
         const ok = await auth.refresh();
         if (ok) {
-          try { setUser(await auth.me()); return; } catch {}
+          try {
+            const me = await auth.me();
+            window.sessionStorage.setItem("cpmai.admin_me", JSON.stringify(me));
+            setUser(me);
+            return;
+          } catch {}
         }
+        window.sessionStorage.removeItem("cpmai.admin_me");
         setError((e as ApiError)?.body?.message ?? "Sign in required");
         setTimeout(() => router.replace("/login"), 800);
       }
@@ -253,7 +279,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="p-3 border-t border-slate-200 text-xs text-slate-500">
           <div className="font-medium text-slate-700 truncate">{user.email}</div>
           <div className="capitalize">{user.role.replace("_", " ")}</div>
-          <button onClick={async () => { await auth.logout(); router.push("/"); }}
+          <button onClick={async () => {
+                    window.sessionStorage.removeItem("cpmai.admin_me");
+                    await auth.logout(); router.push("/");
+                  }}
                   className="mt-2 text-indigo-600 hover:underline">
             Sign out
           </button>

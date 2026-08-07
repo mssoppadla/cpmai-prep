@@ -32,6 +32,15 @@ def get_attempt(attempt_id: int, db: Session = Depends(get_db),
     return ExamService(db).get_attempt(actor, attempt_id)
 
 
+@router.delete("/attempts/{attempt_id}", status_code=204)
+def delete_attempt(attempt_id: int, db: Session = Depends(get_db),
+                   actor=Depends(get_actor)):
+    """Delete one of your own attempts — prune a past result from history,
+    or discard an in-progress draft to start the set fresh. Ownership is
+    enforced in the service (user id or anon token must match)."""
+    ExamService(db).delete_attempt(actor, attempt_id)
+
+
 @router.patch("/attempts/{attempt_id}/answer", status_code=204)
 def save_answer(attempt_id: int, payload: AnswerIn,
                 db: Session = Depends(get_db),
