@@ -147,6 +147,38 @@ export default function ExamAttemptPage() {
     return () => clearInterval(iv);
   }, [attempt, flushPending]);
 
+  // Pause-on-leave timer: heartbeat every 30s while the tab is VISIBLE
+  // charges active screen time server-side and resyncs the local
+  // countdown to the authoritative remaining budget. Hidden tab = no
+  // beats = the clock pauses (the server charges at most 90s past the
+  // last beat). On unmount/tab-close a keepalive beacon marks the final
+  // activity moment.
+  useEffect(() => {
+    if (!attempt || submitting) return;
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      examsApi.heartbeat(attempt.id)
+        .then((remaining) => setSecondsLeft((s) =>
+          // Resync only on real drift (>2s) so the local 1s tick stays smooth.
+          Math.abs(s - remaining) > 2 ? remaining : s))
+        .catch(() => { /* transient — next beat retries; server cap protects */ });
+    };
+    beat();
+    const iv = setInterval(beat, 30_000);
+    const onHide = () => {
+      if (document.visibilityState === "hidden") examsApi.pauseBeacon(attempt.id);
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onHide);
+      examsApi.pauseBeacon(attempt.id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt?.id, submitting]);
+
   // Warn before closing the tab while answers are still unconfirmed.
   // (They'd be replayed on the next visit thanks to localStorage, but a
   // heads-up beats silent uncertainty during a timed sitting.)
@@ -286,7 +318,7 @@ export default function ExamAttemptPage() {
     if (!attempt) return;
     tickRef.current = setInterval(() => {
       setSecondsLeft((s) => {
-        if (s <= 1 && attempt) { setTimeUp(true); void confirmSubmit(); return 0; }
+        if (s <= 1 && attempt) { setTimeUp(true); void confirmSubmit(true); return 0; }
         return s - 1;
       });
     }, 1000);
@@ -353,7 +385,9 @@ export default function ExamAttemptPage() {
     setAnnotations((all) => ({ ...all, [q_id]: next }));
   }, []);
 
-  async function confirmSubmit() {
+  // `auto` = the countdown hit zero (clock-driven) — the server labels
+  // the result "Auto-submitted — time expired".
+  async function confirmSubmit(auto: boolean = false) {
     if (!attempt || submitting) return;
     setSubmitting(true);
     setSubmitIssue(null);
@@ -372,7 +406,7 @@ export default function ExamAttemptPage() {
       let result = null;
       for (let i = 0; ; i++) {
         try {
-          result = await examsApi.submit(attempt.id);
+          result = await examsApi.submit(attempt.id, { auto });
           break;
         } catch (e) {
           const transient = !(e instanceof ApiError) ||
@@ -555,7 +589,7 @@ export default function ExamAttemptPage() {
           setReviewMode(false);
         }}
         onEnd={() => setReviewMode(false)}
-        onSubmit={confirmSubmit}
+        onSubmit={() => void confirmSubmit()}
       />
     );
   }

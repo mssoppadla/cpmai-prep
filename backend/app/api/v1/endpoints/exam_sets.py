@@ -2,11 +2,11 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header
-from sqlalchemy import func
+from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_actor, get_optional_user
 from app.core.exceptions import NotFoundError
-from app.models.exam_set import ExamSet
+from app.models.exam_set import ExamSet, ExamSetQuestion
 from app.models.exam_session import ExamSession
 from app.models.user import User
 from app.schemas.exam_set import ExamSetSummaryOut
@@ -17,16 +17,31 @@ router = APIRouter()
 
 
 def _to_summary(es: ExamSet, user_attempts: int = 0,
-                in_progress: bool = False) -> ExamSetSummaryOut:
+                in_progress: bool = False,
+                question_count: int | None = None) -> ExamSetSummaryOut:
     return ExamSetSummaryOut(
         id=es.id, name=es.name, slug=es.slug, description=es.description,
         difficulty=es.difficulty, time_limit_minutes=es.time_limit_minutes,
         passing_score=es.passing_score, is_premium=es.is_premium,
         cover_image_url=es.cover_image_url,
-        question_count=len(es.questions),
+        # Prefer a pre-computed COUNT — len(es.questions) lazily loads
+        # every question ROW of the set just to count them, on a hot
+        # public endpoint (perf review 2026-08-07).
+        question_count=(question_count if question_count is not None
+                        else len(es.questions)),
         user_attempts=user_attempts,
         in_progress=in_progress,
     )
+
+
+def _question_counts(db: Session, set_ids: list[int]) -> dict[int, int]:
+    if not set_ids:
+        return {}
+    return dict(
+        db.query(ExamSetQuestion.exam_set_id,
+                 func.count(ExamSetQuestion.question_id))
+          .filter(ExamSetQuestion.exam_set_id.in_(set_ids))
+          .group_by(ExamSetQuestion.exam_set_id).all())
 
 
 @router.get("", response_model=list[ExamSetSummaryOut])
@@ -34,8 +49,10 @@ def list_active_sets(db: Session = Depends(get_db),
                      user: User | None = Depends(get_optional_user)):
     sets = (db.query(ExamSet).filter_by(is_active=True)
             .order_by(ExamSet.display_order, ExamSet.id).all())
+    qcounts = _question_counts(db, [s.id for s in sets])
     if not user:
-        return [_to_summary(es) for es in sets]
+        return [_to_summary(es, question_count=qcounts.get(es.id, 0))
+                for es in sets]
     set_ids = [s.id for s in sets]
     # Was `dict(query(exam_set_id, id))` — which mapped set → session ID,
     # so "user_attempts" displayed a row id, not a count. Aggregate
@@ -46,18 +63,23 @@ def list_active_sets(db: Session = Depends(get_db),
                   ExamSession.exam_set_id.in_(set_ids))
           .group_by(ExamSession.exam_set_id).all()
     )
-    # Sets where this user has a live draft (unexpired in-progress
-    # sitting) → the frontend offers Resume instead of Start.
+    # Sets where this user has a live draft → the frontend offers
+    # Resume instead of Start. Liveness is budget-based (pause-on-leave
+    # timer): remaining_seconds > 0; legacy rows (NULL budget, pre-0046)
+    # fall back to the wall-clock rule.
     drafts = {
         row[0] for row in
         db.query(ExamSession.exam_set_id)
           .filter(ExamSession.user_id == user.id,
                   ExamSession.exam_set_id.in_(set_ids),
                   ExamSession.status == "in_progress",
-                  ExamSession.expires_at > datetime.now(timezone.utc))
+                  or_(ExamSession.remaining_seconds > 0,
+                      and_(ExamSession.remaining_seconds.is_(None),
+                           ExamSession.expires_at > datetime.now(timezone.utc))))
           .all()
     }
-    return [_to_summary(es, counts.get(es.id, 0), es.id in drafts)
+    return [_to_summary(es, counts.get(es.id, 0), es.id in drafts,
+                        question_count=qcounts.get(es.id, 0))
             for es in sets]
 
 
@@ -77,9 +99,12 @@ def get_set(slug: str, db: Session = Depends(get_db),
             ExamSession.user_id == user.id,
             ExamSession.exam_set_id == es.id,
             ExamSession.status == "in_progress",
-            ExamSession.expires_at > datetime.now(timezone.utc),
+            or_(ExamSession.remaining_seconds > 0,
+                and_(ExamSession.remaining_seconds.is_(None),
+                     ExamSession.expires_at > datetime.now(timezone.utc))),
         ).first() is not None
-    return _to_summary(es, n, draft)
+    return _to_summary(es, n, draft,
+                       question_count=_question_counts(db, [es.id]).get(es.id, 0))
 
 
 @router.post("/{slug}/start", response_model=ExamAttemptOut, status_code=201)

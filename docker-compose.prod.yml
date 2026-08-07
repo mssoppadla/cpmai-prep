@@ -43,7 +43,12 @@ services:
       # rather than rely on merge semantics. Defined in the base
       # docker-compose.yml top-level `volumes:` block.
       - cpmai-uploads:/app/uploads
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # Two workers: doubles CPU-bound throughput on the small VPS so a
+    # burst (cohort exam start, admin dashboards) doesn't serialize
+    # behind one process. Memory cost ~1 extra app footprint; DB
+    # connections stay bounded by the per-process pool (see
+    # app/core/database.py).
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     # Bind to loopback only — Caddy proxies internally. Host port is
     # configurable via BACKEND_HOST_PORT (in .deploy.conf) for VPS
     # environments where the default 8000 collides with a host service.

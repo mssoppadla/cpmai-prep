@@ -10,8 +10,9 @@ Two actor types are supported:
                  sets reject anon callers up front.
 """
 from datetime import datetime, timedelta, timezone
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func, case
+from sqlalchemy.exc import IntegrityError
 from app.core.exceptions import (
     NotFoundError, ConflictError, ForbiddenError, SubscriptionRequiredError,
     UnauthorizedError,
@@ -138,7 +139,15 @@ class ExamService:
             raise UnauthorizedError(
                 "Provide an Authorization header or X-Anon-Token to start.",
             )
-        es = self.db.query(ExamSet).filter_by(slug=exam_set_slug, is_active=True).first()
+        # Eager-load questions AND their options in 3 queries total.
+        # The default lazy loading made every attempt start / serialize
+        # fire one extra query PER QUESTION for its options (~60 queries
+        # per start on a full set) — a pool-exhausting burst when a
+        # cohort starts together (perf review 2026-08-07).
+        es = (self.db.query(ExamSet)
+              .options(selectinload(ExamSet.questions)
+                       .selectinload(Question.options))
+              .filter_by(slug=exam_set_slug, is_active=True).first())
         if not es:
             raise NotFoundError("Exam set not found")
         if es.is_premium:
@@ -152,6 +161,56 @@ class ExamService:
         return es
 
     # ------------------------------------------------------------------ start
+    # Pause-on-leave timer: an activity gap is charged at most this much,
+    # so a lost pause beacon (tab crash, power cut, offline close) can
+    # never bill the hours the candidate was away. 3× the frontend's 30s
+    # heartbeat — one missed beat plus jitter is still fully charged;
+    # anything longer means the page wasn't open.
+    ACTIVITY_CHARGE_CAP_SECONDS = 90
+
+    def _charge_activity(self, session: "ExamSession",
+                         now: "datetime | None" = None) -> None:
+        """Debit active time since the last activity event (capped) and
+        re-anchor the wall-clock deadline so in-exam expiry checks and
+        the frontend countdown keep working off expires_at. Callers
+        commit. Also the resume path: a resume after days away charges
+        at most the cap, which is exactly the pause semantics."""
+        now = now or datetime.now(timezone.utc)
+        if session.remaining_seconds is None:
+            # Legacy row (pre-0046): convert its current wall-clock
+            # remainder into an active-time budget once.
+            session.remaining_seconds = max(
+                0, int((session.expires_at - now).total_seconds()))
+        else:
+            elapsed = ((now - session.last_activity_at).total_seconds()
+                       if session.last_activity_at else 0.0)
+            charge = int(min(max(elapsed, 0.0),
+                             self.ACTIVITY_CHARGE_CAP_SECONDS))
+            session.remaining_seconds = max(
+                0, session.remaining_seconds - charge)
+        session.last_activity_at = now
+        session.expires_at = now + timedelta(
+            seconds=session.remaining_seconds)
+
+    def _draft_is_live(self, session: "ExamSession",
+                       now: "datetime | None" = None) -> bool:
+        """Resumable = in_progress with active-time budget left. The
+        paused clock means expires_at goes stale while the candidate is
+        away — NEVER use expires_at alone to judge liveness."""
+        if session.status != "in_progress":
+            return False
+        if session.remaining_seconds is not None:
+            return session.remaining_seconds > 0
+        # Legacy row: old wall-clock rule until first activity converts it.
+        return session.expires_at > (now or datetime.now(timezone.utc))
+
+    def _has_any_answer(self, session_id: int) -> bool:
+        return self.db.query(ExamAttemptAnswer.id).filter(
+            ExamAttemptAnswer.exam_session_id == session_id,
+            (ExamAttemptAnswer.selected_letter.isnot(None))
+            | (ExamAttemptAnswer.selected_letters.isnot(None)),
+        ).first() is not None
+
     def _adopt_orphan_draft(self, user: "User", exam_set_id: int,
                             anon_token: str | None,
                             practice_domain: str | None) -> "ExamSession | None":
@@ -206,11 +265,21 @@ class ExamService:
         existing = existing_q.first()
         if existing is None and isinstance(actor, User):
             existing = self._adopt_orphan_draft(actor, es.id, anon_token, None)
-        if existing and existing.expires_at > datetime.now(timezone.utc):
+        if existing and self._draft_is_live(existing):
+            # Resume: re-anchor the paused clock (charges at most the
+            # activity cap for the pre-pause gap, never the time away).
+            self._charge_activity(existing)
+            self.db.commit()
             # Backfill answer rows for any questions added to the set
             # AFTER this session started, so they're answerable now.
             self._ensure_answer_rows(existing, es)
             return self._serialize_attempt(existing, es)
+        if existing and not self._draft_is_live(existing) \
+                and not self._has_any_answer(existing.id):
+            # A timed-out draft with NOTHING answered has no result worth
+            # freezing — discard instead of minting a 0% history row.
+            self.db.delete(existing)
+            self.db.commit()
 
         now = datetime.now(timezone.utc)
         session = ExamSession(
@@ -219,10 +288,25 @@ class ExamService:
             exam_set_id=es.id,
             started_at=now,
             expires_at=now + timedelta(minutes=es.time_limit_minutes),
+            remaining_seconds=es.time_limit_minutes * 60,
+            last_activity_at=now,
             status="in_progress",
         )
         self.db.add(session)
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError:
+            # A concurrent /start (double-click, retried request) won the
+            # race and created the draft first — the partial unique index
+            # uq_one_live_draft_per_user_set rejects this second insert.
+            # Resume the winner instead of erroring; duplicate drafts are
+            # what minted the 0%-row flood before (migration 0046).
+            self.db.rollback()
+            winner = existing_q.first()
+            if winner is None:
+                raise
+            self._ensure_answer_rows(winner, es)
+            return self._serialize_attempt(winner, es)
         # Create empty answer rows (one per question) for fast updates.
         for q in es.questions:
             self.db.add(ExamAttemptAnswer(
@@ -258,12 +342,29 @@ class ExamService:
                     .order_by(ExamSession.submitted_at.desc().nullslast(),
                               ExamSession.id.desc())
                     .all())
-        # A timed-out draft is finalized on sight (same lazy rule as
-        # get_result) so it lists as an auto-submitted result, never as a
-        # resumable draft the exam page would refuse anyway.
+        # Timed-out drafts are handled on sight (same lazy rule as
+        # get_result): NOTHING answered → discarded outright (a 0% row
+        # nobody sat is noise, not history — the 2026-08-07 backlog
+        # minted dozens); something answered → finalized as
+        # auto-submitted. Finalization builds a full result snapshot,
+        # so it's capped per request — the remainder waits for the next
+        # view instead of stalling this one.
+        _FINALIZE_CAP = 10
+        finalized = 0
+        kept: list[ExamSession] = []
         for s in sessions:
-            if s.status == "in_progress" and s.expires_at < now:
-                self._finalize(s)
+            if s.status == "in_progress" and not self._draft_is_live(s, now):
+                if not self._has_any_answer(s.id):
+                    self.db.delete(s)
+                    self.db.commit()
+                    continue
+                if finalized < _FINALIZE_CAP:
+                    self._finalize(s, auto=True)
+                    finalized += 1
+                else:
+                    continue  # over cap — surfaces next call
+            kept.append(s)
+        sessions = kept
         if not sessions:
             return []
         sids = [s.id for s in sessions]
@@ -288,10 +389,9 @@ class ExamService:
                 exam_set_slug=es.slug if es else None,
                 practice_domain=s.practice_domain,
                 status=s.status,
-                # Finalized at-or-after the deadline = the clock submitted
-                # it, not the candidate.
-                auto_submitted=bool(s.submitted_at and s.expires_at
-                                    and s.submitted_at >= s.expires_at),
+                auto_submitted=bool(s.auto_submitted),
+                remaining_seconds=(s.remaining_seconds
+                                   if s.status == "in_progress" else None),
                 score=s.score or 0,
                 passed=bool(s.passed),
                 total_questions=total,
@@ -340,9 +440,15 @@ class ExamService:
         if existing is None and isinstance(actor, User):
             existing = self._adopt_orphan_draft(actor, es.id, anon_token,
                                                 domain.code)
-        if existing and existing.expires_at > datetime.now(timezone.utc):
+        if existing and self._draft_is_live(existing):
+            self._charge_activity(existing)
+            self.db.commit()
             self._ensure_answer_rows(existing, es)
             return self._serialize_attempt(existing, es)
+        if existing and not self._draft_is_live(existing) \
+                and not self._has_any_answer(existing.id):
+            self.db.delete(existing)
+            self.db.commit()
 
         now = datetime.now(timezone.utc)
         # Allow ~1.5 min/question (min 5), independent of the full set's
@@ -355,10 +461,22 @@ class ExamService:
             practice_domain=domain.code,
             started_at=now,
             expires_at=now + timedelta(minutes=minutes),
+            remaining_seconds=minutes * 60,
+            last_activity_at=now,
             status="in_progress",
         )
         self.db.add(session)
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError:
+            # Concurrent start for the same drill — resume the winner
+            # (see the full-set path for the full rationale).
+            self.db.rollback()
+            winner = existing_q.first()
+            if winner is None:
+                raise
+            self._ensure_answer_rows(winner, es)
+            return self._serialize_attempt(winner, es)
         for q in scoped:
             self.db.add(ExamAttemptAnswer(
                 exam_session_id=session.id, question_id=q.id,
@@ -410,7 +528,11 @@ class ExamService:
         session = self._load_session(actor, attempt_id)
         if session.status != "in_progress":
             raise ConflictError(f"Cannot modify a {session.status} attempt.")
-        if session.expires_at < datetime.now(timezone.utc):
+        # Charge active time first, then judge expiry off the budget —
+        # a save doubles as the activity heartbeat.
+        self._charge_activity(session)
+        if session.remaining_seconds is not None \
+                and session.remaining_seconds <= 0:
             session.status = "expired"
             self.db.commit()
             raise ConflictError("Time is up.")
@@ -461,27 +583,51 @@ class ExamService:
         ans.answered_at = datetime.now(timezone.utc)
         self.db.commit()
 
+    # ------------------------------------------------------- timer events
+    def heartbeat(self, actor: "User | str | None",
+                  attempt_id: int) -> int:
+        """Charge active screen time and return the remaining budget.
+        Fired every 30s by the exam page while visible, and once via
+        keepalive fetch on leave (the pause signal — pausing IS simply
+        the absence of further charges). Idempotent and cheap: one row
+        update. Returns 0 for already-finalized attempts so a late
+        beacon never errors."""
+        session = self._load_session(actor, attempt_id)
+        if session.status != "in_progress":
+            return 0
+        self._charge_activity(session)
+        self.db.commit()
+        return session.remaining_seconds or 0
+
     # ---------------------------------------------------------------- submit
     def submit(self, actor: "User | str | None",
-               attempt_id: int) -> SubmitAttemptOut:
+               attempt_id: int, auto: bool = False) -> SubmitAttemptOut:
         """Finalize a sitting and freeze its result.
 
         Accepts BOTH `in_progress` and `expired` attempts: when the
         clock runs out the answers the candidate saved are still the
         candidate's answers, so time-up finalizes the sitting instead
         of voiding it (unanswered questions simply count as
-        unanswered). Only an already-finalized attempt is rejected."""
+        unanswered). Only an already-finalized attempt is rejected.
+        `auto=True` marks a clock-driven submit (the exam page's
+        time-up path) so the history row is labeled honestly."""
         session = self._load_session(actor, attempt_id)
         if session.status not in ("in_progress", "expired"):
             raise ConflictError(f"Already {session.status}.")
-        return self._finalize(session)
+        return self._finalize(session, auto=auto)
 
-    def _finalize(self, session: "ExamSession") -> SubmitAttemptOut:
+    def _finalize(self, session: "ExamSession",
+                  auto: bool = False) -> SubmitAttemptOut:
         """Score the sitting from its saved answers and freeze the
         result (status, score, snapshot). Callers own the status guard;
         this is also invoked directly by the read paths to auto-submit
         timed-out attempts (where the actor may be an admin viewing
-        someone else's attempt, so re-loading by actor is wrong)."""
+        someone else's attempt, so re-loading by actor is wrong).
+        `auto=True` = clock-driven finalization: sets the explicit
+        auto_submitted flag and stamps submitted_at with the last time
+        the candidate actually touched the sitting — not the moment the
+        lazy sweep happened to run (the 2026-08-07 backlog flood showed
+        every row time-stamped with the sweep minute)."""
         now = datetime.now(timezone.utc)
         es = self.db.get(ExamSet, session.exam_set_id)
         questions = es.questions
@@ -548,7 +694,13 @@ class ExamService:
         # the sitting actually allowed.
         timed_out = now >= session.expires_at
         session.status = "submitted"
-        session.submitted_at = now
+        session.auto_submitted = auto
+        # Honest stamp for clock-driven finalization: the candidate's
+        # last activity (fallback: the stale deadline), never the sweep
+        # time.
+        session.submitted_at = (
+            (session.last_activity_at or session.expires_at)
+            if auto else now)
         session.score = score
         session.passed = passed
         session.time_taken_seconds = min(
@@ -770,10 +922,13 @@ class ExamService:
         session = self._load_session(actor, attempt_id, admin=admin)
         # A timed-out sitting that was never explicitly submitted is
         # finalized on first view — the result is captured, not lost.
+        # (Liveness is budget-based: a PAUSED draft with time left is
+        # NOT timed out even though its wall-clock expires_at is stale.)
         now = datetime.now(timezone.utc)
         if session.status == "expired" or (
-                session.status == "in_progress" and session.expires_at < now):
-            self._finalize(session)
+                session.status == "in_progress"
+                and not self._draft_is_live(session, now)):
+            self._finalize(session, auto=True)
         if session.status != "submitted":
             raise ConflictError(f"Attempt is {session.status}, not submitted.")
 
