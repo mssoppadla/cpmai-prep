@@ -461,6 +461,11 @@ EDITABLE: dict[str, Callable] = {
     # has its own FX-markup fee, so this is INR-only by design.
     "pricing.processing_fee_percent":    _float_in(0.0, 50.0),
     "pricing.processing_fee_label":      _short_str(60),
+    # International-payments notice banner on /pricing (GeoIP: shown to
+    # non-India visitors only). Toggle + text; served by
+    # GET /pricing/intl-notice.
+    "pricing.intl_notice_enabled":       _bool,
+    "pricing.intl_notice_text":          _short_str(600),
     # International pricing — admin-tunable currencies + FX rates.
     # See app/services/pricing_service.py for how these flow into a quote.
     # GST only applies to INR; non-INR currencies skip the GST line.

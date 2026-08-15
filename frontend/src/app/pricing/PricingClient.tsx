@@ -26,6 +26,7 @@
  * pay Indian GST), so the GST row hides automatically for non-INR.
  */
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { linkifyText } from "@/lib/linkify";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { SiteHeader } from "@/components/layout/SiteHeader";
@@ -146,6 +147,8 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
   // get the caller-specific suggested_currency; the OPTIONS list from
   // the server keeps the picker crawlable/rendered meanwhile.
   const [suggestedCurrency, setSuggestedCurrency] = useState<string | null>(null);
+  // Non-null = show the admin-configured international-payments banner.
+  const [intlNotice, setIntlNotice] = useState<string | null>(null);
   const [currencyInitialised, setCurrencyInitialised] = useState(false);
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
@@ -224,6 +227,18 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
       try { setUser(await auth.me()); }
       catch { setUser(null); }
       finally { setAuthChecked(true); }
+    })();
+    (async () => {
+      // Admin-driven international-payments notice. Server-side GeoIP
+      // decides visibility (only non-India visitors see it); ?intl=1
+      // forces it when enabled so the admin can preview the copy from
+      // India. Best-effort — a failed fetch just means no banner.
+      try {
+        const force = new URLSearchParams(window.location.search)
+          .get("intl") === "1";
+        const n = await pricing.intlNotice(force);
+        if (n?.show && n.message) setIntlNotice(n.message);
+      } catch { /* no banner */ }
     })();
     (async () => {
       // Reuse the admin-editable landing copy for the LinkedIn explainer so
@@ -430,6 +445,21 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
               strategy="lazyOnload" />
       <SiteHeader active="pricing" />
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-10">
+        {/* Admin-driven notice for visitors outside India — shown only
+            when pricing.intl_notice_enabled is on AND server-side GeoIP
+            places the visitor abroad (or ?intl=1 preview). Content is
+            the pricing.intl_notice_text runtime setting. */}
+        {intlNotice && (
+          <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3"
+               role="status" aria-live="polite">
+            <span aria-hidden className="text-xl leading-none mt-0.5">🌍</span>
+            {/* linkifyText: bare https:// URLs and [label](url) become
+                safe anchors (new tab); everything else stays escaped
+                text. Lets the admin put WhatsApp/LinkedIn/email links
+                in the setting without any HTML. */}
+            <p className="text-sm text-amber-900">{linkifyText(intlNotice)}</p>
+          </div>
+        )}
         <div className="flex items-baseline justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Pricing</h1>

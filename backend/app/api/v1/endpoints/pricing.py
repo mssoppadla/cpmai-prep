@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from app.core.deps import get_db
+from app.core.settings_store import settings_store
 from app.services.geoip import extract_client_ip, lookup as geo_lookup
 from app.models.plan import Plan
 from app.schemas.plan import PlanPublicOut
@@ -125,3 +126,36 @@ def list_currencies(request: Request):
     else:
         suggested = options[0].code if options else "INR"
     return CurrenciesOut(options=options, suggested_currency=suggested)
+
+
+class IntlNoticeOut(BaseModel):
+    """International-payments notice for /pricing. Server decides
+    visibility so the client stays dumb: enabled setting AND the caller
+    geolocates OUTSIDE India. GeoIP miss (private IP / no mmdb) hides
+    the banner — better silent than nagging Indian users on VPNs."""
+    show: bool
+    message: str = ""
+
+
+@router.get("/intl-notice", response_model=IntlNoticeOut)
+def intl_notice(request: Request, force: bool = False):
+    """Admin-driven banner state (pricing.intl_notice_* settings).
+
+    ``force=1`` shows the banner regardless of GeoIP whenever the
+    feature is enabled — an admin-preview hook (/pricing?intl=1) so the
+    text can be checked from India without a VPN. Enabled=off wins over
+    force: a disabled feature previews as disabled.
+    """
+    if not settings_store.get_bool("pricing.intl_notice_enabled", False):
+        return IntlNoticeOut(show=False)
+    message = (settings_store.get("pricing.intl_notice_text") or "").strip()
+    if not message:
+        return IntlNoticeOut(show=False)
+    if force:
+        return IntlNoticeOut(show=True, message=message)
+    client_ip = extract_client_ip(request)
+    geo = geo_lookup(client_ip) if client_ip else None
+    country = ((geo.country if geo else "") or "").upper()
+    # Show only for a POSITIVE non-India match; unknown → hide.
+    return IntlNoticeOut(show=bool(country and country != "IN"),
+                         message=message if country and country != "IN" else "")
