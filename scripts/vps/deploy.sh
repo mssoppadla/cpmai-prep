@@ -353,8 +353,21 @@ NEW_SHA=$(git rev-parse --short HEAD)
 
 SMOKE_BASE_URL="https://api.${PROD_DOMAIN}/api/v1"
 
-if [ "$START_SHA" = "$NEW_SHA" ] && [ -z "${SKIP_PULL:-}" ]; then
-  ok "Already at $NEW_SHA — no code change"
+# No-op detection compares against the LAST **COMPLETED** deploy (the
+# marker below, written only after the smoke passes) — NOT against the
+# pre-pull HEAD. The old START==NEW comparison had a nasty failure
+# mode (2026-08-15): a deploy killed mid-build (Actions timeout) had
+# already pulled the new code, so the NEXT run saw "no change", took
+# this shortcut, and reported success while prod kept running the old
+# images — settings/endpoints from two merged PRs simply weren't there.
+# A killed deploy never writes the marker, so the next run always does
+# the full build+swap. Missing marker (first run / legacy) → full
+# deploy, which is the safe direction.
+DEPLOY_MARKER="$APP_DIR/.deploy-marker"
+LAST_DEPLOYED_SHA=$(cat "$DEPLOY_MARKER" 2>/dev/null || echo "")
+
+if [ "$LAST_DEPLOYED_SHA" = "$NEW_SHA" ] && [ -z "${SKIP_PULL:-}" ]; then
+  ok "Already deployed $NEW_SHA (marker) — no code change"
   # Even on a no-op deploy we re-run the idempotent seeder, because seed
   # JSON content can change between deploys (e.g. new default FAQs) without
   # any other code touching that path. Cheap, safe, never overwrites.
@@ -364,6 +377,8 @@ if [ "$START_SHA" = "$NEW_SHA" ] && [ -z "${SKIP_PULL:-}" ]; then
   say "Running smoke against $SMOKE_BASE_URL..."
   BASE_URL="$SMOKE_BASE_URL" python3 scripts/smoke_admin_crud.py \
     || die "smoke failed on no-op deploy — investigate"
+  # Refresh the marker: this SHA is confirmed running + smoke-green.
+  echo "$NEW_SHA" > "$DEPLOY_MARKER"
   ok "Smoke green — exiting clean"
   exit 0
 fi
@@ -585,10 +600,16 @@ BASE_URL="$SMOKE_BASE_URL" python3 scripts/smoke_admin_crud.py || {
 # running containers' images are NEVER removed by `image prune`. Same
 # for builder cache — only inactive cache mounts get reclaimed.
 # ------------------------------------------------------------------------------
-say "Reclaiming disk: images >72h, builder cache >24h..."
+# Builder cache keeps 168h (not 24h): the pip/npm layers are what make
+# a deploy fast — pruning them daily meant any deploy after a quiet
+# week was a COLD build re-downloading every wheel, which is exactly
+# when a slow VPS↔PyPI day (2026-08-15: ~25 kB/s) turns into a
+# timed-out deploy. A week of cache is a few hundred MB — cheap
+# insurance vs. the ~45 GB the backup-retention fix reclaimed.
+say "Reclaiming disk: images >72h, builder cache >168h..."
 PRUNED_IMG=$(docker image prune -af --filter "until=72h" 2>&1 \
               | awk '/Total reclaimed/ {print $NF}' || echo "0B")
-PRUNED_BLD=$(docker builder prune -af --filter "until=24h" 2>&1 \
+PRUNED_BLD=$(docker builder prune -af --filter "until=168h" 2>&1 \
               | awk '/Total reclaimed/ {print $NF}' || echo "0B")
 ok "reclaimed: images=${PRUNED_IMG:-0B}  builder=${PRUNED_BLD:-0B}"
 
@@ -616,6 +637,11 @@ if [ -r /etc/caddy/Caddyfile ] && [ -f infra/Caddyfile ]; then
     ok "Caddyfile in sync with /etc/caddy/Caddyfile"
   fi
 fi
+
+# Marker written ONLY here — after build, swap, guard, and smoke all
+# passed. A deploy that dies anywhere above leaves the old marker, so
+# the next run can never mistake the half-done state for "deployed".
+echo "$NEW_SHA" > "$DEPLOY_MARKER"
 
 ELAPSED=$(( $(date +%s) - START_TS ))
 echo
