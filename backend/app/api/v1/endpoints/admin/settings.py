@@ -469,6 +469,8 @@ EDITABLE: dict[str, Callable] = {
     # Who sees the banner while enabled: "all" = every visitor;
     # "non_in" = only visitors GeoIP places outside India.
     "pricing.intl_notice_audience":      _choice("all", "non_in"),
+    # Subtitle under the "Pricing" H1 on /pricing.
+    "pricing.subtitle":                  _short_str(300),
     # International pricing — admin-tunable currencies + FX rates.
     # See app/services/pricing_service.py for how these flow into a quote.
     # GST only applies to INR; non-INR currencies skip the GST line.

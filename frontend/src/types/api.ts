@@ -910,6 +910,9 @@ export interface LandingCopy {
   lead_linkedin_reason: string;
   premium_upsell_title: string;
   premium_upsell_body: string;
+  /** Subtitle under the "Pricing" H1 on /pricing. Optional: absent in
+   *  older mocks/responses — the page falls back to its built-in copy. */
+  pricing_subtitle?: string;
   /** H1 + supporting paragraph on the public landing page. */
   hero_headline: string;
   hero_subtitle: string;
