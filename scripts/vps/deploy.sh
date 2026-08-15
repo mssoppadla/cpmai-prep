@@ -585,10 +585,16 @@ BASE_URL="$SMOKE_BASE_URL" python3 scripts/smoke_admin_crud.py || {
 # running containers' images are NEVER removed by `image prune`. Same
 # for builder cache — only inactive cache mounts get reclaimed.
 # ------------------------------------------------------------------------------
-say "Reclaiming disk: images >72h, builder cache >24h..."
+# Builder cache keeps 168h (not 24h): the pip/npm layers are what make
+# a deploy fast — pruning them daily meant any deploy after a quiet
+# week was a COLD build re-downloading every wheel, which is exactly
+# when a slow VPS↔PyPI day (2026-08-15: ~25 kB/s) turns into a
+# timed-out deploy. A week of cache is a few hundred MB — cheap
+# insurance vs. the ~45 GB the backup-retention fix reclaimed.
+say "Reclaiming disk: images >72h, builder cache >168h..."
 PRUNED_IMG=$(docker image prune -af --filter "until=72h" 2>&1 \
               | awk '/Total reclaimed/ {print $NF}' || echo "0B")
-PRUNED_BLD=$(docker builder prune -af --filter "until=24h" 2>&1 \
+PRUNED_BLD=$(docker builder prune -af --filter "until=168h" 2>&1 \
               | awk '/Total reclaimed/ {print $NF}' || echo "0B")
 ok "reclaimed: images=${PRUNED_IMG:-0B}  builder=${PRUNED_BLD:-0B}"
 

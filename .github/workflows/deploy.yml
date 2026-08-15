@@ -247,7 +247,13 @@ jobs:
     name: Deploy to production VPS
     needs: [test, migration-drift]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 45, not 15: a COLD image build (builder cache pruned after a quiet
+    # week) re-downloads every pip wheel, and on 2026-08-15 the VPS↔PyPI
+    # route degraded to ~25 kB/s — two deploys died at exactly 15:00
+    # mid-download. Normal warm deploys still finish in ~5 min; the
+    # ceiling only matters on the bad-day cold path, where killing the
+    # build helps nobody (prod is untouched until the container swap).
+    timeout-minutes: 45
     environment:
       name: production
       url: https://cpmaiexamprep.com
