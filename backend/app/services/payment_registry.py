@@ -92,6 +92,75 @@ class PaymentRegistry:
     def get_by_id(cls, provider_id: int):
         return cls._get(provider_id)
 
+    # ── Listing control-plane (multi-gateway Phase 1) ────────────────
+    # docs/payments-multi-gateway-spec.md §2. "Listed" = sellable for
+    # NEW payments on a rail; is_enabled alone = still serviceable for
+    # past payments (webhooks/refunds). Rows, not cached providers, so
+    # admin listing changes are visible immediately.
+
+    @classmethod
+    def listed_rows(cls, currency: str) -> list:
+        """Provider CONFIG ROWS sellable for this currency, in
+        preference order. INR: the active_provider_id entry stays the
+        canonical head (back-compat), then other INR-listed rows by
+        priority. Non-INR: intl-listed rows by intl_rank, with the
+        legacy non_inr_provider_id winning rank ties (back-compat)."""
+        ccy = (currency or "INR").strip().upper()
+        with SessionLocal() as db:
+            q = (db.query(PaymentProviderConfig)
+                 .filter(PaymentProviderConfig.is_enabled.is_(True)))
+            if ccy == "INR":
+                rows = (q.filter(PaymentProviderConfig.listed_for_inr.is_(True))
+                        .order_by(PaymentProviderConfig.priority,
+                                  PaymentProviderConfig.id).all())
+                head_id = settings_store.get("payment.active_provider_id")
+            else:
+                rows = (q.filter(PaymentProviderConfig.listed_for_intl.is_(True))
+                        .order_by(PaymentProviderConfig.intl_rank,
+                                  PaymentProviderConfig.id).all())
+                head_id = settings_store.get("payment.non_inr_provider_id")
+            db.expunge_all()   # rows outlive the session (read-only use)
+        if head_id is not None:
+            head_id = int(head_id)
+            rows.sort(key=lambda r: (r.id != head_id,))  # stable: head first
+        return rows
+
+    @classmethod
+    def candidate_config_ids(cls, currency: str,
+                             requested_id: "int | None" = None) -> list[int]:
+        """Config ids to try for a NEW order, in order.
+
+        requested_id (choice mode): must be in the listed set — an
+        unlisted/disabled/unknown id raises 422-shaped AppError (a
+        tampered client cannot summon a delisted gateway). Without a
+        request: the full listed order (fallback iterates it when
+        payments.fallback_enabled; otherwise callers use just the head).
+        """
+        listed = [r.id for r in cls.listed_rows(currency)]
+        if requested_id is not None:
+            if requested_id not in listed:
+                raise AppError(
+                    "Selected payment gateway is not available. Refresh "
+                    "the page and pick from the shown options.",
+                    status_code=422)
+            return [requested_id]
+        if not listed:
+            ccy = (currency or "INR").strip().upper()
+            if ccy == "INR":
+                # Back-compat safety net: INR must never go dark because
+                # listing flags are missing (pre-0047 rows) — fall back
+                # to the classic active-provider setting.
+                active_id = settings_store.get("payment.active_provider_id")
+                if active_id is not None:
+                    return [int(active_id)]
+                raise AppError("Payments not configured. Add a payment "
+                               "provider in admin.", status_code=503)
+            raise AppError(
+                f"No payment gateway is listed for {ccy}. List one in "
+                "/admin/payment-providers (Listed for international), "
+                "then retry.", status_code=503)
+        return listed
+
     @classmethod
     def invalidate(cls):
         with cls._lock:

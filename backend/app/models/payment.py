@@ -17,6 +17,12 @@ class Payment(Base):
     #                provider_payment_id is PayPal capture id.
     # The discriminator drives which provider's verify/webhook handlers
     # apply when reconciling a Payment row.
+    # Which provider CONFIG (account) minted this payment — added in
+    # 0047 because provider_name ("razorpay") can't distinguish two
+    # Razorpay accounts (Personal vs Company). NULL on historical rows;
+    # readers fall back to provider_name routing for those.
+    provider_config_id   = Column(Integer, ForeignKey("payment_providers.id"),
+                                  nullable=True)
     provider_name        = Column(String(32), nullable=False, default="razorpay",
                                    index=True)
     provider_order_id    = Column(String(64), unique=True, nullable=False)
