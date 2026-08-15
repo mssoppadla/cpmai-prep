@@ -347,12 +347,17 @@
   {
     "key": "pricing.intl_notice_enabled",
     "value": false,
-    "description": "Show the international-payments notice banner on /pricing to visitors OUTSIDE India (GeoIP-based). Turn on while international checkout is unavailable (e.g. awaiting Razorpay international activation); turn off once foreign cards work. The banner text is pricing.intl_notice_text."
+    "description": "Master switch for the international-payments notice banner on /pricing. Who sees it is controlled by pricing.intl_notice_audience ('all' or 'non_in'); the text is pricing.intl_notice_text. Turn on while international checkout is unavailable; turn off once foreign cards work."
   },
   {
     "key": "pricing.intl_notice_text",
     "value": "International card payments are temporarily unavailable while we upgrade our payment system. Please check back soon — or write to support@cpmaiexamprep.com and we'll personally help you enroll.",
     "description": "Banner text shown to non-India visitors on /pricing when pricing.intl_notice_enabled is on. Plain text, max ~500 chars. Visitors inside India never see it."
+  },
+  {
+    "key": "pricing.intl_notice_audience",
+    "value": "all",
+    "description": "Who sees the international-payments banner while it is enabled. 'all' = every /pricing visitor (default — simplest; verify by just opening /pricing). 'non_in' = only visitors GeoIP places outside India; Indian visitors never see it, and /pricing?intl=1 previews it from India."
   },
   {
     "key": "pricing.fx_rates_inr_per_unit",
