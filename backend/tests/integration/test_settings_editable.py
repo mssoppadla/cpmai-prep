@@ -117,6 +117,9 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "pricing.gst_mode":                  "optional",
     "pricing.processing_fee_percent":    2.36,
     "pricing.processing_fee_label":      "Transaction fee",
+    "pricing.intl_notice_enabled":       True,
+    "pricing.intl_notice_text":
+        "Intl payments paused — [WhatsApp](https://wa.me/911234567890) us.",
     "pricing.supported_currencies":      ["INR", "USD", "EUR"],
     "pricing.fx_rates_inr_per_unit":     {"USD": 83.0, "EUR": 90.0},
     "pricing.fx_live_raw":               {"USD": 83.33, "EUR": 90.91},

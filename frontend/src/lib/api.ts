@@ -601,6 +601,15 @@ export const pricing = {
     const { data } = await request<CurrenciesOut>("/pricing/currencies");
     return data;
   },
+  /** Admin-driven international-payments notice. The SERVER decides
+   *  visibility (pricing.intl_notice_enabled + GeoIP outside India);
+   *  `force` shows it regardless of location when enabled — the admin
+   *  preview hook behind /pricing?intl=1. */
+  async intlNotice(force = false): Promise<{ show: boolean; message: string }> {
+    const { data } = await request<{ show: boolean; message: string }>(
+      `/pricing/intl-notice${force ? "?force=1" : ""}`);
+    return data;
+  },
 };
 
 // ---------- Payments (public, auth-required) -------------------------------

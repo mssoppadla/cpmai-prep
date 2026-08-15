@@ -345,6 +345,16 @@
     "description": "ISO-4217 codes the /pricing currency selector offers. Must include INR (Plan.base_price_paise is denominated in INR, FX is INR-relative). Add codes here AND populate the matching FX rate in pricing.fx_rates_inr_per_unit before the option becomes usable."
   },
   {
+    "key": "pricing.intl_notice_enabled",
+    "value": false,
+    "description": "Show the international-payments notice banner on /pricing to visitors OUTSIDE India (GeoIP-based). Turn on while international checkout is unavailable (e.g. awaiting Razorpay international activation); turn off once foreign cards work. The banner text is pricing.intl_notice_text."
+  },
+  {
+    "key": "pricing.intl_notice_text",
+    "value": "International card payments are temporarily unavailable while we upgrade our payment system. Please check back soon — or write to support@cpmaiexamprep.com and we'll personally help you enroll.",
+    "description": "Banner text shown to non-India visitors on /pricing when pricing.intl_notice_enabled is on. Plain text, max ~500 chars. Visitors inside India never see it."
+  },
+  {
     "key": "pricing.fx_rates_inr_per_unit",
     "value": {},
     "description": "LEGACY admin-managed FX rates. Empty by default. The live cron writes to pricing.fx_live_raw instead — this setting is retained for backward compatibility but new deployments should leave it empty. To force a specific rate for a single currency (e.g. promo pricing), use pricing.fx_overrides."
