@@ -51,6 +51,48 @@ mv "${SQL_FILE}.partial" "$SQL_FILE"
 SIZE=$(du -h "$SQL_FILE" | cut -f1)
 ok "sql backup ${SIZE}"
 
+# ── Self-verification (every backup, every time) ─────────────────────
+# A corrupt or truncated dump discovered at RESTORE time is a disaster;
+# discovered now it's a re-run. Three checks:
+#   1. gzip integrity — catches truncation/corruption on disk
+#   2. plausible size — an empty-DB dump is ~1KB; ours is many MB
+#   3. row-count manifest — per-table counts recorded NEXT to the dump,
+#      so any future restore can be verified against what was saved
+gunzip -t "$SQL_FILE" || die "BACKUP CORRUPT: $SQL_FILE fails gzip check — do not trust this backup"
+SQL_BYTES=$(stat -c %s "$SQL_FILE" 2>/dev/null || stat -f %z "$SQL_FILE")
+if [ "${SQL_BYTES:-0}" -lt 100000 ]; then
+  warn "═══════════════════════════════════════════════════════════"
+  warn "sql backup is only ${SQL_BYTES} bytes — suspiciously small for"
+  warn "a live database. Verify before trusting this backup."
+  warn "═══════════════════════════════════════════════════════════"
+fi
+ok "sql backup verified (gzip integrity OK)"
+
+# Custom-format dump alongside the plain SQL: enables SINGLE-TABLE
+# restore (pg_restore --table=X) without touching the rest of the DB —
+# the plain .sql.gz can only do all-or-nothing. See
+# docs/backup-rollback-runbook.md scenario C.
+DUMP_FILE="${BACKUP_DIR}/${TS}__${TAG}.dump"
+$DC exec -T postgres \
+  pg_dump -U cpmai -d cpmai_prep --no-owner --no-privileges -Fc \
+  > "${DUMP_FILE}.partial" \
+  && mv "${DUMP_FILE}.partial" "$DUMP_FILE" \
+  && chmod 0600 "$DUMP_FILE" \
+  && ok "custom-format dump (single-table restore capable) $(du -h "$DUMP_FILE" | cut -f1)" \
+  || { rm -f "${DUMP_FILE}.partial"; warn "custom-format dump failed — full restore still available via .sql.gz"; }
+
+# Row-count manifest — every table, recorded at backup time. ANALYZE
+# first: n_live_tup is a planner ESTIMATE and reads 0 on stale stats
+# (observed in sandbox: real rows, manifest said 0 — a misleading
+# manifest is worse than none). ANALYZE is seconds on this DB size.
+COUNTS_FILE="${BACKUP_DIR}/${TS}__${TAG}.counts.txt"
+$DC exec -T postgres psql -U cpmai -d cpmai_prep -q -c "ANALYZE" 2>/dev/null || true
+$DC exec -T postgres psql -U cpmai -d cpmai_prep -At -c \
+  "SELECT relname || '=' || n_live_tup FROM pg_stat_user_tables ORDER BY relname" \
+  > "$COUNTS_FILE" 2>/dev/null \
+  && ok "row-count manifest ($(wc -l < "$COUNTS_FILE" | tr -d ' ') tables)" \
+  || warn "manifest failed (non-fatal)"
+
 # ------------------------------------------------------------------------------
 # 2. Env / config snapshot (so a restore can recover cleanly)
 # ------------------------------------------------------------------------------
@@ -127,6 +169,11 @@ say "Pruning old backups..."
     | tail -n +31 | xargs -r rm -f
   ls -1t "$BACKUP_DIR"/*__daily.uploads.tar.gz 2>/dev/null \
     | tail -n +8 | xargs -r rm -f
+  # Custom-format dumps + manifests follow the daily-sql retention (30)
+  ls -1t "$BACKUP_DIR"/*__daily.dump 2>/dev/null \
+    | tail -n +31 | xargs -r rm -f
+  ls -1t "$BACKUP_DIR"/*__daily.counts.txt 2>/dev/null \
+    | tail -n +31 | xargs -r rm -f
   # Pre-deploy older than 14 days
   find "$BACKUP_DIR" -maxdepth 1 -name '*__pre-deploy-*' -mtime +14 -print -delete 2>/dev/null \
     | sed 's/^/  pruned /'
@@ -141,7 +188,8 @@ say "Pruning old backups..."
   # (Was .sql.gz only, which stranded 2 GB uploads tarballs forever.)
   find "$BACKUP_DIR" -maxdepth 1 \
     ! -name '*__daily*' ! -name '*__pre-deploy-*' \
-    \( -name '*.sql.gz' -o -name '*.env.tar.gz' -o -name '*.uploads.tar.gz' \) \
+    \( -name '*.sql.gz' -o -name '*.env.tar.gz' -o -name '*.uploads.tar.gz' \
+       -o -name '*.dump' -o -name '*.counts.txt' \) \
     -mtime +30 -print -delete 2>/dev/null \
     | sed 's/^/  pruned /'
   exit 0
