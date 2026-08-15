@@ -360,6 +360,11 @@
     "description": "Who sees the international-payments banner while it is enabled. 'all' = every /pricing visitor (default — simplest; verify by just opening /pricing). 'non_in' = only visitors GeoIP places outside India; Indian visitors never see it, and /pricing?intl=1 previews it from India."
   },
   {
+    "key": "pricing.subtitle",
+    "value": "One-time payment, 1-year access. All plans include CPMAI-aligned mock exams and the AI tutor.",
+    "description": "Subtitle shown under the 'Pricing' heading on /pricing. Plain text, max 300 chars. Change it here to reword the value proposition (e.g. if plans become subscriptions) without a deploy."
+  },
+  {
     "key": "pricing.fx_rates_inr_per_unit",
     "value": {},
     "description": "LEGACY admin-managed FX rates. Empty by default. The live cron writes to pricing.fx_live_raw instead — this setting is retained for backward compatibility but new deployments should leave it empty. To force a specific rate for a single currency (e.g. promo pricing), use pricing.fx_overrides."

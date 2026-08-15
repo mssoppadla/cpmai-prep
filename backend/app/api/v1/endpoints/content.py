@@ -357,6 +357,14 @@ def landing_copy():
         # Banner shown on /exams when the visitor is NOT signed in.
         # Plain-text (not HTML) — frontend renders with the same styling
         # as before; admins can change the wording but not the markup.
+        # Subtitle under the "Pricing" H1 on /pricing. Editable so the
+        # value proposition can change (e.g. subscription wording)
+        # without a deploy.
+        "pricing_subtitle": settings_store.get_str(
+            "pricing.subtitle",
+            "One-time payment, 1-year access. All plans include "
+            "CPMAI-aligned mock exams and the AI tutor.",
+        ),
         "exams_anonymous_banner": settings_store.get_str(
             "exams.anonymous_banner",
             "You're not signed in. Free sets are open — start one "

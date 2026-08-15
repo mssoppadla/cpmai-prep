@@ -149,6 +149,11 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
   const [suggestedCurrency, setSuggestedCurrency] = useState<string | null>(null);
   // Non-null = show the admin-configured international-payments banner.
   const [intlNotice, setIntlNotice] = useState<string | null>(null);
+  // Subtitle under the H1 — admin-editable (pricing.subtitle); this
+  // default doubles as the fallback when the copy fetch fails.
+  const [subtitle, setSubtitle] = useState(
+    "One-time payment, 1-year access. All plans include CPMAI-aligned "
+    + "mock exams and the AI tutor.");
   const [currencyInitialised, setCurrencyInitialised] = useState(false);
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
@@ -246,7 +251,8 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
       try {
         const c = await content.landing();
         if (c?.lead_linkedin_reason) setLinkedinReason(c.lead_linkedin_reason);
-      } catch { /* keep the default reason */ }
+        if (c?.pricing_subtitle) setSubtitle(c.pricing_subtitle);
+      } catch { /* keep the default reason + subtitle */ }
     })();
   }, []);
 
@@ -463,10 +469,8 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
         <div className="flex items-baseline justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Pricing</h1>
-            <p className="text-slate-600 mt-2">
-              One-time payment, 1-year access. All plans include
-              CPMAI-aligned mock exams and the AI tutor.
-            </p>
+            {/* Admin-editable: pricing.subtitle in Runtime Settings. */}
+            <p className="text-slate-600 mt-2">{subtitle}</p>
           </div>
           {/* Currency picker. Disabled options are visible but
               unselectable — admin needs to add an FX rate before
