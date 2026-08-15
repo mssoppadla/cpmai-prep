@@ -50,3 +50,4 @@ backend/tests/unit/geoip/fixtures/test-City.mmdb
 # data only, never source-controlled. Prod stores them in a docker
 # volume; local dev creates the dir on first upload.
 backend/uploads/
+.deploy-marker
