@@ -54,6 +54,39 @@ import type {
 } from "@/types/api";
 import { reportClientError, classifyNetworkError } from "@/lib/error-reporter";
 
+/** /admin/checkout-funnel response — Checkout Follow-ups screen. */
+export interface FunnelUser {
+  id: number; email: string; name: string | null;
+  whatsapp: string | null; linkedin_id: string | null;
+}
+export interface FunnelFollowupRow {
+  payment_id: number;
+  status: "failed" | "created";
+  provider_order_id: string | null;
+  plan_name: string | null;
+  amount_paise: number;
+  currency: string;
+  created_at: string | null;
+  user: FunnelUser | null;
+}
+export interface FunnelVisitorRow {
+  user: FunnelUser | null;
+  anon_id: string | null;
+  last_seen_at: string | null;
+  country: string | null;
+  city: string | null;
+  device: string | null;
+  utm_source: string | null;
+}
+export interface CheckoutFunnelOut {
+  window_minutes: number;
+  since: string;
+  needs_followup: FunnelFollowupRow[];
+  pricing_visitors: FunnelVisitorRow[];
+  summary: { visitors: number; started: number; captured: number;
+             needs_followup: number };
+}
+
 /** /admin/error-logs/summary response. */
 export interface ErrorLogSummary {
   window_minutes: number;
@@ -1508,6 +1541,17 @@ export const admin = {
     async disk() {
       const { data } = await request<DiskUsageOut>(
         "/admin/observability/disk", { authed: true });
+      return data;
+    },
+  },
+  /** Checkout Follow-ups (/admin/checkout-funnel): who almost paid —
+   *  failed/abandoned orders with contact details + pricing visitors
+   *  who never started checkout. Read-only. */
+  checkoutFunnel: {
+    async get(windowMinutes: number): Promise<CheckoutFunnelOut> {
+      const { data } = await request<CheckoutFunnelOut>(
+        `/admin/checkout-funnel?window_minutes=${windowMinutes}`,
+        { authed: true });
       return data;
     },
   },
