@@ -30,10 +30,12 @@ import json
 import secrets
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
 from app.core.exceptions import AppError, NotFoundError
 from app.core.limiter import limiter
+from app.core.settings_store import settings_store
 from app.models.user import User
 from app.models.payment import Payment, WebhookEvent
 from app.models.offer import OfferCode
@@ -48,9 +50,11 @@ from app.services.payment_lifecycle import (
     find_payment_for_event, find_payment_for_paypal_event,
 )
 from app.services.pricing_service import PricingService
+import structlog
 from app.services.tracking_service import emit_event
 
 router = APIRouter()
+log = structlog.get_logger("payments")
 
 
 def _capture_linkedin_lead(db: Session, email: str | None, linkedin_id: str | None) -> None:
@@ -65,6 +69,42 @@ def _capture_linkedin_lead(db: Session, email: str | None, linkedin_id: str | No
         db.add(Lead(email=email.lower(), source=LeadSource.PRICING_PAGE, linkedin_id=linkedin_id))
     elif not lead.linkedin_id:
         lead.linkedin_id = linkedin_id
+
+
+class GatewayOptionOut(BaseModel):
+    provider_config_id: int
+    provider_type: str          # "razorpay" | "paypal" | future types
+    label: str                  # admin-facing display_name, safe to show
+
+
+class GatewayOptionsOut(BaseModel):
+    """What the checkout may offer for a currency. `auto` → at most one
+    option (server-picked, today's UX — the frontend renders no picker).
+    `choice` → the customer picks when 2+ are listed."""
+    mode: str                   # "auto" | "choice"
+    options: list[GatewayOptionOut]
+
+
+@router.get("/gateway-options", response_model=GatewayOptionsOut)
+@limiter.limit("60/minute")
+def gateway_options(request: Request, currency: str = "INR"):
+    """Listed gateways for a currency, already filtered by the kill
+    switch and ordered by admin rank. Public — it leaks nothing beyond
+    which gateway brands the checkout will show anyway."""
+    ccy = (currency or "INR").strip().upper()
+    if ccy != "INR" and not settings_store.get_bool("payments.intl_enabled", True):
+        return GatewayOptionsOut(mode="auto", options=[])
+    mode = (settings_store.get("payments.intl_display_mode") or "auto")
+    mode = mode if mode in ("auto", "choice") else "auto"
+    rows = PaymentRegistry.listed_rows(ccy)
+    if mode == "auto" or ccy == "INR":
+        rows = rows[:1]           # INR always server-picked (single rail)
+        mode = "auto"
+    return GatewayOptionsOut(mode=mode, options=[
+        GatewayOptionOut(provider_config_id=r.id, provider_type=r.provider_type,
+                         label=r.display_name or r.provider_type.title())
+        for r in rows
+    ])
 
 
 @router.post("/orders", response_model=CreateOrderOut, status_code=201)
@@ -116,11 +156,24 @@ def create_order(payload: CreateOrderIn,
             "Check the FX rate in /admin/settings (pricing.fx_rates_inr_per_unit).",
             status_code=400)
 
-    # Currency drives provider selection: INR → Razorpay (existing
-    # active provider); non-INR → PayPal (the configured non-INR
-    # provider). Both flows persist a Payment row with provider_name
-    # set so verify/capture/webhook can dispatch correctly.
-    provider = PaymentRegistry.get_for_currency(charge_currency)
+    # ── Multi-gateway control plane (docs/payments-multi-gateway-spec) ──
+    # Kill switch: non-INR order creation can be stopped instantly from
+    # Runtime Settings (card-testing attack, gateway suspension). INR is
+    # never affected. The pricing.intl_notice banner is the customer-
+    # facing companion message.
+    if charge_currency != "INR" and not settings_store.get_bool(
+            "payments.intl_enabled", True):
+        raise AppError(
+            "International payments are temporarily paused. "
+            "Please try again later or contact support.",
+            status_code=503)
+
+    # Candidate gateways for this currency, in listing order. When the
+    # frontend sent an explicit choice (payments.intl_display_mode =
+    # "choice"), it is validated against the listed set — an unlisted or
+    # tampered id is rejected, never honored.
+    candidates = PaymentRegistry.candidate_config_ids(
+        charge_currency, requested_id=payload.provider_config_id)
 
     # Receipt doubles as our idempotency_key (unique on payments). Add
     # an 8-byte random suffix so two orders in the same second can't
@@ -140,8 +193,7 @@ def create_order(payload: CreateOrderIn,
     # by the browser on cross-origin POSTs from /pricing. Razorpay's
     # popup flow doesn't redirect away from the page, so the URLs are
     # PayPal-only.
-    paypal_kwargs = {}
-    if provider.name == "paypal":
+    def _paypal_kwargs():
         origin = request.headers.get("origin") or ""
         if not origin:
             raise AppError(
@@ -150,18 +202,49 @@ def create_order(payload: CreateOrderIn,
                 "didn't come from a browser context — check the call "
                 "site or supply a public_base_url setting.",
                 status_code=400)
-        paypal_kwargs = {
+        return {
             "return_url": f"{origin}/payments/paypal/return",
             "cancel_url": f"{origin}/pricing?cancelled=1",
         }
-    try:
-        order = provider.create_order(
-            charge_amount_minor, receipt=receipt,
-            currency=charge_currency, **paypal_kwargs)
-    except Exception as e:
+
+    # Attempt candidates in order. Fallback (payments.fallback_enabled)
+    # applies ONLY to gateway-side order-creation failures — a down or
+    # misconfigured gateway. It never re-routes a card decline (that
+    # happens later, inside the gateway's own UI, and is the customer's
+    # bank talking). With fallback off (default) this loop is exactly
+    # the old single-attempt behavior.
+    fallback_on = settings_store.get_bool("payments.fallback_enabled", False)
+    attempts = candidates if fallback_on else candidates[:1]
+    provider = provider_config_id = order = None
+    last_err = None
+    for config_id in attempts:
+        if config_id is None:
+            # Legacy sentinel (see candidate_config_ids): no listing
+            # rows yet — resolve exactly the way the pre-control-plane
+            # code did, same seam, same error messages.
+            provider = PaymentRegistry.get_for_currency(charge_currency)
+            provider_config_id = None
+        else:
+            provider = PaymentRegistry.get_by_id(config_id)
+            provider_config_id = config_id
+        kwargs = _paypal_kwargs() if provider.name == "paypal" else {}
+        try:
+            order = provider.create_order(
+                charge_amount_minor, receipt=receipt,
+                currency=charge_currency, **kwargs)
+            break
+        except AppError:
+            raise                     # our own 4xx (e.g. missing Origin)
+        except Exception as e:
+            last_err = e
+            log.warning("payments.order_create_failed",
+                        provider_config_id=config_id,
+                        provider=provider.name, error=str(e),
+                        will_fallback=config_id != attempts[-1])
+    if order is None:
         gateway_label = "Razorpay" if provider.name == "razorpay" else "PayPal"
         raise AppError(
-            f"Payment gateway rejected the order: {e}. "
+            f"Payment gateway rejected the order: {last_err}. "
             f"Verify the {gateway_label} provider's keys in "
             f"admin → Payment Providers. "
             + ("If you're using a non-INR currency, also check that the "
@@ -195,6 +278,12 @@ def create_order(payload: CreateOrderIn,
     db.add(Payment(
         user_id=user.id, plan_id=quote.plan_id,
         provider_name=provider.name,
+        # Which ACCOUNT (config row) minted this order — required now
+        # that two Razorpay accounts (personal INR / company intl) can
+        # be live at once: provider_name alone can't tell them apart
+        # for webhooks and refunds. Historical rows stay NULL and keep
+        # resolving via provider_name (legacy path).
+        provider_config_id=provider_config_id,
         provider_order_id=order["id"],
         amount_paise=charge_amount_minor,
         base_amount_paise=quote.base_price_paise,
@@ -405,9 +494,26 @@ async def webhook(request: Request,
     scheme (certificate-based, not shared HMAC).
     """
     body = await request.body()
-    # Razorpay's INR provider is always the "active" one in our setup.
-    provider = PaymentRegistry.get_active()
-    if not provider.verify_webhook_signature(body, x_razorpay_signature):
+    # Verify against EVERY enabled Razorpay account, active first. With
+    # two accounts live (personal INR + company intl) each signs with
+    # its own secret — checking only the active account would silently
+    # reject all deliveries from the second (multi-gateway spec, T5).
+    provider = None
+    for _cfg_id, candidate in PaymentRegistry.enabled_by_type("razorpay"):
+        if candidate.verify_webhook_signature(body, x_razorpay_signature):
+            provider = candidate
+            break
+    if provider is None:
+        # Legacy seam: no config row matched (or none exist — pre-0047
+        # data and the test fixtures both look like this). The classic
+        # active provider gets the final word before we reject.
+        legacy = PaymentRegistry.get_active()
+        if legacy.verify_webhook_signature(body, x_razorpay_signature):
+            provider = legacy
+    if provider is None:
+        # Genuinely unverifiable — diagnostics use the active account
+        # (the overwhelmingly common misconfiguration).
+        provider = PaymentRegistry.get_active()
         # Operator-facing diagnostic. Razorpay auto-disables an endpoint
         # that keeps rejecting deliveries, and the usual cause is a
         # secret-mismatch between our /admin/payment-providers row and

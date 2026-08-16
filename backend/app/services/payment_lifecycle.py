@@ -35,6 +35,10 @@ from app.models.plan import Plan
 from app.models.subscription import Subscription
 from app.services.tracking_service import emit_event
 
+import structlog
+
+log = structlog.get_logger("payment_lifecycle")
+
 
 def activate_subscription_for_payment(db: Session, payment: Payment) -> Subscription:
     """Mark `payment` as captured and ensure the user has an active sub.
@@ -135,6 +139,21 @@ def activate_subscription_for_payment(db: Session, payment: Payment) -> Subscrip
                                if sub.expires_at else ""),
             })
     cancel_unpaid_nudges(db, payment.user_id)
+
+    # Invoice email (fail-soft — must never break a capture). The
+    # synchronous 'queued' stamp is the double-send guard: verify and
+    # webhook both land here, but only the first sees status NULL.
+    try:
+        from app.core.settings_store import settings_store
+        from app.services.invoice import queue_invoice_email
+        if (settings_store.get_bool("email.invoice_enabled", True)
+                and payment.invoice_email_status is None):
+            payment.invoice_email_status = "queued"
+            db.commit()
+            queue_invoice_email(payment.id)
+    except Exception as e:  # pragma: no cover - defensive
+        log.error("invoice.enqueue_failed", payment_id=payment.id,
+                  error=str(e))
     return sub
 
 

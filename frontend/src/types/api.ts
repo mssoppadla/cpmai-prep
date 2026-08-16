@@ -1139,6 +1139,9 @@ export interface CreateOrderIn {
   utm_campaign?: string | null;
   /** Optional LinkedIn id/URL captured at checkout (same intent as the landing form). */
   linkedin_id?: string | null;
+  /** Customer-picked gateway (choice mode, from /payments/gateway-options).
+   *  Absent/null → server routes as before. Server-validated. */
+  provider_config_id?: number | null;
   /** ISO-4217 code. Default "INR" — pass the user's selected currency
    *  so Razorpay opens the popup in that currency. Unsupported codes
    *  get rejected by the backend (we don't silently fall back when
@@ -1421,6 +1424,12 @@ export interface PaymentAdminRow {
   status: "created" | "captured" | "failed" | "refunded";
   offer_code: string | null;
   created_at: string | null;
+  /** Gateway ACCOUNT that took the money (display name of the provider
+   *  config); falls back to provider_name for historical/manual rows. */
+  provider_account: string;
+  invoice_number: string | null;
+  invoice_email_status: "queued" | "sent" | "failed" | "skipped" | null;
+  invoice_email_sent_at: string | null;
 }
 
 export interface PaymentsAdminPage {
@@ -1620,6 +1629,11 @@ export interface PaymentProviderOut {
   is_active: boolean;
   /** True if this is the non-INR-rail provider (typically PayPal). */
   is_non_inr_active: boolean;
+  /** Listing control plane: sellable for NEW payments per rail.
+   *  is_enabled remains "can service past payments". */
+  listed_for_inr: boolean;
+  listed_for_intl: boolean;
+  intl_rank: number;
   has_api_secret: boolean;
   has_webhook_secret: boolean;
 }

@@ -43,6 +43,13 @@ class Payment(Base):
     status       = Column(String(32), nullable=False)   # created|captured|failed|refunded
     idempotency_key = Column(String(64), unique=True, nullable=False)
     raw_payload  = Column(JSON)
+    # Invoice engine (migration 0048). invoice_number assigned on first
+    # PDF generation; the file lives at UPLOAD_ROOT/invoices/<number>.pdf
+    # (path derived, never stored). invoice_email_status:
+    #   NULL=never attempted, queued, sent, failed, skipped.
+    invoice_number        = Column(String(40), unique=True, nullable=True)
+    invoice_email_status  = Column(String(16), nullable=True)
+    invoice_email_sent_at = Column(DateTime(timezone=True), nullable=True)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -39,6 +39,36 @@ first (so even a wrong restore is reversible), restores DB + uploads
 (stage→verify→swap; a bad archive is a no-op), migrates, restarts,
 health-checks.
 
+## Scenario A2 — rolling back a deploy DAYS later (data must survive)
+The Scenario-A restore path is for MINUTES-old deploys. If the bad
+deploy has been live for hours or days, users have signed up, taken
+exams, and paid since — a DB restore would erase all of it. The rule:
+
+**Late rollback = CODE-ONLY rollback. Never restore the DB.**
+
+```bash
+git log --oneline -5                      # find the last good commit
+git checkout <good-sha> && ./scripts/vps/deploy.sh   # redeploy old code
+# (or: docker tag cpmai-prep-backend:previous cpmai-prep-backend:latest
+#      + docker compose up -d, if the images are still on disk)
+```
+
+Why this is safe: migrations here are ADDITIVE-ONLY by policy (new
+columns/tables, never renames/drops in the same release) — old code
+runs fine against the newer schema, so reverting code does not require
+reverting the database. New-user signups, exam results, and payments
+taken during the bad period are all retained.
+
+- deploy.sh's AUTOMATIC rollback (which does restore the pre-deploy
+  backup) only fires during the deploy itself — minutes of exposure,
+  before real user activity accumulates. It never runs later.
+- If the bad deploy also CORRUPTED data, don't full-restore: fix the
+  damaged rows with Scenario-C (single table) or targeted SQL, keeping
+  everything created since.
+- If a migration in the bad release was NOT additive (schema the old
+  code can't run on), roll FORWARD with a fixing commit instead of
+  rolling back.
+
 ## Scenario B — bad data change / accidental damage, no deploy involved
 Same as A but pick the newest backup from BEFORE the damage:
 ```bash

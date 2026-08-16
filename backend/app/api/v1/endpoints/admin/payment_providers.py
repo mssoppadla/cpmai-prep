@@ -3,6 +3,7 @@
 Same shape as admin/llm_providers — encrypted secrets, hot-swap, smoke test.
 """
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_admin_user, get_super_admin_user
 from app.core.exceptions import NotFoundError, ConflictError, ValidationError, AppError
@@ -97,6 +98,52 @@ def update_provider(provider_id: int, payload: PaymentProviderUpdate,
               {"id": provider_id, "fields": list(data.keys())})
     active_id = settings_store.get("payment.active_provider_id")
     return PaymentProviderOut.from_row(row, is_active=(row.id == active_id))
+
+
+class ListingPatchIn(BaseModel):
+    listed_for_inr: bool | None = None
+    listed_for_intl: bool | None = None
+    intl_rank: int | None = Field(default=None, ge=1, le=1000)
+
+
+@router.patch("/{provider_id}/listing", response_model=PaymentProviderOut)
+def patch_listing(provider_id: int, payload: ListingPatchIn,
+                  db: Session = Depends(get_db),
+                  admin: User = Depends(get_admin_user)):
+    """Listing control plane: which gateways are SELLABLE per rail
+    (docs/payments-multi-gateway-spec.md). Unlisting is the 30-second
+    suspension response — the entry stays enabled so past payments'
+    webhooks/refunds keep working. Guard: the INR rail can never go
+    dark (at least one listed INR entry must remain)."""
+    row = db.get(PaymentProviderConfig, provider_id)
+    if not row:
+        raise ValidationError("Provider not found.")
+    if payload.listed_for_inr is False:
+        others = (db.query(PaymentProviderConfig)
+                  .filter(PaymentProviderConfig.id != provider_id,
+                          PaymentProviderConfig.is_enabled.is_(True),
+                          PaymentProviderConfig.listed_for_inr.is_(True))
+                  .count())
+        if others == 0 and row.listed_for_inr:
+            raise ValidationError(
+                "Refusing to unlist the last INR gateway — Indian "
+                "checkout would go dark. List another entry for INR "
+                "first.")
+    changed = {}
+    for field in ("listed_for_inr", "listed_for_intl", "intl_rank"):
+        val = getattr(payload, field)
+        if val is not None:
+            setattr(row, field, val)
+            changed[field] = val
+    db.commit()
+    PaymentRegistry.invalidate()
+    audit_log(db, admin.id, "payment.provider_listing_changed",
+              {"id": provider_id, **changed})
+    active_id = settings_store.get("payment.active_provider_id")
+    non_inr_id = settings_store.get("payment.non_inr_provider_id")
+    return PaymentProviderOut.from_row(
+        row, is_active=(row.id == active_id),
+        is_non_inr_active=(row.id == non_inr_id))
 
 
 @router.post("/{provider_id}/activate", response_model=PaymentProviderOut)

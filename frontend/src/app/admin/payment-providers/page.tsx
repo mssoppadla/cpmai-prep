@@ -86,6 +86,24 @@ export default function PaymentProvidersPage() {
       });
     }
   }
+  /** Flip a sellable-listing flag. The backend guards the INR rail
+   *  from going dark (unlisting the last INR entry → clear 422). */
+  async function toggleListing(p: PaymentProviderOut,
+                               field: "listed_for_inr" | "listed_for_intl") {
+    try {
+      await admin.paymentProviders.patchListing(p.id, { [field]: !p[field] });
+      await reload();
+    } catch (e) { setErr((e as ApiError).body.message); }
+  }
+
+  async function setRank(p: PaymentProviderOut, rank: number) {
+    if (!Number.isFinite(rank) || rank < 1 || rank > 1000) return;
+    try {
+      await admin.paymentProviders.patchListing(p.id, { intl_rank: rank });
+      await reload();
+    } catch (e) { setErr((e as ApiError).body.message); }
+  }
+
   /** Make this provider the non-INR-rail provider (typically PayPal).
    *  Razorpay stays on the INR rail independently. */
   async function activateNonInr(id: number) {
@@ -427,6 +445,37 @@ export default function PaymentProvidersPage() {
                   <button onClick={() => remove(p.id)}
                           className="text-xs text-rose-600 hover:text-rose-700">Delete</button>
                 </div>
+              </div>
+              {/* Listing control plane — which gateways are SELLABLE.
+                  Unlist = 30-second suspension response: customers stop
+                  seeing this gateway instantly, while it stays Enabled
+                  for past payments' webhooks/refunds. */}
+              <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-4 flex-wrap text-xs">
+                <span className="text-slate-400 font-medium">Listing:</span>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={p.listed_for_inr}
+                         onChange={() => toggleListing(p, "listed_for_inr")}
+                         className="w-3.5 h-3.5 accent-indigo-600" />
+                  <span className={p.listed_for_inr ? "text-slate-800" : "text-slate-400"}>
+                    Sellable · INR
+                  </span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={p.listed_for_intl}
+                         onChange={() => toggleListing(p, "listed_for_intl")}
+                         className="w-3.5 h-3.5 accent-indigo-600" />
+                  <span className={p.listed_for_intl ? "text-slate-800" : "text-slate-400"}>
+                    Sellable · International
+                  </span>
+                </label>
+                {p.listed_for_intl && (
+                  <label className="flex items-center gap-1.5">
+                    <span className="text-slate-400">Intl rank</span>
+                    <input type="number" min={1} max={1000} value={p.intl_rank}
+                           onChange={(e) => setRank(p, parseInt(e.target.value || "100", 10))}
+                           className="w-16 px-1.5 py-0.5 border border-slate-300 rounded" />
+                  </label>
+                )}
               </div>
             </div>
           ))}

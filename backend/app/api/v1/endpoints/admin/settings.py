@@ -67,6 +67,34 @@ def _optional_email(max_len: int = 240):
     return ok
 
 
+def _optional_email_list(max_len: int = 500):
+    """Empty, or one or more comma-separated email addresses."""
+    def ok(v):
+        if not isinstance(v, str): return False
+        if v == "": return True
+        if len(v) > max_len: return False
+        parts = [p.strip() for p in v.split(",")]
+        return all(p and "@" in p and "." in p for p in parts)
+    return ok
+
+
+def _gateway_split(v) -> bool:
+    """{provider_config_id: weight} for per-rail revenue splitting. Keys
+    must be int-like, weights numeric 0..100. {} = split off."""
+    if not isinstance(v, dict):
+        return False
+    for k, w in v.items():
+        try:
+            int(k)
+        except (TypeError, ValueError):
+            return False
+        if isinstance(w, bool) or not isinstance(w, (int, float)):
+            return False
+        if not (0 <= w <= 100):
+            return False
+    return True
+
+
 def _bool(v): return isinstance(v, bool)
 def _int_in(lo: int, hi: int):
     return lambda v: isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
@@ -471,6 +499,34 @@ EDITABLE: dict[str, Callable] = {
     "pricing.intl_notice_audience":      _choice("all", "non_in"),
     # Subtitle under the "Pricing" H1 on /pricing.
     "pricing.subtitle":                  _short_str(300),
+    # Multi-gateway control plane (docs/payments-multi-gateway-spec.md).
+    # intl_enabled: kill switch for non-INR order creation.
+    # intl_display_mode: auto = server picks top-ranked listed gateway;
+    #   choice = customer picks when 2+ are listed.
+    # fallback_enabled: creation-time retry on the next listed gateway.
+    "payments.intl_enabled":             _bool,
+    "payments.intl_display_mode":        _choice("auto", "choice"),
+    "payments.fallback_enabled":         _bool,
+    # INR revenue split across 2+ listed INR gateways:
+    # {provider_config_id: weight}, e.g. {"1": 70, "2": 30}. Weights are
+    # relative; ids must be INR-listed to take part. Empty = no split
+    # (all INR to the primary).
+    "payments.inr_split":                _gateway_split,
+    # Same, for the international rail (PayPal / Razorpay-intl / Stripe
+    # entries). Customer choice-mode picks bypass the split.
+    "payments.intl_split":               _gateway_split,
+    # Invoice engine — auto-email an invoice PDF on every capture.
+    # cc_address gets a copy of every invoice mail (owner's records).
+    "email.invoice_enabled":             _bool,
+    "email.invoice_cc_address":          _optional_email_list(500),
+    "invoice.business_name":             _optional_str(160),
+    # Invoice email copy. Placeholders: {{user_name}}, {{user_email}},
+    # {{plan_name}}, {{amount}}, {{currency}}, {{invoice_number}},
+    # {{business_name}}, {{order_ref}}.
+    "invoice.email_subject":             _optional_str(200),
+    "invoice.email_body":                _optional_str(4000),
+    "invoice.business_address":          _optional_str(500),
+    "invoice.footer_note":               _optional_str(300),
     # International pricing — admin-tunable currencies + FX rates.
     # See app/services/pricing_service.py for how these flow into a quote.
     # GST only applies to INR; non-INR currencies skip the GST line.

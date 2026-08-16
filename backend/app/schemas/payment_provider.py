@@ -63,6 +63,12 @@ class PaymentProviderOut(BaseModel):
     # new currency-routed one.
     is_active: bool = False                      # true if INR-rail active
     is_non_inr_active: bool = False              # true if non-INR-rail active
+    # Multi-gateway listing control plane (docs/payments-multi-gateway-
+    # spec.md). Listed = sellable for NEW payments on that rail;
+    # is_enabled above stays the "can service past payments" switch.
+    listed_for_inr: bool = False
+    listed_for_intl: bool = False
+    intl_rank: int = 100
     has_api_secret: bool                         # boolean only — never the secret
     has_webhook_secret: bool
 
@@ -76,6 +82,11 @@ class PaymentProviderOut(BaseModel):
             is_enabled=row.is_enabled, priority=row.priority,
             is_active=is_active,
             is_non_inr_active=is_non_inr_active,
+            # getattr defaults keep this schema working against rows
+            # loaded before migration 0047 ran (fresh test DBs mid-suite).
+            listed_for_inr=bool(getattr(row, "listed_for_inr", False) or False),
+            listed_for_intl=bool(getattr(row, "listed_for_intl", False) or False),
+            intl_rank=getattr(row, "intl_rank", None) or 100,
             has_api_secret=row.api_secret_encrypted is not None,
             has_webhook_secret=row.webhook_secret_encrypted is not None,
         )

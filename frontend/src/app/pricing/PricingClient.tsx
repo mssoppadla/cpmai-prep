@@ -31,7 +31,7 @@ import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
-import { pricing, payments, auth, content, errMsg } from "@/lib/api";
+import { pricing, payments, auth, content, errMsg, type GatewayOption } from "@/lib/api";
 import { getSessionUtms } from "@/lib/tracker";
 import { firePurchaseConversion } from "@/lib/ads";
 import type {
@@ -155,6 +155,27 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
     "One-time payment, 1-year access. All plans include CPMAI-aligned "
     + "mock exams and the AI tutor.");
   const [currencyInitialised, setCurrencyInitialised] = useState(false);
+  // Gateway picker (multi-gateway control plane). Non-empty only when
+  // the admin set payments.intl_display_mode="choice" AND 2+ gateways
+  // are listed for the selected currency; otherwise the server picks
+  // silently and no picker renders (today's UX, untouched).
+  const [gatewayChoices, setGatewayChoices] = useState<GatewayOption[]>([]);
+  const [chosenGateway, setChosenGateway] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setGatewayChoices([]); setChosenGateway(null);
+    payments.gatewayOptions(currency)
+      .then((r) => {
+        if (cancelled) return;
+        if (r.mode === "choice" && r.options.length >= 2) {
+          setGatewayChoices(r.options);
+          setChosenGateway(r.options[0].provider_config_id);
+        }
+      })
+      .catch(() => { /* picker is enhancement — server picks as usual */ });
+    return () => { cancelled = true; };
+  }, [currency]);
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [offerCode, setOfferCode] = useState("");
@@ -363,6 +384,12 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
         referrer: referrer || null,
         linkedin_id: linkedinId.trim() || null,
         currency,
+        // Set only when the admin enabled "choice" mode AND 2+ gateways
+        // are listed AND the customer picked one — otherwise the server
+        // routes exactly as before. Server re-validates against the
+        // listed set; a stale pick gets a clear 422, never a silent
+        // wrong-gateway charge.
+        provider_config_id: chosenGateway,
         utm_source: utms.utm_source || null,
         utm_medium: utms.utm_medium || null,
         utm_campaign: utms.utm_campaign || null,
@@ -749,6 +776,32 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
                       </>
                     )}
                   </div>
+
+                  {/* Gateway picker — renders ONLY when the admin set
+                      display mode "choice" AND 2+ gateways are listed
+                      for this currency. Absent otherwise: auto mode is
+                      pixel-identical to the pre-control-plane page. */}
+                  {gatewayChoices.length >= 2 && (
+                    <div className="mb-3" role="radiogroup" aria-label="Payment gateway">
+                      <div className="text-xs font-medium text-slate-500 mb-1.5">
+                        Pay with
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {gatewayChoices.map((g) => (
+                          <label key={g.provider_config_id}
+                                 className={`px-3 py-2 rounded-lg border text-sm cursor-pointer ${
+                                   chosenGateway === g.provider_config_id
+                                     ? "border-indigo-500 bg-indigo-50 text-indigo-800 font-medium"
+                                     : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                            <input type="radio" name="gateway" className="sr-only"
+                                   checked={chosenGateway === g.provider_config_id}
+                                   onChange={() => setChosenGateway(g.provider_config_id)} />
+                            {g.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <button onClick={checkout}
                           data-track="cta:checkout"

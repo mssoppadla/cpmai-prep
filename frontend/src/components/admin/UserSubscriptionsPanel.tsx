@@ -43,6 +43,14 @@ export function UserSubscriptionsPanel({
     source: "manual_admin_grant" as
       "manual_admin_grant" | "comp" | "refund_reversed",
   });
+  // Invoice engine: "payment accepted manually / not recorded" — the
+  // money DID arrive (e.g. accepted in the PayPal console) but cpmai
+  // never saw the capture. Recording creates a manual captured Payment
+  // row; optionally the invoice PDF is emailed to the user (CC owner).
+  const [recordPayment, setRecordPayment] = useState(false);
+  const [sendInvoice, setSendInvoice] = useState(false);
+  const [amountMajor, setAmountMajor] = useState<string>("");
+  const [payCurrency, setPayCurrency] = useState("INR");
 
   async function reload() {
     setBusy(true); setErr(null);
@@ -76,10 +84,23 @@ export function UserSubscriptionsPanel({
       setErr("Reason is required (min 3 characters).");
       return;
     }
+    if (amountMajor.trim() && !(Number(amountMajor) >= 0)) {
+      setErr("Amount must be a non-negative number.");
+      return;
+    }
     try {
-      await admin.subscriptions.grant(userId, grant);
+      await admin.subscriptions.grant(userId, {
+        ...grant,
+        record_payment: recordPayment,
+        send_invoice: recordPayment && sendInvoice,
+        amount_paise: recordPayment && amountMajor.trim()
+          ? Math.round(Number(amountMajor) * 100)
+          : undefined,
+        currency: recordPayment ? payCurrency : undefined,
+      });
       setShowGrantForm(false);
       setGrant((g) => ({ ...g, reason: "" }));
+      setRecordPayment(false); setSendInvoice(false); setAmountMajor("");
       await reload();
     } catch (e) {
       console.error("[UserSubscriptionsPanel] grant", e);
@@ -211,6 +232,73 @@ export function UserSubscriptionsPanel({
               </option>
             </select>
           </label>
+          <div className="border border-slate-200 rounded p-2 space-y-2 bg-slate-50">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={recordPayment}
+                onChange={(e) => {
+                  setRecordPayment(e.target.checked);
+                  if (!e.target.checked) setSendInvoice(false);
+                }}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="text-xs font-medium text-slate-700">
+                  Payment accepted manually / not recorded
+                </span>
+                <span className="block text-[11px] text-slate-500">
+                  Money was actually received (e.g. accepted in the PayPal
+                  console) — records a captured “manual” payment so it shows
+                  in the Payments screen. Leave off for free comps.
+                </span>
+              </span>
+            </label>
+            {recordPayment && (
+              <>
+                <div className="grid grid-cols-2 gap-2 pl-6">
+                  <label className="block">
+                    <span className="text-xs text-slate-600">
+                      Amount received (blank = plan price)
+                    </span>
+                    <input
+                      type="number" min={0} step="0.01"
+                      value={amountMajor}
+                      onChange={(e) => setAmountMajor(e.target.value)}
+                      placeholder="e.g. 999.00"
+                      className="w-full mt-0.5 px-2 py-1 border border-slate-300 rounded text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs text-slate-600">Currency</span>
+                    <input
+                      type="text" maxLength={8}
+                      value={payCurrency}
+                      onChange={(e) => setPayCurrency(e.target.value.toUpperCase())}
+                      className="w-full mt-0.5 px-2 py-1 border border-slate-300 rounded text-sm"
+                    />
+                  </label>
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer pl-6">
+                  <input
+                    type="checkbox"
+                    checked={sendInvoice}
+                    onChange={(e) => setSendInvoice(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="text-xs font-medium text-slate-700">
+                      Email invoice PDF to the user
+                    </span>
+                    <span className="block text-[11px] text-slate-500">
+                      Sends the invoice to {userEmail} and CCs the owner
+                      address from Settings → email.invoice_cc_address.
+                    </span>
+                  </span>
+                </label>
+              </>
+            )}
+          </div>
           <label className="block">
             <span className="text-xs text-slate-600">
               Reason (captured in subscription row + audit log)

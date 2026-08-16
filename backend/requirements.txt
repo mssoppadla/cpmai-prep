@@ -46,6 +46,8 @@ pgvector==0.3.6
 # never invoke heavy document engines like LibreOffice or Java.
 pypdf==4.3.1
 python-docx==1.1.2
+# Invoice PDF generation (payment receipts). Pure-Python, no system deps.
+fpdf2==2.8.3
 # Anthropic SDK — enabled when admin selects provider_type: anthropic in
 # /admin/llm-providers. Lazy-imported in providers/anthropic_provider.py
 # so its absence couldn't break the app, but we ship it by default now
