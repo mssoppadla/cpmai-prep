@@ -142,30 +142,33 @@ def ensure_invoice_pdf(db: Session, payment: Payment) -> Path:
         pdf.cell(0, 6, _pdf_safe(user.email), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
-    # Line items — one plan per payment today.
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(120, 7, "Description", border=1)
-    pdf.cell(60, 7, "Amount", border=1, new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 10)
+    # Line items — one plan per payment today. Long plan names (live
+    # class titles etc.) must WRAP inside the description cell, never
+    # overlap the amount column — so every row is drawn with a measured
+    # multi_cell + an amount cell of matching height.
+    def _item_row(desc_text: str, amount_text: str, bold: bool = False):
+        pdf.set_font("Helvetica", "B" if bold else "", 10)
+        safe = _pdf_safe(desc_text)
+        lines = pdf.multi_cell(120, 7, safe, dry_run=True, output="LINES")
+        h = 7 * max(1, len(lines))
+        x, y = pdf.get_x(), pdf.get_y()
+        pdf.multi_cell(120, 7, safe, border=1, new_x="RIGHT", new_y="TOP")
+        pdf.set_xy(x + 120, y)
+        pdf.cell(60, h, amount_text, border=1,
+                 new_x="LMARGIN", new_y="NEXT")
+
+    _item_row("Description", "Amount", bold=True)
     desc = _product_desc(plan)
     if payment.base_amount_paise and payment.discount_paise:
-        pdf.cell(120, 7, _pdf_safe(desc), border=1)
-        pdf.cell(60, 7, _amount_str(payment.base_amount_paise,
-                                    payment.currency),
-                 border=1, new_x="LMARGIN", new_y="NEXT")
-        pdf.cell(120, 7, f"Discount ({payment.offer_code or 'offer'})",
-                 border=1)
-        pdf.cell(60, 7, "-" + _amount_str(payment.discount_paise,
-                                          payment.currency),
-                 border=1, new_x="LMARGIN", new_y="NEXT")
+        _item_row(desc, _amount_str(payment.base_amount_paise,
+                                    payment.currency))
+        _item_row(f"Discount ({payment.offer_code or 'offer'})",
+                  "-" + _amount_str(payment.discount_paise,
+                                    payment.currency))
     else:
-        pdf.cell(120, 7, _pdf_safe(desc), border=1)
-        pdf.cell(60, 7, _amount_str(payment.amount_paise, payment.currency),
-                 border=1, new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(120, 7, "Total paid", border=1)
-    pdf.cell(60, 7, _amount_str(payment.amount_paise, payment.currency),
-             border=1, new_x="LMARGIN", new_y="NEXT")
+        _item_row(desc, _amount_str(payment.amount_paise, payment.currency))
+    _item_row("Total paid",
+              _amount_str(payment.amount_paise, payment.currency), bold=True)
     pdf.ln(4)
 
     pdf.set_font("Helvetica", "", 9)
