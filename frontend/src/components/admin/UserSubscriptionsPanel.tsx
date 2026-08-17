@@ -51,6 +51,7 @@ export function UserSubscriptionsPanel({
   const [sendInvoice, setSendInvoice] = useState(false);
   const [amountMajor, setAmountMajor] = useState<string>("");
   const [payCurrency, setPayCurrency] = useState("INR");
+  const [gatewayRef, setGatewayRef] = useState("");
 
   async function reload() {
     setBusy(true); setErr(null);
@@ -97,10 +98,13 @@ export function UserSubscriptionsPanel({
           ? Math.round(Number(amountMajor) * 100)
           : undefined,
         currency: recordPayment ? payCurrency : undefined,
+        gateway_reference: recordPayment
+          ? gatewayRef.trim() || undefined : undefined,
       });
       setShowGrantForm(false);
       setGrant((g) => ({ ...g, reason: "" }));
       setRecordPayment(false); setSendInvoice(false); setAmountMajor("");
+      setGatewayRef("");
       await reload();
     } catch (e) {
       console.error("[UserSubscriptionsPanel] grant", e);
@@ -279,6 +283,19 @@ export function UserSubscriptionsPanel({
                     />
                   </label>
                 </div>
+                <label className="block pl-6">
+                  <span className="text-xs text-slate-600">
+                    Gateway/bank reference (optional — pay_… id, PayPal
+                    txn, UPI RRN; shown as the invoice&apos;s Payment ref)
+                  </span>
+                  <input
+                    type="text" maxLength={120}
+                    value={gatewayRef}
+                    onChange={(e) => setGatewayRef(e.target.value)}
+                    placeholder="e.g. pay_TQgfhrTMSKGJPZ"
+                    className="w-full mt-0.5 px-2 py-1 border border-slate-300 rounded text-sm"
+                  />
+                </label>
                 <label className="flex items-start gap-2 cursor-pointer pl-6">
                   <input
                     type="checkbox"

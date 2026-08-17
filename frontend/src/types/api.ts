@@ -1430,6 +1430,24 @@ export interface PaymentAdminRow {
   invoice_number: string | null;
   invoice_email_status: "queued" | "sent" | "failed" | "skipped" | null;
   invoice_email_sent_at: string | null;
+  /** How the payment reached captured: verify|webhook|admin|manual|
+   *  reconcile. admin/manual rows carry the manually-captured badge. */
+  captured_via: string | null;
+  provider_payment_id: string | null;
+}
+
+export interface AdhocInvoiceOut {
+  id: number;
+  invoice_number: string;
+  buyer_name: string;
+  buyer_email: string;
+  description: string;
+  amount_minor: number;
+  currency: string;
+  gateway_reference: string | null;
+  email_status: "sent" | "failed" | "skipped" | null;
+  email_sent_at: string | null;
+  created_at: string | null;
 }
 
 export interface PaymentsAdminPage {
@@ -1634,6 +1652,9 @@ export interface PaymentProviderOut {
   listed_for_inr: boolean;
   listed_for_intl: boolean;
   intl_rank: number;
+  /** When this account's secret last verified a webhook delivery.
+   *  null = never — warning-worthy on a listed account. */
+  last_webhook_at: string | null;
   has_api_secret: boolean;
   has_webhook_secret: boolean;
 }

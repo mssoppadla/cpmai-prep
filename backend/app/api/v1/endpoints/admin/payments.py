@@ -12,8 +12,9 @@ must find the row in its expected state.
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_log
@@ -35,6 +36,11 @@ def list_payments(
     status: str | None = Query(default=None),
     abandoned_hours: int | None = Query(default=None, ge=1, le=24 * 30),
     user_email: str | None = Query(default=None),
+    manual_only: bool = Query(
+        default=False,
+        description="Only manually-recorded/captured rows: manual "
+                    "grants (provider_name='manual') or admin "
+                    "Mark-paid captures (captured_via='admin')."),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
@@ -66,6 +72,10 @@ def list_payments(
         q = q.filter(Payment.status == status)
     if user_email:
         q = q.filter(User.email.ilike(f"%{user_email.strip().lower()}%"))
+    if manual_only:
+        from sqlalchemy import or_
+        q = q.filter(or_(Payment.provider_name == "manual",
+                         Payment.captured_via.in_(("admin", "manual"))))
     total = q.count()
     rows = (q.order_by(Payment.id.desc())
             .offset(offset).limit(limit).all())
@@ -93,6 +103,8 @@ def list_payments(
                 "invoice_number": p.invoice_number,
                 "invoice_email_status": p.invoice_email_status,
                 "invoice_email_sent_at": p.invoice_email_sent_at,
+                "captured_via": p.captured_via,
+                "provider_payment_id": p.provider_payment_id,
             }
             for p, email, uname, plan_name, acct_display, acct_name in rows
         ],
@@ -115,8 +127,24 @@ def download_invoice(payment_id: int, db: Session = Depends(get_db)):
                         filename=f"{p.invoice_number}.pdf")
 
 
+class MarkPaidIn(BaseModel):
+    """Optional body: the REAL gateway/bank reference for this manual
+    capture (pay_..., PayPal txn id, UPI RRN) — lands on the payment
+    record and the invoice's 'Payment ref' line."""
+    gateway_reference: str | None = Field(default=None, max_length=120)
+
+
+class MarkRefundedIn(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=500)
+    revoke_subscription: bool = Field(
+        False, description="Also revoke the linked subscription so the "
+                           "paywall cuts access immediately.")
+
+
 @router.post("/{payment_id}/mark-paid")
-def mark_paid(payment_id: int, db: Session = Depends(get_db),
+def mark_paid(payment_id: int,
+              payload: MarkPaidIn | None = Body(default=None),
+              db: Session = Depends(get_db),
               admin: User = Depends(get_admin_user)):
     """Operator backstop: the gateway shows the money ARRIVED (e.g. a
     PayPal payment that sat 'waiting for acceptance' and was accepted
@@ -132,21 +160,64 @@ def mark_paid(payment_id: int, db: Session = Depends(get_db),
         raise ValidationError("Payment was refunded — grant a fresh "
                               "subscription instead of re-capturing.")
     prior = p.status
+    ref = (payload.gateway_reference or "").strip() if payload else ""
+    if ref and not p.provider_payment_id:
+        p.provider_payment_id = ref[:64]
     from app.services.payment_lifecycle import (
         activate_subscription_for_payment,
     )
-    sub = activate_subscription_for_payment(db, p)
+    sub = activate_subscription_for_payment(db, p, captured_via="admin")
     audit_log(db, admin.id, "admin.payment.mark_paid", {
         "payment_id": p.id,
         "target_user_id": p.user_id,
         "prior_status": prior,
         "provider_order_id": p.provider_order_id,
+        "gateway_reference": ref or None,
         "amount_paise": p.amount_paise,
         "currency": p.currency,
     })
     return {"status": p.status, "prior_status": prior,
             "subscription_id": sub.id,
             "invoice_email_status": p.invoice_email_status}
+
+
+@router.post("/{payment_id}/mark-refunded")
+def mark_refunded(payment_id: int, payload: MarkRefundedIn,
+                  db: Session = Depends(get_db),
+                  admin: User = Depends(get_admin_user)):
+    """Record that a captured payment was refunded at the gateway (the
+    money-side refund happens in the Razorpay/PayPal dashboard — this
+    keeps cpmai's books honest and optionally cuts access). Idempotent:
+    re-marking an already-refunded row is a no-op."""
+    p = db.get(Payment, payment_id)
+    if p is None:
+        raise NotFoundError()
+    if p.status == "refunded":
+        return {"status": "refunded", "already": True}
+    if p.status != "captured":
+        raise ValidationError(
+            "Only captured payments can be marked refunded.")
+    p.status = "refunded"
+    revoked = False
+    if payload.revoke_subscription and p.subscription_id:
+        from app.models.subscription import Subscription
+        sub = db.get(Subscription, p.subscription_id)
+        if sub is not None and sub.revoked_at is None:
+            sub.revoked_at = datetime.now(timezone.utc)
+            sub.revoked_by = admin.id
+            sub.revoke_reason = f"refund: {payload.reason}"[:500]
+            revoked = True
+    db.commit()
+    audit_log(db, admin.id, "admin.payment.mark_refunded", {
+        "payment_id": p.id,
+        "target_user_id": p.user_id,
+        "amount_paise": p.amount_paise,
+        "currency": p.currency,
+        "subscription_id": p.subscription_id,
+        "subscription_revoked": revoked,
+        "reason": payload.reason,
+    })
+    return {"status": "refunded", "subscription_revoked": revoked}
 
 
 @router.post("/{payment_id}/invoice/send")

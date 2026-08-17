@@ -88,6 +88,7 @@ const GROUPS: NavGroupDef[] = [
     items: [
       { href: "/admin/plans",       label: "Plans" },
       { href: "/admin/payments",    label: "Payments", badge: "NEW" },
+      { href: "/admin/invoices",    label: "Invoices", badge: "NEW" },
       { href: "/admin/offer-codes", label: "Offer Codes" },
       { href: "/admin/pricing",     label: "Pricing & FX" },
     ],

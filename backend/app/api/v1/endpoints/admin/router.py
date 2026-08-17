@@ -21,6 +21,7 @@ from app.api.v1.endpoints.admin import (
     email_templates,
     email_automations,
     payments as payments_admin,
+    invoices as invoices_admin,
     testimonials,
     labs as labs_admin,
     error_logs,
@@ -53,6 +54,7 @@ admin_router.include_router(offers.router,       prefix="/offer-codes",   tags=[
 admin_router.include_router(email_templates.router, prefix="/email-templates", tags=["admin"])
 admin_router.include_router(email_automations.router, prefix="/email-automations", tags=["admin"])
 admin_router.include_router(payments_admin.router,  prefix="/payments",      tags=["admin"])
+admin_router.include_router(invoices_admin.router,  prefix="/invoices/adhoc", tags=["admin"])
 admin_router.include_router(rag.router,          prefix="/rag",           tags=["admin"])
 admin_router.include_router(chat_history.router, prefix="/chat-history",  tags=["admin"])
 admin_router.include_router(geoip.router,        prefix="/geoip",         tags=["admin"])

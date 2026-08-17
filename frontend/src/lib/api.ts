@@ -32,6 +32,7 @@ import type {
   QuizOptionOut, QuizOptionCreateIn, QuizOptionUpdateIn,
   QuizAttemptOut, QuizAttemptSubmitIn,
   QuestionAdminIn, QuestionAdminOut, ExamSetLinkedQuestion,
+  AdhocInvoiceOut,
   SettingOut, LLMProviderOut, LLMProviderCreate, LLMProviderUpdate,
   PaymentProviderOut, PaymentProviderCreate, PaymentProviderUpdate,
   PlanPublicOut, PlanAdminOut, PlanCreate, PlanUpdate,
@@ -2226,6 +2227,7 @@ export const admin = {
   payments: {
     async list(p?: {
       status?: string; abandoned_hours?: number; user_email?: string;
+      manual_only?: boolean;
       limit?: number; offset?: number;
     }): Promise<PaymentsAdminPage> {
       const { data } = await request<PaymentsAdminPage>(
@@ -2245,7 +2247,7 @@ export const admin = {
     /** Money arrived at the gateway but cpmai shows created/failed
      *  (e.g. PayPal accepted manually): capture + grant + invoice via
      *  the normal activation path. */
-    async markPaid(paymentId: number): Promise<{
+    async markPaid(paymentId: number, gatewayReference?: string): Promise<{
       status: string; prior_status: string; subscription_id: number;
       invoice_email_status: string | null;
     }> {
@@ -2253,7 +2255,19 @@ export const admin = {
         status: string; prior_status: string; subscription_id: number;
         invoice_email_status: string | null;
       }>(`/admin/payments/${paymentId}/mark-paid`,
-        { method: "POST", authed: true });
+        { method: "POST", authed: true,
+          json: { gateway_reference: gatewayReference || null } });
+      return data;
+    },
+    /** Record a gateway-side refund (money moved in the dashboard);
+     *  optionally revoke the linked subscription in the same step. */
+    async markRefunded(paymentId: number, p: {
+      reason: string; revoke_subscription?: boolean;
+    }): Promise<{ status: string; subscription_revoked?: boolean }> {
+      const { data } = await request<{
+        status: string; subscription_revoked?: boolean;
+      }>(`/admin/payments/${paymentId}/mark-refunded`,
+        { method: "POST", json: p, authed: true });
       return data;
     },
     /** (Re)send the invoice email now; returns the real SMTP outcome. */
@@ -2265,6 +2279,41 @@ export const admin = {
         sent: boolean; invoice_number: string | null;
         invoice_email_status: string | null;
       }>(`/admin/payments/${paymentId}/invoice/send`,
+        { method: "POST", authed: true });
+      return data;
+    },
+  },
+  /** Ad-hoc invoices — operator-entered, same PDF/email as payment
+   *  invoices, separate INV-YYYY-M##### series. */
+  adhocInvoices: {
+    async list(p?: { limit?: number; offset?: number }): Promise<{
+      total: number; items: AdhocInvoiceOut[];
+    }> {
+      const { data } = await request<{
+        total: number; items: AdhocInvoiceOut[];
+      }>(`/admin/invoices/adhoc${qs(p)}`, { authed: true });
+      return data;
+    },
+    async create(p: {
+      buyer_name: string; buyer_email: string; description: string;
+      amount_minor: number; currency?: string;
+      gateway_reference?: string; send_email?: boolean;
+    }): Promise<AdhocInvoiceOut & { email_sent: boolean | null }> {
+      const { data } = await request<
+        AdhocInvoiceOut & { email_sent: boolean | null }
+      >(`/admin/invoices/adhoc`, { method: "POST", json: p, authed: true });
+      return data;
+    },
+    async downloadPdf(id: number): Promise<Blob> {
+      return downloadXlsx(`/admin/invoices/adhoc/${id}/pdf`,
+        "Invoice download");
+    },
+    async send(id: number): Promise<{
+      sent: boolean; invoice_number: string; email_status: string | null;
+    }> {
+      const { data } = await request<{
+        sent: boolean; invoice_number: string; email_status: string | null;
+      }>(`/admin/invoices/adhoc/${id}/send`,
         { method: "POST", authed: true });
       return data;
     },

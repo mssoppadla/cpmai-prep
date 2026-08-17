@@ -128,6 +128,7 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "payments.fallback_enabled":         True,
     "payments.inr_split":                {"1": 70, "2": 30},
     "payments.intl_split":               {"3": 50, "4": 50},
+    "payments.reconcile_enabled":        True,
     "email.invoice_enabled":             True,
     "email.invoice_cc_address":          "owner@example.com, books@example.com",
     "invoice.business_name":             "CPMAI Exam Prep",

@@ -383,7 +383,7 @@ def verify_payment(payload: VerifyPaymentIn,
         payment.provider_payment_id = payload.payment_id
         db.flush()
 
-    sub = activate_subscription_for_payment(db, payment)
+    sub = activate_subscription_for_payment(db, payment, captured_via="verify")
     return VerifyPaymentOut(
         status="active", plan_slug=sub.plan, expires_at=sub.expires_at,
     )
@@ -459,7 +459,7 @@ def paypal_capture(payload: PayPalCaptureIn,
                 ""),
         )
 
-    sub = activate_subscription_for_payment(db, payment)
+    sub = activate_subscription_for_payment(db, payment, captured_via="verify")
     return PayPalCaptureOut(
         status="active", plan_slug=sub.plan, expires_at=sub.expires_at,
     )
@@ -516,10 +516,21 @@ async def webhook(request: Request,
     # its own secret — checking only the active account would silently
     # reject all deliveries from the second (multi-gateway spec, T5).
     provider = None
+    matched_cfg_id = None
     for _cfg_id, candidate in PaymentRegistry.enabled_by_type("razorpay"):
         if candidate.verify_webhook_signature(body, x_razorpay_signature):
             provider = candidate
+            matched_cfg_id = _cfg_id
             break
+    if matched_cfg_id is not None:
+        # Webhook-health heartbeat: the provider card shows "last
+        # webhook received" so a gateway-side disabled endpoint (which
+        # silently loses captures) is visible at a glance.
+        from app.models.payment_provider import PaymentProviderConfig
+        row = db.get(PaymentProviderConfig, matched_cfg_id)
+        if row is not None:
+            row.last_webhook_at = datetime.now(timezone.utc)
+            db.flush()
     if provider is None:
         # Legacy seam: no config row matched (or none exist — pre-0047
         # data and the test fixtures both look like this). The classic
@@ -589,7 +600,7 @@ async def webhook(request: Request,
             db.flush()
 
         if event_type in ("payment.captured", "order.paid"):
-            activate_subscription_for_payment(db, payment)
+            activate_subscription_for_payment(db, payment, captured_via="webhook")
             action = "activated"
         elif event_type == "payment.failed":
             mark_payment_failed(db, payment)
@@ -660,7 +671,7 @@ async def paypal_webhook(request: Request, db: Session = Depends(get_db)):
             db.flush()
 
         if event_type == "PAYMENT.CAPTURE.COMPLETED":
-            activate_subscription_for_payment(db, payment)
+            activate_subscription_for_payment(db, payment, captured_via="webhook")
             action = "activated"
         elif event_type == "PAYMENT.CAPTURE.DENIED":
             mark_payment_failed(db, payment)

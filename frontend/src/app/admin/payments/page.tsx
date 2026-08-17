@@ -24,7 +24,8 @@ const STATUS_STYLE: Record<string, string> = {
 type Filter =
   | { kind: "all" }
   | { kind: "status"; status: string }
-  | { kind: "abandoned" };
+  | { kind: "abandoned" }
+  | { kind: "manual" };
 
 export default function AdminPaymentsPage() {
   const [summary, setSummary] = useState<PaymentsSummary | null>(null);
@@ -46,6 +47,7 @@ export default function AdminPaymentsPage() {
       const p = await admin.payments.list({
         status: filter.kind === "status" ? filter.status : undefined,
         abandoned_hours: filter.kind === "abandoned" ? 24 : undefined,
+        manual_only: filter.kind === "manual" || undefined,
         user_email: email.trim() || undefined,
         limit, offset,
       });
@@ -77,9 +79,39 @@ export default function AdminPaymentsPage() {
       `unpaid/failed. It grants the subscription and emails the ` +
       `invoice, exactly like a normal capture.`);
     if (!ok) return;
+    const ref = window.prompt(
+      "Gateway/bank reference for this money (optional but recommended " +
+      "— pay_… id, PayPal txn id, or UPI RRN). Shown as the invoice's " +
+      "'Payment ref'. Leave blank to skip.", "");
+    if (ref === null) return;
     setBusyInvoice(p.id); setErr(null);
     try {
-      await admin.payments.markPaid(p.id);
+      await admin.payments.markPaid(p.id, ref.trim() || undefined);
+      await reload();
+    } catch (e) { setErr(errMsg(e)); }
+    finally { setBusyInvoice(null); }
+  }
+
+  async function markRefunded(p: PaymentAdminRow) {
+    const reason = window.prompt(
+      `Mark payment #${p.id} (${p.user_email}, ${p.currency} ` +
+      `${(p.amount_paise / 100).toFixed(2)}) as REFUNDED?\n\n` +
+      `Do the actual money refund in the Razorpay/PayPal dashboard — ` +
+      `this records it here.\n\nReason (required, ≥3 chars):`, "");
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      setErr("Refund reason is required (min 3 characters).");
+      return;
+    }
+    const revoke = window.confirm(
+      "Also REVOKE the linked subscription (cut access now)?\n\n" +
+      "OK = revoke access · Cancel = keep access (e.g. goodwill/partial " +
+      "refund).");
+    setBusyInvoice(p.id); setErr(null);
+    try {
+      await admin.payments.markRefunded(p.id, {
+        reason: reason.trim(), revoke_subscription: revoke,
+      });
       await reload();
     } catch (e) { setErr(errMsg(e)); }
     finally { setBusyInvoice(null); }
@@ -144,6 +176,8 @@ export default function AdminPaymentsPage() {
         {chip("Refunded", summary?.by_status?.refunded,
               { kind: "status", status: "refunded" },
               filter.kind === "status" && filter.status === "refunded")}
+        {chip("Manual", undefined, { kind: "manual" },
+              filter.kind === "manual")}
         <input value={email} placeholder="filter by user email…"
                onChange={(e) => { setEmail(e.target.value); setOffset(0); }}
                className="ml-auto px-3 py-2 text-sm border border-slate-300
@@ -200,6 +234,35 @@ export default function AdminPaymentsPage() {
                                       ${STATUS_STYLE[p.status] ?? ""}`}>
                       {p.status === "created" ? "unpaid (created)" : p.status}
                     </span>
+                    {(p.captured_via === "admin"
+                      || p.captured_via === "manual"
+                      || p.provider_name === "manual") && (
+                      <span className="block mt-1 text-[10px] px-1.5 py-0.5
+                                       rounded border bg-amber-50
+                                       text-amber-700 border-amber-200
+                                       w-fit"
+                            title={p.captured_via === "admin"
+                              ? "Captured via admin 'Mark paid'"
+                              : "Recorded manually (manual grant)"}>
+                        manual
+                      </span>
+                    )}
+                    {p.captured_via === "reconcile" && (
+                      <span className="block mt-1 text-[10px] px-1.5 py-0.5
+                                       rounded border bg-sky-50 text-sky-700
+                                       border-sky-200 w-fit"
+                            title="Auto-healed by the hourly gateway reconciliation sweep">
+                        auto-reconciled
+                      </span>
+                    )}
+                    {p.status === "captured" && (
+                      <button onClick={() => markRefunded(p)}
+                              disabled={busyInvoice === p.id}
+                              className="block mt-1 text-[10px] text-rose-600
+                                         hover:underline disabled:opacity-40">
+                        Mark refunded
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs">
                     {(p.status === "captured" || p.status === "refunded") ? (

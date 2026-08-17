@@ -515,6 +515,10 @@ EDITABLE: dict[str, Callable] = {
     # Same, for the international rail (PayPal / Razorpay-intl / Stripe
     # entries). Customer choice-mode picks bypass the split.
     "payments.intl_split":               _gateway_split,
+    # Hourly reconciliation sweep: asks the gateway about recent
+    # 'created' Razorpay orders and activates any it finds captured
+    # (webhook-outage safety net).
+    "payments.reconcile_enabled":        _bool,
     # Invoice engine — auto-email an invoice PDF on every capture.
     # cc_address gets a copy of every invoice mail (owner's records).
     "email.invoice_enabled":             _bool,

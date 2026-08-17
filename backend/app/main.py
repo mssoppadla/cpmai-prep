@@ -176,6 +176,18 @@ def startup():
                 _log.getLogger(__name__).warning(
                     "email dispatcher failed to register: %s", _e,
                 )
+            # Payment reconciliation sweep — hourly, asks the gateway
+            # about recent 'created' orders and activates any it finds
+            # captured (webhook-outage safety net). No-ops per tick
+            # while payments.reconcile_enabled is off.
+            try:
+                from app.services.payment_reconcile import register as _register_reconcile
+                _register_reconcile(_sched)
+            except Exception as _e:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "payment reconcile failed to register: %s", _e,
+                )
 
 
 @app.on_event("shutdown")

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, Field
 
@@ -69,6 +70,9 @@ class PaymentProviderOut(BaseModel):
     listed_for_inr: bool = False
     listed_for_intl: bool = False
     intl_rank: int = 100
+    # Webhook health: when this config's secret last verified a
+    # delivery. None = never (warning-worthy if the entry is listed).
+    last_webhook_at: "datetime | None" = None
     has_api_secret: bool                         # boolean only — never the secret
     has_webhook_secret: bool
 
@@ -87,6 +91,7 @@ class PaymentProviderOut(BaseModel):
             listed_for_inr=bool(getattr(row, "listed_for_inr", False) or False),
             listed_for_intl=bool(getattr(row, "listed_for_intl", False) or False),
             intl_rank=getattr(row, "intl_rank", None) or 100,
+            last_webhook_at=getattr(row, "last_webhook_at", None),
             has_api_secret=row.api_secret_encrypted is not None,
             has_webhook_secret=row.webhook_secret_encrypted is not None,
         )

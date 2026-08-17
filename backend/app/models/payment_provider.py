@@ -40,6 +40,12 @@ class PaymentProviderConfig(Base):
     listed_for_intl = Column(Boolean, default=False, nullable=False)
     intl_rank       = Column(Integer, default=100, nullable=False)
 
+    # Webhook health (migration 0049): stamped whenever a delivery
+    # verifies against THIS config's secret. A listed account whose
+    # webhooks are disabled at the gateway silently loses captures —
+    # the card surfaces staleness so that's visible at a glance.
+    last_webhook_at = Column(DateTime(timezone=True), nullable=True)
+
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True),

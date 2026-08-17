@@ -114,6 +114,11 @@ class SubscriptionGrantIn(BaseModel):
     send_invoice: bool = Field(
         False, description="Email the invoice PDF to the user (CC "
                            "owner). Requires record_payment.")
+    gateway_reference: str | None = Field(
+        None, max_length=120,
+        description="Real gateway/bank reference for the money received "
+                    "(pay_..., PayPal txn id, UPI RRN). Shown as the "
+                    "invoice's 'Payment ref'.")
 
 
 class SubscriptionExtendIn(BaseModel):
@@ -266,6 +271,9 @@ def grant_subscription(user_id: int, payload: SubscriptionGrantIn,
             base_amount_paise=plan.base_price_paise,
             currency=payload.currency.upper(),
             status="captured",
+            captured_via="manual",
+            provider_payment_id=((payload.gateway_reference or "")
+                                 .strip()[:64] or None),
             idempotency_key=f"manual-{uuid.uuid4().hex}",
         )
         db.add(pay)

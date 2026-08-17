@@ -104,12 +104,55 @@ def ensure_invoice_pdf(db: Session, payment: Payment) -> Path:
     user = db.get(User, payment.user_id)
     plan = db.get(Plan, payment.plan_id) if payment.plan_id else None
 
+    desc = _product_desc(plan)
+    breakdown_consistent = (
+        payment.base_amount_paise and payment.discount_paise
+        and (payment.base_amount_paise - payment.discount_paise
+             == payment.amount_paise))
+    rows = []
+    if breakdown_consistent:
+        rows.append((desc, _amount_str(payment.base_amount_paise,
+                                       payment.currency)))
+        rows.append((f"Discount ({payment.offer_code or 'offer'})",
+                     "-" + _amount_str(payment.discount_paise,
+                                       payment.currency)))
+    else:
+        if payment.discount_paise and payment.offer_code:
+            desc = f"{desc} (offer {payment.offer_code} applied)"
+        rows.append((desc, _amount_str(payment.amount_paise,
+                                       payment.currency)))
+
+    _render_invoice_pdf(
+        path,
+        invoice_number=payment.invoice_number,
+        issued=(payment.created_at or datetime.now(timezone.utc)),
+        bill_name=(user.name if user is not None else None),
+        bill_email=(user.email if user is not None else None),
+        rows=rows,
+        total=_amount_str(payment.amount_paise, payment.currency),
+        paid_via=_account_label(db, payment),
+        order_ref=payment.provider_order_id,
+        payment_ref=payment.provider_payment_id,
+    )
+    log.info("invoice.pdf_generated", payment_id=payment.id,
+             invoice_number=payment.invoice_number)
+    return path
+
+
+def _render_invoice_pdf(path: Path, *, invoice_number: str, issued,
+                        bill_name: "str | None", bill_email: "str | None",
+                        rows: list, total: str,
+                        paid_via: "str | None" = None,
+                        order_ref: "str | None" = None,
+                        payment_ref: "str | None" = None) -> None:
+    """Shared layout for payment AND ad-hoc invoices — one format
+    everywhere (business header from settings, INVOICE/RECEIPT block,
+    wrapped line items, footer)."""
     business = settings_store.get_str("invoice.business_name",
                                       "CPMAI Exam Prep")
     address = settings_store.get_str("invoice.business_address", "")
     footer = settings_store.get_str("invoice.footer_note",
                                     "Thank you for your purchase.")
-    issued = (payment.created_at or datetime.now(timezone.utc))
 
     from fpdf import FPDF
     pdf = FPDF()
@@ -127,7 +170,7 @@ def ensure_invoice_pdf(db: Session, payment: Payment) -> Path:
     pdf.set_font("Helvetica", "B", 14)
     pdf.cell(0, 8, "INVOICE / RECEIPT", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
-    pdf.cell(0, 6, f"Invoice no: {payment.invoice_number}",
+    pdf.cell(0, 6, f"Invoice no: {invoice_number}",
              new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 6, f"Date: {issued.strftime('%d %b %Y')}",
              new_x="LMARGIN", new_y="NEXT")
@@ -136,10 +179,10 @@ def ensure_invoice_pdf(db: Session, payment: Payment) -> Path:
     pdf.set_font("Helvetica", "B", 10)
     pdf.cell(0, 6, "Billed to", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
-    if user is not None:
-        if user.name:
-            pdf.cell(0, 6, _pdf_safe(user.name), new_x="LMARGIN", new_y="NEXT")
-        pdf.cell(0, 6, _pdf_safe(user.email), new_x="LMARGIN", new_y="NEXT")
+    if bill_name:
+        pdf.cell(0, 6, _pdf_safe(bill_name), new_x="LMARGIN", new_y="NEXT")
+    if bill_email:
+        pdf.cell(0, 6, _pdf_safe(bill_email), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     # Line items — one plan per payment today. Long plan names (live
@@ -158,40 +201,20 @@ def ensure_invoice_pdf(db: Session, payment: Payment) -> Path:
                  new_x="LMARGIN", new_y="NEXT")
 
     _item_row("Description", "Amount", bold=True)
-    desc = _product_desc(plan)
-    # base_amount/discount are stored in the QUOTE currency (INR paise),
-    # while amount_paise is the CHARGE currency's minor units. Printing
-    # the breakdown is only honest when the units reconcile (INR
-    # payments: base - discount == charged). A cross-currency payment
-    # (e.g. HKD via PayPal) would otherwise show "5999.00 HKD - 4009.00
-    # HKD = 170.00 HKD" — INR numbers wearing an HKD label (prod
-    # INV-2026-000083). There, show one correct line and note the offer.
-    breakdown_consistent = (
-        payment.base_amount_paise and payment.discount_paise
-        and (payment.base_amount_paise - payment.discount_paise
-             == payment.amount_paise))
-    if breakdown_consistent:
-        _item_row(desc, _amount_str(payment.base_amount_paise,
-                                    payment.currency))
-        _item_row(f"Discount ({payment.offer_code or 'offer'})",
-                  "-" + _amount_str(payment.discount_paise,
-                                    payment.currency))
-    else:
-        if payment.discount_paise and payment.offer_code:
-            desc = f"{desc} (offer {payment.offer_code} applied)"
-        _item_row(desc, _amount_str(payment.amount_paise, payment.currency))
-    _item_row("Total paid",
-              _amount_str(payment.amount_paise, payment.currency), bold=True)
+    for row_desc, row_amount in rows:
+        _item_row(row_desc, row_amount)
+    _item_row("Total paid", total, bold=True)
     pdf.ln(4)
 
     pdf.set_font("Helvetica", "", 9)
-    pdf.cell(0, 5, _pdf_safe(f"Paid via: {_account_label(db, payment)}"),
-             new_x="LMARGIN", new_y="NEXT")
-    if payment.provider_order_id:
-        pdf.cell(0, 5, f"Order ref: {payment.provider_order_id}",
+    if paid_via:
+        pdf.cell(0, 5, _pdf_safe(f"Paid via: {paid_via}"),
                  new_x="LMARGIN", new_y="NEXT")
-    if payment.provider_payment_id:
-        pdf.cell(0, 5, f"Payment ref: {payment.provider_payment_id}",
+    if order_ref:
+        pdf.cell(0, 5, _pdf_safe(f"Order ref: {order_ref}"),
+                 new_x="LMARGIN", new_y="NEXT")
+    if payment_ref:
+        pdf.cell(0, 5, _pdf_safe(f"Payment ref: {payment_ref}"),
                  new_x="LMARGIN", new_y="NEXT")
     if footer:
         pdf.ln(6)
@@ -199,9 +222,6 @@ def ensure_invoice_pdf(db: Session, payment: Payment) -> Path:
         pdf.multi_cell(0, 5, _pdf_safe(footer))
 
     pdf.output(str(path))
-    log.info("invoice.pdf_generated", payment_id=payment.id,
-             invoice_number=payment.invoice_number)
-    return path
 
 
 def send_invoice_email(db: Session, payment: Payment,
@@ -232,8 +252,7 @@ def send_invoice_email(db: Session, payment: Payment,
     # Subject + body are admin-editable (Settings → invoice.email_subject
     # / invoice.email_body) with {{placeholder}} substitution via the
     # same template engine the email automations use.
-    from app.services.email.mailer import render_template
-    ctx = {
+    subject, html = _invoice_email_content({
         "user_name": user.name or "there",
         "user_email": user.email,
         "plan_name": plan_name,
@@ -242,19 +261,7 @@ def send_invoice_email(db: Session, payment: Payment,
         "invoice_number": payment.invoice_number,
         "business_name": business,
         "order_ref": payment.provider_order_id or "",
-    }
-    subject = render_template(
-        settings_store.get_str(
-            "invoice.email_subject",
-            "{{business_name}} — Invoice {{invoice_number}}"), ctx)
-    html = render_template(
-        settings_store.get_str(
-            "invoice.email_body",
-            "<p>Hi {{user_name}},</p>"
-            "<p>Thank you for your payment of <b>{{amount}}</b> "
-            "for <b>{{plan_name}}</b>.</p>"
-            "<p>Your invoice <b>{{invoice_number}}</b> is attached.</p>"
-            "<p>— {{business_name}}</p>"), ctx)
+    })
     from app.services.email.mailer import send_email
     ok = send_email(
         user.email, subject, html,
@@ -268,6 +275,98 @@ def send_invoice_email(db: Session, payment: Payment,
                                      if ok else payment.invoice_email_sent_at)
     db.commit()
     log.info("invoice.email_result", payment_id=payment.id, ok=ok, cc=cc)
+    return ok
+
+
+def _invoice_email_content(ctx: dict) -> tuple:
+    """(subject, html) from the admin-editable templates — shared by
+    payment and ad-hoc invoice mails so the copy stays in ONE place."""
+    from app.services.email.mailer import render_template
+    subject = render_template(
+        settings_store.get_str(
+            "invoice.email_subject",
+            "{{business_name}} — Invoice {{invoice_number}}"), ctx)
+    html = render_template(
+        settings_store.get_str(
+            "invoice.email_body",
+            "<p>Hi {{user_name}},</p>"
+            "<p>Thank you for your payment of <b>{{amount}}</b> "
+            "for <b>{{plan_name}}</b>.</p>"
+            "<p>Your invoice <b>{{invoice_number}}</b> is attached.</p>"
+            "<p>— {{business_name}}</p>"), ctx)
+    return subject, html
+
+
+# ── Ad-hoc invoices (fully off-platform sales) ───────────────────────
+
+def ensure_adhoc_invoice_pdf(db: Session, inv) -> Path:
+    """Same layout as payment invoices; separate M-numbered series so
+    payment-derived numbers can never collide. Idempotent."""
+    if not inv.invoice_number:
+        year = (inv.created_at or datetime.now(timezone.utc)).year
+        inv.invoice_number = f"INV-{year}-M{inv.id:05d}"
+        db.commit()
+    path = invoice_dir() / f"{inv.invoice_number}.pdf"
+    if path.exists():
+        return path
+    _render_invoice_pdf(
+        path,
+        invoice_number=inv.invoice_number,
+        issued=(inv.created_at or datetime.now(timezone.utc)),
+        bill_name=inv.buyer_name,
+        bill_email=inv.buyer_email,
+        rows=[(inv.description, _amount_str(inv.amount_minor,
+                                            inv.currency))],
+        total=_amount_str(inv.amount_minor, inv.currency),
+        payment_ref=inv.gateway_reference,
+    )
+    log.info("invoice.adhoc_pdf_generated", adhoc_id=inv.id,
+             invoice_number=inv.invoice_number)
+    return path
+
+
+def send_adhoc_invoice_email(db: Session, inv, force: bool = False) -> bool:
+    """Email an ad-hoc invoice with the same templates + CC list as
+    payment invoices. Synchronous (admin-triggered, result shown)."""
+    if inv.email_status == "sent" and not force:
+        return True
+    if not inv.buyer_email:
+        inv.email_status = "skipped"
+        db.commit()
+        return False
+    try:
+        pdf_path = ensure_adhoc_invoice_pdf(db, inv)
+    except Exception as e:
+        log.error("invoice.adhoc_pdf_failed", adhoc_id=inv.id, error=str(e))
+        inv.email_status = "failed"
+        db.commit()
+        return False
+    business = settings_store.get_str("invoice.business_name",
+                                      "CPMAI Exam Prep")
+    subject, html = _invoice_email_content({
+        "user_name": inv.buyer_name or "there",
+        "user_email": inv.buyer_email,
+        "plan_name": inv.description,
+        "amount": _amount_str(inv.amount_minor, inv.currency),
+        "currency": inv.currency,
+        "invoice_number": inv.invoice_number,
+        "business_name": business,
+        "order_ref": inv.gateway_reference or "",
+    })
+    from app.services.email.mailer import send_email
+    cc = settings_store.get_str("email.invoice_cc_address", "") or None
+    ok = send_email(
+        inv.buyer_email, subject, html,
+        attachments=[{"path": str(pdf_path),
+                      "filename": f"{inv.invoice_number}.pdf",
+                      "mime_type": "application/pdf"}],
+        cc=cc,
+    )
+    inv.email_status = "sent" if ok else "failed"
+    inv.email_sent_at = (datetime.now(timezone.utc)
+                         if ok else inv.email_sent_at)
+    db.commit()
+    log.info("invoice.adhoc_email_result", adhoc_id=inv.id, ok=ok)
     return ok
 
 

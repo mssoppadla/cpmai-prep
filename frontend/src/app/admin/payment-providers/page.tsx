@@ -196,10 +196,11 @@ export default function PaymentProvidersPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Payment Providers</h1>
           <p className="text-slate-600 mt-1 text-sm">
-            Two rails coexist: Razorpay for INR (the historical flow,
-            unchanged), and PayPal for non-INR currencies. Activate
-            one of each — credentials are stored encrypted; switch keys
-            or modes (test ↔ live) without redeploying.
+            Routing = the Listing checkboxes (who can SELL on each
+            rail) + the payments.inr_split / payments.intl_split weights
+            in Settings. “Default” below is only the tie-break head and
+            the legacy anchor. Credentials are stored encrypted; switch
+            keys or modes (test ↔ live) without redeploying.
           </p>
         </div>
         {!form && (
@@ -390,9 +391,9 @@ export default function PaymentProvidersPage() {
                     </span>
                     <Badge>{p.provider_type}</Badge>
                     <Badge>{p.mode}</Badge>
-                    {p.is_active && <Badge color="indigo">● INR rail</Badge>}
+                    {p.is_active && <Badge color="indigo">● Default · INR</Badge>}
                     {p.is_non_inr_active && (
-                      <Badge color="indigo">● Non-INR rail</Badge>
+                      <Badge color="indigo">● Default · Intl</Badge>
                     )}
                     {!p.is_enabled && <Badge>disabled</Badge>}
                   </div>
@@ -409,6 +410,24 @@ export default function PaymentProvidersPage() {
                       <div>Webhook ID: {p.config?.webhook_id
                         ? <code className="bg-slate-100 px-1.5 py-0.5 rounded">{String(p.config.webhook_id)}</code>
                         : <span className="text-amber-700">— not set (OK; webhooks unverified, in-browser capture flow still works)</span>}</div>
+                    )}
+                    {p.provider_type === "razorpay" && (
+                      <div>
+                        Last webhook received:{" "}
+                        {p.last_webhook_at ? (
+                          <span className="text-emerald-700">
+                            {new Date(p.last_webhook_at).toLocaleString()}
+                          </span>
+                        ) : (p.listed_for_inr || p.listed_for_intl) ? (
+                          <span className="text-amber-700 font-medium">
+                            never — check the webhook is enabled in this
+                            account&apos;s Razorpay dashboard (a disabled
+                            webhook silently loses captures)
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">never</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -435,7 +454,7 @@ export default function PaymentProvidersPage() {
                   {p.provider_type === "razorpay" && !p.is_active && p.is_enabled && (
                     <button onClick={() => activate(p.id)}
                             className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">
-                      Activate (INR)
+                      Set default (INR)
                     </button>
                   )}
                   {/* Non-INR activation: PayPal in the common case;
@@ -444,7 +463,7 @@ export default function PaymentProvidersPage() {
                   {!p.is_non_inr_active && p.is_enabled && (
                     <button onClick={() => activateNonInr(p.id)}
                             className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">
-                      Activate (Non-INR)
+                      Set default (Intl)
                     </button>
                   )}
                   <button onClick={() => startEdit(p)}
