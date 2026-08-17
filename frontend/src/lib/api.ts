@@ -54,6 +54,39 @@ import type {
 } from "@/types/api";
 import { reportClientError, classifyNetworkError } from "@/lib/error-reporter";
 
+/** /admin/checkout-funnel response — Checkout Follow-ups screen. */
+export interface FunnelUser {
+  id: number; email: string; name: string | null;
+  whatsapp: string | null; linkedin_id: string | null;
+}
+export interface FunnelFollowupRow {
+  payment_id: number;
+  status: "failed" | "created";
+  provider_order_id: string | null;
+  plan_name: string | null;
+  amount_paise: number;
+  currency: string;
+  created_at: string | null;
+  user: FunnelUser | null;
+}
+export interface FunnelVisitorRow {
+  user: FunnelUser | null;
+  anon_id: string | null;
+  last_seen_at: string | null;
+  country: string | null;
+  city: string | null;
+  device: string | null;
+  utm_source: string | null;
+}
+export interface CheckoutFunnelOut {
+  window_minutes: number;
+  since: string;
+  needs_followup: FunnelFollowupRow[];
+  pricing_visitors: FunnelVisitorRow[];
+  summary: { visitors: number; started: number; captured: number;
+             needs_followup: number };
+}
+
 /** /admin/error-logs/summary response. */
 export interface ErrorLogSummary {
   window_minutes: number;
@@ -613,7 +646,25 @@ export const pricing = {
 };
 
 // ---------- Payments (public, auth-required) -------------------------------
+/** One sellable gateway option from /payments/gateway-options. */
+export interface GatewayOption {
+  provider_config_id: number;
+  provider_type: string;
+  label: string;
+}
+
 export const payments = {
+  /** Which gateways checkout may offer for a currency. mode "auto" →
+   *  ≤1 option, render nothing new (server picks — today's UX);
+   *  "choice" → 2+ options, render the picker. Public endpoint. */
+  async gatewayOptions(currency: string): Promise<{
+    mode: "auto" | "choice"; options: GatewayOption[];
+  }> {
+    const { data } = await request<{
+      mode: "auto" | "choice"; options: GatewayOption[];
+    }>(`/payments/gateway-options?currency=${encodeURIComponent(currency)}`);
+    return data;
+  },
   async createOrder(payload: CreateOrderIn): Promise<CreateOrderOut> {
     const { data } = await request<CreateOrderOut>("/payments/orders", {
       method: "POST", authed: true, json: payload,
@@ -1511,6 +1562,17 @@ export const admin = {
       return data;
     },
   },
+  /** Checkout Follow-ups (/admin/checkout-funnel): who almost paid —
+   *  failed/abandoned orders with contact details + pricing visitors
+   *  who never started checkout. Read-only. */
+  checkoutFunnel: {
+    async get(windowMinutes: number): Promise<CheckoutFunnelOut> {
+      const { data } = await request<CheckoutFunnelOut>(
+        `/admin/checkout-funnel?window_minutes=${windowMinutes}`,
+        { authed: true });
+      return data;
+    },
+  },
   /** Client error feed (/admin/error-logs). `minutes` is the look-back
    *  window — dashboard presets 5m/10m/1h/24h, admin-configurable. */
   errorLogs: {
@@ -1904,6 +1966,17 @@ export const admin = {
         { method: "POST", authed: true });
       return data;
     },
+    /** Listing control plane: which gateways are SELLABLE per rail.
+     *  Unlisting = the 30-second suspension response (entry stays
+     *  enabled so past payments' webhooks/refunds keep working). */
+    async patchListing(id: number, p: {
+      listed_for_inr?: boolean; listed_for_intl?: boolean; intl_rank?: number;
+    }) {
+      const { data } = await request<PaymentProviderOut>(
+        `/admin/payment-providers/${id}/listing`,
+        { method: "PATCH", json: p, authed: true });
+      return data;
+    },
     /** Make this provider the non-INR-rail provider (typically PayPal).
      *  Razorpay continues to handle INR via activate() above. */
     async activateNonInr(id: number) {
@@ -2164,6 +2237,37 @@ export const admin = {
         `/admin/payments/summary`, { authed: true });
       return data;
     },
+    /** Invoice PDF for a captured payment (generated on first request). */
+    async downloadInvoice(paymentId: number): Promise<Blob> {
+      return downloadXlsx(`/admin/payments/${paymentId}/invoice`,
+        "Invoice download");
+    },
+    /** Money arrived at the gateway but cpmai shows created/failed
+     *  (e.g. PayPal accepted manually): capture + grant + invoice via
+     *  the normal activation path. */
+    async markPaid(paymentId: number): Promise<{
+      status: string; prior_status: string; subscription_id: number;
+      invoice_email_status: string | null;
+    }> {
+      const { data } = await request<{
+        status: string; prior_status: string; subscription_id: number;
+        invoice_email_status: string | null;
+      }>(`/admin/payments/${paymentId}/mark-paid`,
+        { method: "POST", authed: true });
+      return data;
+    },
+    /** (Re)send the invoice email now; returns the real SMTP outcome. */
+    async sendInvoice(paymentId: number): Promise<{
+      sent: boolean; invoice_number: string | null;
+      invoice_email_status: string | null;
+    }> {
+      const { data } = await request<{
+        sent: boolean; invoice_number: string | null;
+        invoice_email_status: string | null;
+      }>(`/admin/payments/${paymentId}/invoice/send`,
+        { method: "POST", authed: true });
+      return data;
+    },
   },
   chatHistory: {
     async listUsers(p?: { limit?: number; offset?: number }): Promise<{
@@ -2277,6 +2381,15 @@ export const admin = {
       period_days: number;
       reason: string;
       source?: "manual_admin_grant" | "comp" | "refund_reversed";
+      /** Money was actually received (e.g. accepted manually at the
+       *  gateway) — records a provider_name='manual' captured payment. */
+      record_payment?: boolean;
+      /** Amount received in minor units; defaults to the plan price. */
+      amount_paise?: number;
+      currency?: string;
+      /** Email the invoice PDF to the user (CC owner). Requires
+       *  record_payment. */
+      send_invoice?: boolean;
     }): Promise<SubscriptionAdminOut> {
       const { data } = await request<SubscriptionAdminOut>(
         `/admin/users/${userId}/subscriptions`,

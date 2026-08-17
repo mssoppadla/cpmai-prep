@@ -6,6 +6,11 @@ from pydantic import BaseModel, Field
 class CreateOrderIn(BaseModel):
     plan_slug: str = Field(min_length=1, max_length=140)
     offer_code: Optional[str] = Field(default=None, max_length=48)
+    # The gateway the customer picked when payments.intl_display_mode =
+    # "choice" (from /payments/gateway-options). Optional — absent means
+    # the server picks (auto mode / today's behavior). Server-validated
+    # against the LISTED set for the order currency; unlisted → 422.
+    provider_config_id: Optional[int] = Field(default=None, ge=1)
     referrer: Optional[str] = Field(default=None, max_length=240)
     # Optional LinkedIn id/URL captured at checkout (same intent as the landing form) so we can
     # reach out to aspirants who paid. Stored as a lead (admins already surface lead LinkedIn).

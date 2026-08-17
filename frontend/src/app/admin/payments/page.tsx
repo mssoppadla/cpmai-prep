@@ -34,6 +34,7 @@ export default function AdminPaymentsPage() {
   const [email, setEmail] = useState("");
   const [offset, setOffset] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  const [busyInvoice, setBusyInvoice] = useState<number | null>(null);
   const limit = 50;
 
   useEffect(() => {
@@ -52,6 +53,47 @@ export default function AdminPaymentsPage() {
     } catch (e) { setErr(errMsg(e)); }
   }, [filter, email, offset]);
   useEffect(() => { reload(); }, [reload]);
+
+  async function downloadInvoice(p: PaymentAdminRow) {
+    setBusyInvoice(p.id); setErr(null);
+    try {
+      const blob = await admin.payments.downloadInvoice(p.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${p.invoice_number ?? `invoice-${p.id}`}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { setErr(errMsg(e)); }
+    finally { setBusyInvoice(null); }
+  }
+
+  async function markPaid(p: PaymentAdminRow) {
+    const ok = window.confirm(
+      `Mark payment #${p.id} (${p.user_email}, ${p.currency} ` +
+      `${(p.amount_paise / 100).toFixed(2)}) as PAID?\n\n` +
+      `Use this when the money actually arrived at the gateway (e.g. a ` +
+      `PayPal payment you accepted manually) but this row shows ` +
+      `unpaid/failed. It grants the subscription and emails the ` +
+      `invoice, exactly like a normal capture.`);
+    if (!ok) return;
+    setBusyInvoice(p.id); setErr(null);
+    try {
+      await admin.payments.markPaid(p.id);
+      await reload();
+    } catch (e) { setErr(errMsg(e)); }
+    finally { setBusyInvoice(null); }
+  }
+
+  async function resendInvoice(p: PaymentAdminRow) {
+    setBusyInvoice(p.id); setErr(null);
+    try {
+      const r = await admin.payments.sendInvoice(p.id);
+      if (!r.sent) setErr("Invoice email failed to send — check SMTP settings.");
+      await reload();
+    } catch (e) { setErr(errMsg(e)); }
+    finally { setBusyInvoice(null); }
+  }
 
   function chip(label: string, count: number | undefined, f: Filter,
                 active: boolean) {
@@ -117,14 +159,15 @@ export default function AdminPaymentsPage() {
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
-          <table className="w-full min-w-[52rem]">
+          <table className="w-full min-w-[64rem]">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-xs font-medium text-slate-500 uppercase">
                 <th className="px-4 py-3">User</th>
                 <th className="px-4 py-3">Plan</th>
                 <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Provider</th>
+                <th className="px-4 py-3">Account</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Invoice</th>
                 <th className="px-4 py-3">Date</th>
               </tr>
             </thead>
@@ -147,7 +190,7 @@ export default function AdminPaymentsPage() {
                     {p.currency} {(p.amount_paise / 100).toFixed(2)}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-600">
-                    {p.provider_name}
+                    {p.provider_account ?? p.provider_name}
                     <div className="text-[10px] text-slate-400">
                       {p.provider_order_id}
                     </div>
@@ -157,6 +200,52 @@ export default function AdminPaymentsPage() {
                                       ${STATUS_STYLE[p.status] ?? ""}`}>
                       {p.status === "created" ? "unpaid (created)" : p.status}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {(p.status === "captured" || p.status === "refunded") ? (
+                      <div className="flex flex-col gap-1">
+                        <span className={
+                          p.invoice_email_status === "sent"
+                            ? "text-emerald-700"
+                            : p.invoice_email_status === "failed"
+                              ? "text-rose-600"
+                              : "text-slate-500"
+                        }>
+                          {p.invoice_email_status === "sent"
+                            ? `✓ emailed${p.invoice_email_sent_at
+                                ? " " + new Date(p.invoice_email_sent_at)
+                                    .toLocaleDateString() : ""}`
+                            : p.invoice_email_status === "failed"
+                              ? "✗ email failed"
+                              : p.invoice_email_status === "queued"
+                                ? "queued…"
+                                : "not emailed"}
+                        </span>
+                        <span className="flex gap-2">
+                          <button onClick={() => downloadInvoice(p)}
+                                  disabled={busyInvoice === p.id}
+                                  className="text-indigo-600 hover:underline
+                                             disabled:opacity-40">
+                            PDF
+                          </button>
+                          <button onClick={() => resendInvoice(p)}
+                                  disabled={busyInvoice === p.id}
+                                  className="text-indigo-600 hover:underline
+                                             disabled:opacity-40">
+                            {p.invoice_email_status === "sent"
+                              ? "Resend" : "Send"}
+                          </button>
+                        </span>
+                      </div>
+                    ) : (
+                      <button onClick={() => markPaid(p)}
+                              disabled={busyInvoice === p.id}
+                              title="Money arrived at the gateway (e.g. accepted in PayPal) but this row shows unpaid/failed — capture it, grant access, email the invoice"
+                              className="text-emerald-700 hover:underline
+                                         disabled:opacity-40">
+                        Mark paid + invoice
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
                     {p.created_at ? new Date(p.created_at).toLocaleString() : "—"}

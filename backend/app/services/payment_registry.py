@@ -22,6 +22,7 @@ The cache keys on provider_id so both routes can be hot at once; an
 admin swapping a key propagates within payment.cache_ttl_seconds
 (default 30) without a restart.
 """
+import random
 import time
 from threading import Lock
 from app.core.database import SessionLocal
@@ -32,6 +33,9 @@ from app.models.payment_provider import PaymentProviderConfig
 from app.services.razorpay_service import RazorpayProvider
 from app.services.paypal_service import PayPalProvider
 
+
+# Seam for deterministic tests (monkeypatch this module attribute).
+_rand = random.random
 
 PROVIDER_CLASSES = {
     "razorpay": RazorpayProvider,
@@ -91,6 +95,148 @@ class PaymentRegistry:
     @classmethod
     def get_by_id(cls, provider_id: int):
         return cls._get(provider_id)
+
+    @classmethod
+    def enabled_by_type(cls, provider_type: str) -> list:
+        """All ENABLED configs of one gateway type, active/preferred
+        first. Webhook verification iterates these: with two Razorpay
+        accounts live (personal INR + company intl), a callback must be
+        checked against EACH account's secret — verifying only against
+        the active one silently rejects every delivery from the second
+        account (the exact multi-account gap flagged in the spec)."""
+        with SessionLocal() as db:
+            rows = (db.query(PaymentProviderConfig)
+                    .filter_by(provider_type=provider_type, is_enabled=True)
+                    .order_by(PaymentProviderConfig.id).all())
+        ids = [r.id for r in rows]
+        # Active first so the single-account common case verifies on the
+        # first try.
+        active_id = settings_store.get("payment.active_provider_id")
+        if active_id and int(active_id) in ids:
+            ids.remove(int(active_id))
+            ids.insert(0, int(active_id))
+        out = []
+        for pid in ids:
+            try:
+                out.append((pid, cls._get(pid)))
+            except AppError:
+                continue          # missing creds etc. — skip, don't 500
+        return out
+
+    # ── Listing control-plane (multi-gateway Phase 1) ────────────────
+    # docs/payments-multi-gateway-spec.md §2. "Listed" = sellable for
+    # NEW payments on a rail; is_enabled alone = still serviceable for
+    # past payments (webhooks/refunds). Rows, not cached providers, so
+    # admin listing changes are visible immediately.
+
+    @classmethod
+    def listed_rows(cls, currency: str) -> list:
+        """Provider CONFIG ROWS sellable for this currency, in
+        preference order. INR: the active_provider_id entry stays the
+        canonical head (back-compat), then other INR-listed rows by
+        priority. Non-INR: intl-listed rows by intl_rank, with the
+        legacy non_inr_provider_id winning rank ties (back-compat)."""
+        ccy = (currency or "INR").strip().upper()
+        with SessionLocal() as db:
+            q = (db.query(PaymentProviderConfig)
+                 .filter(PaymentProviderConfig.is_enabled.is_(True)))
+            if ccy == "INR":
+                rows = (q.filter(PaymentProviderConfig.listed_for_inr.is_(True))
+                        .order_by(PaymentProviderConfig.priority,
+                                  PaymentProviderConfig.id).all())
+                head_id = settings_store.get("payment.active_provider_id")
+            else:
+                rows = (q.filter(PaymentProviderConfig.listed_for_intl.is_(True))
+                        .order_by(PaymentProviderConfig.intl_rank,
+                                  PaymentProviderConfig.id).all())
+                head_id = settings_store.get("payment.non_inr_provider_id")
+            db.expunge_all()   # rows outlive the session (read-only use)
+        if head_id is not None:
+            head_id = int(head_id)
+            rows.sort(key=lambda r: (r.id != head_id,))  # stable: head first
+        return rows
+
+    @classmethod
+    def candidate_config_ids(cls, currency: str,
+                             requested_id: "int | None" = None) -> list[int]:
+        """Config ids to try for a NEW order, in order.
+
+        requested_id (choice mode): must be in the listed set — an
+        unlisted/disabled/unknown id raises 422-shaped AppError (a
+        tampered client cannot summon a delisted gateway). Without a
+        request: the full listed order (fallback iterates it when
+        payments.fallback_enabled; otherwise callers use just the head).
+        """
+        listed = [r.id for r in cls.listed_rows(currency)]
+        if requested_id is not None:
+            if requested_id not in listed:
+                raise AppError(
+                    "Selected payment gateway is not available. Refresh "
+                    "the page and pick from the shown options.",
+                    status_code=422)
+            return [requested_id]
+        # Weighted revenue split, per rail. INR and intl each have their
+        # own map; a split never crosses rails. In choice mode the
+        # customer's explicit pick (requested_id) bypasses this — the
+        # split only governs server-side selection.
+        if (currency or "INR").strip().upper() == "INR":
+            listed = cls._apply_split(listed, "payments.inr_split")
+        else:
+            listed = cls._apply_split(listed, "payments.intl_split")
+        if not listed:
+            # LEGACY SENTINEL. No listing rows for this currency (pre-
+            # 0047 data, or a test DB that only wires the classic
+            # entry points). [None] tells create_order to resolve via
+            # get_for_currency() — the original code path, with its
+            # original error messages, and the seam the existing test
+            # fixtures monkeypatch. The new control plane engages only
+            # once actual listing rows exist (the 0047 backfill creates
+            # them mirroring current routing), so behavior can never
+            # regress on a not-yet-migrated or legacy-shaped DB.
+            return [None]
+        return listed
+
+    @classmethod
+    def _apply_split(cls, ordered_ids: list[int],
+                     setting_key: str) -> list[int]:
+        """Weighted routing across 2+ listed accounts on one rail.
+
+        The setting maps provider_config_id → weight (e.g. {"1": 70,
+        "2": 30} = ~70% of orders to config 1; equal weights = equal
+        split). Only ids that are BOTH in the split map and currently
+        listed on this rail take part — delisting an account instantly
+        removes it regardless of stale weights. The draw picks the
+        HEAD; the remaining ids keep their listed order behind it
+        (fallback still works). Empty or malformed map → legacy
+        priority order, untouched."""
+        if len(ordered_ids) < 2:
+            return ordered_ids
+        raw = settings_store.get(setting_key)
+        if not isinstance(raw, dict) or not raw:
+            return ordered_ids
+        try:
+            weights = {int(k): float(v) for k, v in raw.items()
+                       if float(v) > 0}
+        except (TypeError, ValueError):
+            return ordered_ids
+        weighted = [(pid, weights[pid]) for pid in ordered_ids
+                    if pid in weights]
+        total = sum(w for _, w in weighted)
+        # A single-entry map (e.g. {"2": 100}) is a deliberate "send
+        # 100% there" — honor it; the other listed ids stay behind as
+        # fallback. Only an empty/zero map means "split off".
+        if total <= 0 or not weighted:
+            return ordered_ids
+        pick = _rand() * total
+        cum = 0.0
+        chosen = weighted[-1][0]
+        for pid, w in weighted:
+            cum += w
+            if pick < cum:
+                chosen = pid
+                break
+        out = [chosen] + [pid for pid in ordered_ids if pid != chosen]
+        return out
 
     @classmethod
     def invalidate(cls):

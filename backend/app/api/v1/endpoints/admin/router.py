@@ -24,6 +24,7 @@ from app.api.v1.endpoints.admin import (
     testimonials,
     labs as labs_admin,
     error_logs,
+    checkout_funnel,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -41,6 +42,7 @@ admin_router.include_router(lms_admin.router,     prefix="",                tags
 admin_router.include_router(uploads.router,       prefix="/uploads",       tags=["admin", "uploads"])
 admin_router.include_router(observability.router, prefix="/observability", tags=["admin", "observability"])
 admin_router.include_router(error_logs.router,   prefix="/error-logs",    tags=["admin", "observability"])
+admin_router.include_router(checkout_funnel.router, prefix="/checkout-funnel", tags=["admin", "payments"])
 admin_router.include_router(zoom_admin.router,    prefix="",               tags=["admin", "zoom"])
 admin_router.include_router(social_admin.router,  prefix="",               tags=["admin", "social"])
 admin_router.include_router(settings_ep.router,  prefix="/settings",      tags=["admin"])

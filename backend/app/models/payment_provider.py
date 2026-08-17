@@ -29,6 +29,17 @@ class PaymentProviderConfig(Base):
     is_enabled    = Column(Boolean, default=True, nullable=False, index=True)
     priority      = Column(Integer, default=100, nullable=False)
 
+    # Listing control-plane (multi-gateway Phase 1, migration 0047).
+    # is_enabled = "can SERVICE past payments" (webhooks, refunds);
+    # listed_*   = "can SELL new payments" on that rail. Separating the
+    # two is what makes a gateway suspension a 30-second delist instead
+    # of an outage: unlist → customers see only active gateways, while
+    # historical payments keep verifying. intl_rank orders listed intl
+    # entries (lowest wins = preferred / auto-mode choice).
+    listed_for_inr  = Column(Boolean, default=False, nullable=False)
+    listed_for_intl = Column(Boolean, default=False, nullable=False)
+    intl_rank       = Column(Integer, default=100, nullable=False)
+
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True),

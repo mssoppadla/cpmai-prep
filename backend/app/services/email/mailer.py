@@ -58,7 +58,8 @@ def _html_to_text(html: str) -> str:
 
 
 def send_email(to: str, subject: str, html_body: str,
-               attachments: list[dict] | None = None) -> bool:
+               attachments: list[dict] | None = None,
+               cc: str | None = None) -> bool:
     """Send a single HTML email. Returns True on success, False on any
     failure or when SMTP isn't configured yet.
 
@@ -85,6 +86,10 @@ def send_email(to: str, subject: str, html_body: str,
     msg["Subject"] = subject
     msg["From"] = f"{from_name} <{from_addr}>" if from_name else from_addr
     msg["To"] = to
+    if cc:
+        # send_message() derives recipients from To+Cc headers, so the
+        # copy is actually delivered, not just displayed.
+        msg["Cc"] = cc
     msg.set_content(_html_to_text(html_body))
     msg.add_alternative(html_body, subtype="html")
 

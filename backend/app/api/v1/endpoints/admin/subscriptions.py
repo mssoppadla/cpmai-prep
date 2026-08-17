@@ -96,6 +96,24 @@ class SubscriptionGrantIn(BaseModel):
                           "payment). 'comp' = free comp (no payment "
                           "ever happened). 'refund_reversed' = a "
                           "refund was reversed and access restored."))
+    # Invoice engine: "payment was accepted manually / not recorded".
+    # Covers gateway-side successes cpmai never saw (e.g. PayPal money
+    # accepted in the PayPal console). record_payment creates a
+    # provider_name='manual' captured Payment row so the money shows up
+    # in /admin/payments; send_invoice additionally emails the invoice
+    # PDF to the buyer (CC owner). Plain comps leave both off — no
+    # payment row, no invoice.
+    record_payment: bool = Field(
+        False, description="Record a manual captured payment for this "
+                           "grant (money was actually received).")
+    amount_paise: int | None = Field(
+        None, ge=0, le=100_000_000,
+        description="Amount received, in minor units. Defaults to the "
+                    "plan's base price when record_payment is on.")
+    currency: str = Field("INR", min_length=3, max_length=8)
+    send_invoice: bool = Field(
+        False, description="Email the invoice PDF to the user (CC "
+                           "owner). Requires record_payment.")
 
 
 class SubscriptionExtendIn(BaseModel):
@@ -206,6 +224,10 @@ def grant_subscription(user_id: int, payload: SubscriptionGrantIn,
     plan = db.get(Plan, payload.plan_id)
     if not plan:
         raise ValidationError("plan_id does not exist")
+    if payload.send_invoice and not payload.record_payment:
+        raise ValidationError(
+            "send_invoice requires record_payment — an invoice documents "
+            "money received.")
 
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(days=payload.period_days)
@@ -226,6 +248,36 @@ def grant_subscription(user_id: int, payload: SubscriptionGrantIn,
     db.commit()
     db.refresh(sub)
 
+    # Optionally record the money that arrived outside cpmai (manual
+    # acceptance at the gateway) + queue the invoice email.
+    payment_id: int | None = None
+    if payload.record_payment:
+        import uuid
+        from app.models.payment import Payment
+        pay = Payment(
+            user_id=user_id,
+            subscription_id=sub.id,
+            plan_id=plan.id,
+            provider_name="manual",
+            provider_order_id=f"manual_{uuid.uuid4().hex[:24]}",
+            amount_paise=(payload.amount_paise
+                          if payload.amount_paise is not None
+                          else (plan.base_price_paise or 0)),
+            base_amount_paise=plan.base_price_paise,
+            currency=payload.currency.upper(),
+            status="captured",
+            idempotency_key=f"manual-{uuid.uuid4().hex}",
+        )
+        db.add(pay)
+        db.commit()
+        db.refresh(pay)
+        payment_id = pay.id
+        if payload.send_invoice:
+            from app.services.invoice import queue_invoice_email
+            pay.invoice_email_status = "queued"
+            db.commit()
+            queue_invoice_email(pay.id)
+
     audit_log(db, admin.id, "admin.subscription.grant", {
         "target_user_id": user_id,
         "target_user_email": user.email,
@@ -236,6 +288,9 @@ def grant_subscription(user_id: int, payload: SubscriptionGrantIn,
         "expires_at": expires_at.isoformat(),
         "source": payload.source,
         "reason": payload.reason,
+        "manual_payment_id": payment_id,
+        "invoice_queued": bool(payload.record_payment
+                               and payload.send_invoice),
     })
 
     emails = _emails_for(db, {admin.id})

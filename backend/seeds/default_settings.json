@@ -365,6 +365,66 @@
     "description": "Subtitle shown under the 'Pricing' heading on /pricing. Plain text, max 300 chars. Change it here to reword the value proposition (e.g. if plans become subscriptions) without a deploy."
   },
   {
+    "key": "payments.intl_enabled",
+    "value": true,
+    "description": "Master kill switch for NON-INR order creation. false = foreign-currency checkouts return a clear 503 immediately (use with the pricing.intl_notice banner as the customer-facing message). INR checkout is never affected. Flip during card-testing attacks or gateway suspensions — takes effect within ~30s."
+  },
+  {
+    "key": "payments.intl_display_mode",
+    "value": "auto",
+    "description": "International checkout gateway display. 'auto' = customers silently get the highest-ranked LISTED intl gateway (today's UX). 'choice' = when 2+ gateways are listed for intl, checkout shows a picker and the customer chooses. One listed gateway → never shows a picker in either mode."
+  },
+  {
+    "key": "payments.fallback_enabled",
+    "value": false,
+    "description": "When true and the primary listed intl gateway FAILS TO CREATE an order (gateway API down/erroring — not a card decline), order creation automatically retries on the next listed gateway. Off by default; enable once 2+ intl gateways are listed and healthy."
+  },
+  {
+    "key": "payments.inr_split",
+    "value": {},
+    "description": "INR revenue split across 2+ INR-listed gateways: map of provider_config_id to relative weight, e.g. {\"1\": 70, \"2\": 30} sends ~70% of INR orders to config 1 and ~30% to config 2 (personal vs company account). Only ids currently LISTED for INR take part — delisting an account instantly removes it even if a stale weight remains. Empty = no split, all INR goes to the primary."
+  },
+  {
+    "key": "payments.intl_split",
+    "value": {},
+    "description": "International (non-INR) revenue split across 2+ intl-listed gateways: map of provider_config_id to relative weight, e.g. {\"3\": 50, \"4\": 50} for an equal split between two accounts. Applies when the SERVER picks the gateway (auto mode / no customer choice); a customer's explicit pick in choice mode bypasses it. Only intl-LISTED ids take part. Empty = no split, ranking order decides."
+  },
+  {
+    "key": "email.invoice_enabled",
+    "value": true,
+    "description": "Auto-email an invoice PDF to the buyer on every successful payment capture (organic captures AND manual-payment grants that tick 'send invoice'). Requires SMTP (email.smtp_*) to be configured; sends are fail-soft and retryable from /admin/payments."
+  },
+  {
+    "key": "email.invoice_cc_address",
+    "value": "",
+    "description": "Every invoice email also CCs these addresses (owner's copy for bookkeeping). One address, or several separated by commas (e.g. contact@cpmaiexamprep.com, accountant@example.com). Empty = no CC. The FROM address is the existing email.from_address setting."
+  },
+  {
+    "key": "invoice.business_name",
+    "value": "CPMAI Exam Prep",
+    "description": "Seller name printed at the top of every invoice PDF and used in the invoice email subject."
+  },
+  {
+    "key": "invoice.email_subject",
+    "value": "{{business_name}} — Invoice {{invoice_number}}",
+    "description": "Subject line of the invoice email. Placeholders: {{user_name}}, {{user_email}}, {{plan_name}}, {{amount}}, {{currency}}, {{invoice_number}}, {{business_name}}, {{order_ref}}."
+  },
+  {
+    "key": "invoice.email_body",
+    "value": "<p>Hi {{user_name}},</p><p>Thank you for your payment of <b>{{amount}}</b> for <b>{{plan_name}}</b>.</p><p>Your invoice <b>{{invoice_number}}</b> is attached.</p><p>— {{business_name}}</p>",
+    "description": "HTML body of the invoice email (the PDF is always attached). Same placeholders as invoice.email_subject."
+  },
+  {
+    "key": "invoice.business_address",
+    "value": "",
+    "description": "Seller address block printed under the business name on the invoice PDF. Multi-line allowed. Empty = omitted."
+  },
+  {
+    "key": "invoice.footer_note",
+    "value": "Thank you for your purchase.",
+    "description": "Footer line on the invoice PDF (e.g. tax notes, 'this is a computer-generated invoice')."
+  },
+  {
     "key": "pricing.fx_rates_inr_per_unit",
     "value": {},
     "description": "LEGACY admin-managed FX rates. Empty by default. The live cron writes to pricing.fx_live_raw instead — this setting is retained for backward compatibility but new deployments should leave it empty. To force a specific rate for a single currency (e.g. promo pricing), use pricing.fx_overrides."
