@@ -91,6 +91,55 @@ def test_ensure_invoice_pdf_assigns_number_and_writes_file(db, user):
     assert open(path, "rb").read(5) == b"%PDF-"
 
 
+def test_long_plan_name_wraps_without_error(db, user):
+    """Prod bug 2026-08-17: a long live-class plan name overflowed the
+    description cell and overlapped the amount column. Rows now wrap via
+    measured multi_cell — a very long name must still render a valid,
+    larger PDF."""
+    plan = Plan(name="REGISTRATION: Book Your Slot for Live CPMAI "
+                     "Classes starting from 29th Aug — Zoom, evenings, "
+                     "includes recordings and mock exam walkthroughs",
+                slug="long-name-plan", bundle_type="live_class",
+                base_price_paise=9912, currency="INR", duration_days=30,
+                perks={}, is_active=True, display_order=10)
+    db.add(plan); db.commit(); db.refresh(plan)
+    p = _payment(db, user, plan, status="captured")
+    path = invoice_module.ensure_invoice_pdf(db, p)
+    assert path.exists()
+    assert open(path, "rb").read(5) == b"%PDF-"
+    assert path.stat().st_size > 600
+
+
+def _pdf_text(path):
+    from pypdf import PdfReader
+    return "".join(pg.extract_text() for pg in PdfReader(str(path)).pages)
+
+
+def test_inr_discount_breakdown_shown_when_consistent(db, user):
+    plan = _plan(db)
+    p = _payment(db, user, plan, status="captured",
+                 base_amount_paise=99900, discount_paise=20000,
+                 amount_paise=79900, offer_code="SAVE200")
+    text = _pdf_text(invoice_module.ensure_invoice_pdf(db, p))
+    assert "Discount (SAVE200)" in text
+    assert "999.00 INR" in text and "799.00 INR" in text
+
+
+def test_cross_currency_discount_never_mislabels_units(db, user):
+    """Prod INV-2026-000083: INR-denominated base/discount rendered with
+    an HKD label (5999 - 4009 "HKD" = 170 HKD). When units don't
+    reconcile, only the actually-charged amount may appear, with the offer
+    noted in the description."""
+    plan = _plan(db)
+    p = _payment(db, user, plan, status="captured", currency="HKD",
+                 base_amount_paise=599900, discount_paise=400900,
+                 amount_paise=17000, offer_code="EARLY")
+    text = _pdf_text(invoice_module.ensure_invoice_pdf(db, p))
+    assert "5999.00" not in text and "4009.00" not in text
+    assert "170.00 HKD" in text
+    assert "offer EARLY applied" in text
+
+
 # ── auto-send on capture + double-send guard ─────────────────────────
 
 def test_capture_sends_invoice_with_owner_cc(db, user, client, admin,
