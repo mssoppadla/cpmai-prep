@@ -390,6 +390,11 @@
     "description": "International (non-INR) revenue split across 2+ intl-listed gateways: map of provider_config_id to relative weight, e.g. {\"3\": 50, \"4\": 50} for an equal split between two accounts. Applies when the SERVER picks the gateway (auto mode / no customer choice); a customer's explicit pick in choice mode bypasses it. Only intl-LISTED ids take part. Empty = no split, ranking order decides."
   },
   {
+    "key": "payments.reconcile_enabled",
+    "value": true,
+    "description": "Hourly safety net: for recent unpaid Razorpay orders (30min-7days old), ask the gateway directly whether a captured payment exists; if yes, activate the subscription and send the invoice exactly as a webhook would (captured_via='reconcile'). Catches money lost to disabled webhooks or closed browser tabs. Turn off only while debugging gateway API issues."
+  },
+  {
     "key": "email.invoice_enabled",
     "value": true,
     "description": "Auto-email an invoice PDF to the buyer on every successful payment capture (organic captures AND manual-payment grants that tick 'send invoice'). Requires SMTP (email.smtp_*) to be configured; sends are fail-soft and retryable from /admin/payments."

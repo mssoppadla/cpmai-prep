@@ -10,6 +10,7 @@ from app.models.plan import Plan, PlanExamSet, PlanCourse              # noqa
 from app.models.subscription import Subscription                     # noqa
 from app.models.offer import OfferCode, OfferRedemption                # noqa
 from app.models.payment import Payment, WebhookEvent                 # noqa
+from app.models.adhoc_invoice import AdhocInvoice                    # noqa
 from app.models.lead import Lead, LeadSource                         # noqa
 from app.models.audit_log import AuditLog                            # noqa
 from app.models.journey_event import JourneyEvent                    # noqa

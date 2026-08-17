@@ -40,7 +40,9 @@ import structlog
 log = structlog.get_logger("payment_lifecycle")
 
 
-def activate_subscription_for_payment(db: Session, payment: Payment) -> Subscription:
+def activate_subscription_for_payment(db: Session, payment: Payment,
+                                      captured_via: "str | None" = None,
+                                      ) -> Subscription:
     """Mark `payment` as captured and ensure the user has an active sub.
 
     Idempotent: if a sub already exists for this payment, returns it
@@ -65,6 +67,11 @@ def activate_subscription_for_payment(db: Session, payment: Payment) -> Subscrip
         raise AppError("Plan no longer exists.", status_code=500)
 
     payment.status = "captured"
+    # First channel to capture wins the provenance stamp (verify vs
+    # webhook race) — 'admin'/'manual' rows drive the manually-captured
+    # badge in /admin/payments.
+    if captured_via and not payment.captured_via:
+        payment.captured_via = captured_via
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(days=plan.duration_days)
 

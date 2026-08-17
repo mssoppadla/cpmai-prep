@@ -50,6 +50,10 @@ class Payment(Base):
     invoice_number        = Column(String(40), unique=True, nullable=True)
     invoice_email_status  = Column(String(16), nullable=True)
     invoice_email_sent_at = Column(DateTime(timezone=True), nullable=True)
+    # HOW this payment reached captured (migration 0049):
+    # verify|webhook|admin|manual|reconcile. NULL = historical row.
+    # 'admin'/'manual' rows carry the "manually captured" badge.
+    captured_via          = Column(String(16), nullable=True)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -58,6 +58,13 @@ class RazorpayProvider:
                             hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature)
 
+    def fetch_order_payments(self, order_id: str) -> list[dict]:
+        """All payment attempts Razorpay has for one order — used by the
+        reconciliation sweep to find captures that never reached us
+        (webhook disabled + browser closed). Returns [] shape-safe."""
+        res = self.client.order.payments(order_id)
+        return list(res.get("items") or [])
+
     def smoke_test(self) -> dict:
         """Lightweight connectivity check — fetches account/payment list of size 1."""
         try:
