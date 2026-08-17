@@ -110,6 +110,36 @@ def test_long_plan_name_wraps_without_error(db, user):
     assert path.stat().st_size > 600
 
 
+def _pdf_text(path):
+    from pypdf import PdfReader
+    return "".join(pg.extract_text() for pg in PdfReader(str(path)).pages)
+
+
+def test_inr_discount_breakdown_shown_when_consistent(db, user):
+    plan = _plan(db)
+    p = _payment(db, user, plan, status="captured",
+                 base_amount_paise=99900, discount_paise=20000,
+                 amount_paise=79900, offer_code="SAVE200")
+    text = _pdf_text(invoice_module.ensure_invoice_pdf(db, p))
+    assert "Discount (SAVE200)" in text
+    assert "999.00 INR" in text and "799.00 INR" in text
+
+
+def test_cross_currency_discount_never_mislabels_units(db, user):
+    """Prod INV-2026-000083: INR-denominated base/discount rendered with
+    an HKD label (5999 - 4009 "HKD" = 170 HKD). When units don't
+    reconcile, only the actually-charged amount may appear, with the offer
+    noted in the description."""
+    plan = _plan(db)
+    p = _payment(db, user, plan, status="captured", currency="HKD",
+                 base_amount_paise=599900, discount_paise=400900,
+                 amount_paise=17000, offer_code="EARLY")
+    text = _pdf_text(invoice_module.ensure_invoice_pdf(db, p))
+    assert "5999.00" not in text and "4009.00" not in text
+    assert "170.00 HKD" in text
+    assert "offer EARLY applied" in text
+
+
 # ── auto-send on capture + double-send guard ─────────────────────────
 
 def test_capture_sends_invoice_with_owner_cc(db, user, client, admin,

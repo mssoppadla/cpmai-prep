@@ -159,13 +159,26 @@ def ensure_invoice_pdf(db: Session, payment: Payment) -> Path:
 
     _item_row("Description", "Amount", bold=True)
     desc = _product_desc(plan)
-    if payment.base_amount_paise and payment.discount_paise:
+    # base_amount/discount are stored in the QUOTE currency (INR paise),
+    # while amount_paise is the CHARGE currency's minor units. Printing
+    # the breakdown is only honest when the units reconcile (INR
+    # payments: base - discount == charged). A cross-currency payment
+    # (e.g. HKD via PayPal) would otherwise show "5999.00 HKD - 4009.00
+    # HKD = 170.00 HKD" — INR numbers wearing an HKD label (prod
+    # INV-2026-000083). There, show one correct line and note the offer.
+    breakdown_consistent = (
+        payment.base_amount_paise and payment.discount_paise
+        and (payment.base_amount_paise - payment.discount_paise
+             == payment.amount_paise))
+    if breakdown_consistent:
         _item_row(desc, _amount_str(payment.base_amount_paise,
                                     payment.currency))
         _item_row(f"Discount ({payment.offer_code or 'offer'})",
                   "-" + _amount_str(payment.discount_paise,
                                     payment.currency))
     else:
+        if payment.discount_paise and payment.offer_code:
+            desc = f"{desc} (offer {payment.offer_code} applied)"
         _item_row(desc, _amount_str(payment.amount_paise, payment.currency))
     _item_row("Total paid",
               _amount_str(payment.amount_paise, payment.currency), bold=True)
