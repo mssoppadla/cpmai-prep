@@ -363,7 +363,16 @@ def verify_payment(payload: VerifyPaymentIn,
             f"use the {payment.provider_name} flow instead.",
             status_code=400)
 
-    provider = PaymentRegistry.get_for_currency(payment.currency)
+    # Verify with the ACCOUNT that minted this order. With revenue
+    # splits, that is often not the "active" account — resolving by
+    # currency here rejected every split-routed payment's signature
+    # (prod 2026-08-17: 95% of INR orders went to the personal account
+    # while verify checked the company account's secret). Historical
+    # rows (provider_config_id NULL) keep the legacy currency lookup.
+    if payment.provider_config_id:
+        provider = PaymentRegistry.get_by_id(payment.provider_config_id)
+    else:
+        provider = PaymentRegistry.get_for_currency(payment.currency)
     if not provider.verify_payment_signature(
         payload.order_id, payload.payment_id, payload.signature):
         raise AppError("Invalid payment signature.", status_code=400)
@@ -408,7 +417,15 @@ def paypal_capture(payload: PayPalCaptureIn,
             f"use the {payment.provider_name} flow instead.",
             status_code=400)
 
-    provider = PaymentRegistry.get_for_currency(payment.currency)
+    # Same account-binding rule as Razorpay verify: capture with the
+    # config that minted the order. Currency lookup would now resolve
+    # the intl rail's head — which can be a RAZORPAY account since the
+    # multi-gateway release — handing a PayPal order to the wrong
+    # provider class. NULL config (historical rows) keeps legacy lookup.
+    if payment.provider_config_id:
+        provider = PaymentRegistry.get_by_id(payment.provider_config_id)
+    else:
+        provider = PaymentRegistry.get_for_currency(payment.currency)
     try:
         cap = provider.capture_order(payload.order_id)
     except AppError:
