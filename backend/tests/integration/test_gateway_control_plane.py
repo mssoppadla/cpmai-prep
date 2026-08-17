@@ -365,6 +365,62 @@ def test_cross_currency_amount_identical_across_gateways(
     assert 1100 <= amounts[0] <= 1300, amounts
 
 
+class _KeyBoundProvider:
+    """Fake gateway whose signature check only passes for its own
+    key_id — models two Razorpay accounts with distinct secrets."""
+    name = "razorpay"
+
+    def __init__(self, key_id=None, key_secret=None, webhook_secret=None,
+                 mode="test", **_cfg):
+        self.key_id = key_id
+
+    def verify_payment_signature(self, order_id, payment_id, signature):
+        return signature == self.key_id
+
+
+def test_verify_uses_the_account_that_minted_the_order(
+        client, db, user, admin, monkeypatch):
+    """Prod 2026-08-17: with the 95/5 INR split, orders minted by the
+    non-active account failed browser verification ('Invalid payment
+    signature') because verify resolved the provider by CURRENCY (the
+    active account) instead of by the payment's provider_config_id."""
+    from app.services import payment_registry as reg
+    from app.models.payment import Payment
+    monkeypatch.setitem(reg.PROVIDER_CLASSES, "razorpay", _KeyBoundProvider)
+    PaymentRegistry.invalidate()
+
+    plan = _seed_plan(db)
+    a = _mk_provider(client, admin, "activeacct", listed_for_inr=True)
+    b = _mk_provider(client, admin, "splitacct", listed_for_inr=True)
+    h = auth_header(client, admin.email)
+    # Make A the "active" pointer — the split-routed order goes to B.
+    r = client.patch("/api/v1/admin/settings/payment.active_provider_id",
+                     headers=h, json={"value": a})
+    assert r.status_code == 200, r.text
+
+    p = Payment(user_id=user.id, plan_id=plan.id, provider_name="razorpay",
+                provider_config_id=b, provider_order_id="order_splitb1",
+                amount_paise=99900, currency="INR", status="created",
+                idempotency_key="idem_splitb1")
+    db.add(p); db.commit()
+
+    uh = auth_header(client, user.email)
+    # Signature signed by B's key must verify (was 400 pre-fix)...
+    r = client.post("/api/v1/payments/verify", headers=uh, json={
+        "order_id": "order_splitb1", "payment_id": "pay_x",
+        "signature": "rzp_test_splitacct",
+    })
+    assert r.status_code == 200, r.text
+    # ...and A's key must NOT pass for B's order.
+    db.refresh(p); p.status = "created"; p.subscription_id = None
+    db.commit()
+    r = client.post("/api/v1/payments/verify", headers=uh, json={
+        "order_id": "order_splitb1", "payment_id": "pay_x",
+        "signature": "rzp_test_activeacct",
+    })
+    assert r.status_code == 400
+
+
 def test_enabled_by_type_returns_every_enabled_account(client, admin, db):
     a = _mk_provider(client, admin, "wha")
     b = _mk_provider(client, admin, "whb")
