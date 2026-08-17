@@ -2439,6 +2439,9 @@ export const admin = {
       /** Email the invoice PDF to the user (CC owner). Requires
        *  record_payment. */
       send_invoice?: boolean;
+      /** Real gateway/bank reference for the money received (pay_…,
+       *  PayPal txn id, UPI RRN) — invoice 'Payment ref'. */
+      gateway_reference?: string;
     }): Promise<SubscriptionAdminOut> {
       const { data } = await request<SubscriptionAdminOut>(
         `/admin/users/${userId}/subscriptions`,
