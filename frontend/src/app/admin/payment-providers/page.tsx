@@ -381,6 +381,13 @@ export default function PaymentProvidersPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-slate-900">{p.name}</span>
+                    {/* The numeric id is what payments.inr_split /
+                        payments.intl_split maps key on — show it so the
+                        admin can write {"<id>": weight} without guessing. */}
+                    <span className="text-xs font-mono text-slate-400"
+                          title="Use this ID as the key in payments.inr_split / payments.intl_split">
+                      ID: {p.id}
+                    </span>
                     <Badge>{p.provider_type}</Badge>
                     <Badge>{p.mode}</Badge>
                     {p.is_active && <Badge color="indigo">● INR rail</Badge>}
