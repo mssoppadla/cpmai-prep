@@ -395,6 +395,21 @@
     "description": "Hourly safety net: for recent unpaid Razorpay orders (30min-7days old), ask the gateway directly whether a captured payment exists; if yes, activate the subscription and send the invoice exactly as a webhook would (captured_via='reconcile'). Catches money lost to disabled webhooks or closed browser tabs. Turn off only while debugging gateway API issues."
   },
   {
+    "key": "chat.whatsapp_enabled",
+    "value": false,
+    "description": "Show the green WhatsApp chat bubble beside the AI assistant on every page (works for logged-out visitors too). Clicking opens a WhatsApp chat with chat.whatsapp_number in the visitor's own WhatsApp app/web — you see each sender as a normal WhatsApp contact. Requires chat.whatsapp_number to be set."
+  },
+  {
+    "key": "chat.whatsapp_number",
+    "value": "",
+    "description": "Your WhatsApp number in international format, e.g. +91 98765 43210 (digits are extracted automatically for the wa.me link). Empty = bubble hidden even when enabled."
+  },
+  {
+    "key": "chat.whatsapp_prefill",
+    "value": "Hi! I have a question about CPMAI prep.",
+    "description": "Message pre-typed in the visitor's WhatsApp when they tap the bubble. The site automatically appends which page they came from, and their name/email when they are logged in, so you can identify them."
+  },
+  {
     "key": "email.invoice_enabled",
     "value": true,
     "description": "Auto-email an invoice PDF to the buyer on every successful payment capture (organic captures AND manual-payment grants that tick 'send invoice'). Requires SMTP (email.smtp_*) to be configured; sends are fail-soft and retryable from /admin/payments."

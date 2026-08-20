@@ -19,6 +19,7 @@ import { usePathname } from "next/navigation";
 import { auth } from "@/lib/api";
 import type { UserOut } from "@/types/api";
 import { AssistantWidget } from "./AssistantWidget";
+import { WhatsAppBubble } from "./WhatsAppBubble";
 
 
 export function AssistantWidgetMount() {
@@ -63,5 +64,14 @@ export function AssistantWidgetMount() {
   // route changes `probed` stays true, so the bubble keeps rendering
   // continuously with the previous user state until the new probe lands.
   if (!probed) return null;
-  return <AssistantWidget user={user} />;
+  // WhatsApp rides the same mount as the assistant so both bubbles
+  // appear on exactly the same pages, with the same auth-probed user
+  // (identity in the prefill for logged-in visitors). It renders
+  // nothing unless chat.whatsapp_enabled + a number are configured.
+  return (
+    <>
+      <WhatsAppBubble user={user} pathname={pathname} />
+      <AssistantWidget user={user} />
+    </>
+  );
 }

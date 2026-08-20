@@ -169,6 +169,19 @@ def site_chrome():
             settings_store.get_str("site.support_email", ""),
         ),
         "contact_phone": settings_store.get_str("site.contact_phone", ""),
+        # WhatsApp chat bubble (chat.* settings). The number is
+        # sanitized to bare digits so the frontend builds
+        # wa.me/<digits> directly; empty string = bubble hidden
+        # (disabled, or no number configured).
+        "whatsapp_number": (
+            "".join(ch for ch in settings_store.get_str(
+                "chat.whatsapp_number", "") if ch.isdigit())
+            if settings_store.get_bool("chat.whatsapp_enabled", False)
+            else ""
+        ),
+        "whatsapp_prefill": settings_store.get_str(
+            "chat.whatsapp_prefill",
+            "Hi! I have a question about CPMAI prep."),
         # Social handles — empty string = platform hidden in UI.
         # When a value is set, it MUST be the full profile URL
         # (https://...) — both the footer link and the JSON-LD

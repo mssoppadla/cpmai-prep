@@ -965,6 +965,10 @@ export interface SiteChrome {
   privacy_email: string;
   /** Public contact phone (optional). Empty = hide phone link. */
   contact_phone: string;
+  /** WhatsApp chat bubble. Digits-only number ready for wa.me/<n>;
+   *  empty string = bubble hidden (disabled or unconfigured). */
+  whatsapp_number: string;
+  whatsapp_prefill: string;
   /** Social handles — empty string = platform hidden across the site.
    *  Each MUST be the FULL profile URL (https://...) when set; the
    *  footer link, JSON-LD sameAs SEO array, and social-queue UI all
