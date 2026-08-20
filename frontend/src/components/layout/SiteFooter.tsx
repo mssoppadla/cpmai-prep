@@ -22,6 +22,8 @@ const SITE_FALLBACK: SiteChrome = {
   support_email: "",
   privacy_email: "",
   contact_phone: "",
+  whatsapp_number: "",
+  whatsapp_prefill: "",
   linkedin_url: "",
   youtube_url: "",
   twitter_url: "",

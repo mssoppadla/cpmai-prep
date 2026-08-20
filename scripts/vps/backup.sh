@@ -97,13 +97,29 @@ $DC exec -T postgres psql -U cpmai -d cpmai_prep -At -c \
 # 2. Env / config snapshot (so a restore can recover cleanly)
 # ------------------------------------------------------------------------------
 say "Archiving env files → ${ENV_FILE}"
+# System-level config rides in the same tar: the LIVE Caddyfile (the
+# repo copy has drifted from /etc/caddy before — row 39; the live file
+# is the truth about ports/hosts) and the deploy user's crontab. Both
+# are copied into a temp dir first so tar gets stable relative paths;
+# unreadable/missing ones are skipped LOUDLY, never silently.
+SYSCONF_DIR="$(mktemp -d)"
+if [ -r /etc/caddy/Caddyfile ]; then
+  cp /etc/caddy/Caddyfile "$SYSCONF_DIR/Caddyfile.live" \
+    || warn "could not copy live Caddyfile"
+else
+  warn "live Caddyfile not readable at /etc/caddy/Caddyfile (skipped)"
+fi
+crontab -l > "$SYSCONF_DIR/crontab.txt" 2>/dev/null \
+  || warn "no crontab for $(whoami) (skipped)"
 tar -czf "$ENV_FILE" \
   --transform 's,^,env-snapshot/,' \
   backend/.env \
   frontend/.env.local \
-  2>/dev/null || warn "some env files missing (skipped)"
+  -C "$SYSCONF_DIR" . \
+  2>/dev/null || warn "some env/config files missing (skipped)"
+rm -rf "$SYSCONF_DIR"
 chmod 0600 "$ENV_FILE"
-ok "env snapshot stored"
+ok "env + system-config snapshot stored"
 
 # ------------------------------------------------------------------------------
 # 3. Uploads snapshot (CMS / LMS file attachments)

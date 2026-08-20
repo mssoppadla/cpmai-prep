@@ -78,6 +78,20 @@ def _optional_email_list(max_len: int = 500):
     return ok
 
 
+def _whatsapp_number(v) -> bool:
+    """Empty (bubble hidden) or an international number: 7-20 chars of
+    digits with optional +, spaces, dashes. Sanitized to bare digits at
+    read time for the wa.me link."""
+    if not isinstance(v, str):
+        return False
+    if v == "":
+        return True
+    if not all(ch.isdigit() or ch in "+ -" for ch in v):
+        return False
+    digits = [ch for ch in v if ch.isdigit()]
+    return 7 <= len(digits) <= 20
+
+
 def _gateway_split(v) -> bool:
     """{provider_config_id: weight} for per-rail revenue splitting. Keys
     must be int-like, weights numeric 0..100. {} = split off."""
@@ -519,6 +533,11 @@ EDITABLE: dict[str, Callable] = {
     # 'created' Razorpay orders and activates any it finds captured
     # (webhook-outage safety net).
     "payments.reconcile_enabled":        _bool,
+    # WhatsApp chat bubble — floats beside the AI assistant on every
+    # page, works logged-out. Empty number or enabled=false hides it.
+    "chat.whatsapp_enabled":             _bool,
+    "chat.whatsapp_number":              _whatsapp_number,
+    "chat.whatsapp_prefill":             _optional_str(300),
     # Invoice engine — auto-email an invoice PDF on every capture.
     # cc_address gets a copy of every invoice mail (owner's records).
     "email.invoice_enabled":             _bool,
