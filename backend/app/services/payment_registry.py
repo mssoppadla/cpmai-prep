@@ -32,6 +32,7 @@ from app.core.exceptions import AppError
 from app.models.payment_provider import PaymentProviderConfig
 from app.services.razorpay_service import RazorpayProvider
 from app.services.paypal_service import PayPalProvider
+from app.services.cashfree_service import CashfreeProvider
 
 
 # Seam for deterministic tests (monkeypatch this module attribute).
@@ -40,6 +41,7 @@ _rand = random.random
 PROVIDER_CLASSES = {
     "razorpay": RazorpayProvider,
     "paypal":   PayPalProvider,
+    "cashfree": CashfreeProvider,
     # "stripe": StripeProvider,  # add when needed
 }
 

@@ -50,6 +50,11 @@ class CreateOrderOut(BaseModel):
     # Button (very old browsers / blocked third-party scripts).
     paypal_client_id: Optional[str] = None
     paypal_approval_url: Optional[str] = None
+    # Cashfree-specific (set when provider="cashfree", null otherwise).
+    # The frontend hands the session id to Cashfree's JS SDK, which
+    # redirects to the HOSTED payment page; mode picks sandbox vs prod.
+    cashfree_payment_session_id: Optional[str] = None
+    cashfree_mode: Optional[str] = None
     plan_slug: str
     plan_name: str
     base_amount: int             # INR paise (canonical breakdown stays in INR)

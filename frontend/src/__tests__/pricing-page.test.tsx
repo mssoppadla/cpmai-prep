@@ -230,6 +230,85 @@ describe("/pricing page", () => {
   });
 });
 
+describe("checkout redesign (currency in summary, neutral pay button)", () => {
+  it("renders the 'Paying in' selector inside the order summary, not a top-bar picker", async () => {
+    global.fetch = buildFetch(QUOTE_NO_OFFER);
+    window.history.replaceState(null, "", "/pricing");
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
+    await waitFor(() => {
+      expect(screen.getByText("Exam Bundle")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Paying in")).toBeInTheDocument();
+    // The old header picker label is gone.
+    expect(screen.queryByText(/Payment currency:/)).toBeNull();
+    // Flag + code in the option.
+    expect(screen.getByRole("option", { name: /🇮🇳 INR/ })).toBeInTheDocument();
+  });
+
+  it("shows a gateway-neutral amount button and the secure-checkout caption (INR)", async () => {
+    global.fetch = buildFetch(QUOTE_NO_OFFER);
+    window.history.replaceState(null, "", "/pricing");
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
+    // Signed-out state shows "Sign in to continue"; the neutral label
+    // is the signed-in path — assert no gateway name ever renders and
+    // the caption names INR methods.
+    await waitFor(() => {
+      expect(screen.getByText(/Secure checkout/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/cards, UPI, net banking/)).toBeInTheDocument();
+    expect(screen.queryByText(/Razorpay/)).toBeNull();
+    expect(screen.queryByText(/PayPal \(/)).toBeNull();
+  });
+});
+
+describe("Cashfree hosted-checkout return", () => {
+  function cashfreeFetch(verifyStatus: number, verifyBody: unknown) {
+    const base = buildFetch(QUOTE_NO_OFFER);
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/payments/cashfree/verify")) {
+        return new Response(JSON.stringify(verifyBody), {
+          status: verifyStatus,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return base(input, init);
+    }) as typeof fetch;
+  }
+
+  it("verifies ?cf_order= server-side and routes to the paid landing on success", async () => {
+    global.fetch = cashfreeFetch(200, {
+      status: "active", plan_slug: "exam-bundle", expires_at: null,
+    });
+    window.history.replaceState(null, "", "/pricing?cf_order=cf_ord_1");
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
+    await waitFor(() => {
+      expect(pushed).toContain("/exams?paid=exam-bundle");
+    });
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const verifyCall = calls.find(([u]) =>
+      String(u).endsWith("/payments/cashfree/verify"));
+    expect(verifyCall).toBeTruthy();
+    expect(JSON.parse(String(verifyCall![1]?.body))).toEqual(
+      { order_id: "cf_ord_1" });
+    // Param stripped — refresh won't re-verify.
+    expect(window.location.search).toBe("");
+  });
+
+  it("shows the honest not-completed message on a 409 and stays on pricing", async () => {
+    global.fetch = cashfreeFetch(409, { error: {
+      code: "conflict",
+      message: "Payment not completed yet (Cashfree status: ACTIVE).",
+    }});
+    window.history.replaceState(null, "", "/pricing?cf_order=cf_ord_2");
+    render(<PricingClient initialPlans={null} initialCurrencies={null} />);
+    await waitFor(() => {
+      expect(screen.getByText(/Payment not completed yet/)).toBeInTheDocument();
+    });
+    expect(pushed).toEqual([]);
+  });
+});
+
 describe("PayPal cancel bounce-back", () => {
   it("shows guidance and reports the abandoned order when ?cancelled=1&token= is present", async () => {
     global.fetch = buildFetch(QUOTE_NO_OFFER);

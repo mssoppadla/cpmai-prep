@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 # "paypal" added 2026-05 alongside Razorpay. PayPal handles the non-INR
 # rail (different currency routing in PaymentRegistry); Razorpay stays
 # on the INR rail.
-PaymentProviderType = Literal["razorpay", "paypal", "stripe"]
+PaymentProviderType = Literal["razorpay", "paypal", "cashfree", "stripe"]
 PaymentMode = Literal["test", "live"]
 
 

@@ -1158,7 +1158,7 @@ export interface CreateOrderOut {
   currency: string;           // what the gateway will charge in
   /** Which gateway minted this order. Frontend reads this to decide
    *  whether to render the Razorpay popup or the PayPal Smart Button. */
-  provider: "razorpay" | "paypal";
+  provider: "razorpay" | "paypal" | "cashfree";
   /** Set when provider="razorpay". Public key — ship to Razorpay SDK. */
   razorpay_key_id: string | null;
   /** Set when provider="paypal". Client ID — ship to PayPal JS SDK. */
@@ -1167,6 +1167,12 @@ export interface CreateOrderOut {
    *  if the Smart Button can't render (very old browsers / blocked
    *  third-party scripts). */
   paypal_approval_url: string | null;
+  /** Set when provider="cashfree". Session token for the Cashfree JS
+   *  SDK's hosted checkout (`cashfree.checkout({paymentSessionId})`). */
+  cashfree_payment_session_id?: string | null;
+  /** Set when provider="cashfree". "test" | "live" — picks the SDK's
+   *  sandbox vs production mode. */
+  cashfree_mode?: string | null;
   plan_slug: string;
   plan_name: string;
   base_amount: number;        // INR paise (canonical breakdown stays in INR)
@@ -1634,7 +1640,7 @@ export interface LLMProviderUpdate {
 }
 
 // ---------- Payment providers --------------------------------------------
-export type PaymentProviderType = "razorpay" | "paypal" | "stripe";
+export type PaymentProviderType = "razorpay" | "paypal" | "cashfree" | "stripe";
 export type PaymentMode = "test" | "live";
 
 export interface PaymentProviderOut {
