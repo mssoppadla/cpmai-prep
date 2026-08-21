@@ -235,6 +235,7 @@ export default function PaymentProvidersPage() {
                         className={input}>
                   <option value="razorpay">Razorpay (INR rail)</option>
                   <option value="paypal">PayPal (non-INR rail)</option>
+                  <option value="cashfree">Cashfree (INR or international)</option>
                 </select>
               </Field>
             )}

@@ -682,6 +682,16 @@ export const payments = {
    *  onApprove callback after the buyer approves on PayPal's domain.
    *  Razorpay uses verify() above — PayPal needs this because the
    *  Orders v2 flow separates authorization from capture. */
+  /** Cashfree hosted-flow activation. The buyer lands back on
+   *  /pricing?cf_order=<id>; this confirms the order server-side
+   *  against Cashfree's API (never trusting the redirect) and
+   *  activates the subscription. 409 = payment not completed yet. */
+  async cashfreeVerify(orderId: string): Promise<VerifyPaymentOut> {
+    const { data } = await request<VerifyPaymentOut>(
+      "/payments/cashfree/verify",
+      { method: "POST", json: { order_id: orderId }, authed: true });
+    return data;
+  },
   /** Report a checkout the buyer abandoned on PayPal's page (cancel
    *  click or PayPal-side error) so the order is recorded as
    *  cancelled instead of dangling in "created". */

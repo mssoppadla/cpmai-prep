@@ -40,7 +40,14 @@ import type {
 } from "@/types/api";
 
 declare global {
-  interface Window { Razorpay?: new (opts: RazorpayOptions) => RazorpayInstance }
+  interface Window {
+    Razorpay?: new (opts: RazorpayOptions) => RazorpayInstance;
+    /** Cashfree JS v3 SDK factory (sdk.cashfree.com/js/v3/cashfree.js). */
+    Cashfree?: (opts: { mode: "sandbox" | "production" }) => {
+      checkout: (opts: { paymentSessionId: string;
+                         redirectTarget?: string }) => void;
+    };
+  }
 }
 interface RazorpayInstance { open(): void; on(event: string, cb: (resp: unknown) => void): void }
 interface RazorpayOptions {
@@ -97,6 +104,15 @@ function lineMoney(inrPaise: number, q: PriceQuoteOut | null,
   if (disp == null) return `₹${(inrPaise / 100).toFixed(2)}`;
   return formatMinor(disp, symbol);
 }
+
+
+/** Flag emoji for a currency code — shown in the "Paying in" selector
+ *  so the checkout currency is unmissable. Unknown codes get a globe. */
+const CURRENCY_FLAGS: Record<string, string> = {
+  INR: "🇮🇳", USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", SGD: "🇸🇬",
+  AED: "🇦🇪", AUD: "🇦🇺", CAD: "🇨🇦", SAR: "🇸🇦", JPY: "🇯🇵",
+};
+const flagFor = (code: string) => CURRENCY_FLAGS[code] ?? "🌐";
 
 
 /**
@@ -196,6 +212,11 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
   // cause is PayPal's guest card form being unavailable for the
   // buyer's country — logging in to PayPal works with the same card.
   const [checkoutCancelled, setCheckoutCancelled] = useState(false);
+  // Cashfree return-leg outcome message. Its own state (not `err`)
+  // because the quote effect clears `err` on every re-quote — and the
+  // currency-init re-quote races the verify call, silently wiping the
+  // message right after it appears.
+  const [cfReturnMsg, setCfReturnMsg] = useState<string | null>(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
 
@@ -220,6 +241,31 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
     }
     // Strip the params so a refresh doesn't re-report / re-banner.
     window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+
+  // Cashfree hosted-checkout return: /pricing?cf_order=<order_id>.
+  // Confirm server-side (the redirect alone is never trusted) and
+  // route to the paid landing on success. A 409 means the payment
+  // wasn't completed (abandoned/failed) — show the honest message and
+  // stay on pricing; the webhook + reconcile sweep still cover a late
+  // capture.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const cfOrder = params.get("cf_order");
+    if (!cfOrder) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    setCheckoutBusy(true);
+    (async () => {
+      try {
+        const verified = await payments.cashfreeVerify(cfOrder);
+        firePurchaseConversion({ orderId: cfOrder });
+        router.push(`/exams?paid=${encodeURIComponent(verified.plan_slug)}`);
+      } catch (e) {
+        setCfReturnMsg(errMsg(e));
+        setCheckoutBusy(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load plans + currencies + auth state in parallel. Plans skip the
@@ -422,6 +468,32 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
       return;
     }
 
+    // Cashfree path — hosted checkout via the Cashfree JS SDK. The
+    // buyer pays on Cashfree's page and returns to
+    // /pricing?cf_order=<id>, where the mount effect below calls
+    // /payments/cashfree/verify to confirm + activate server-side.
+    if (order.provider === "cashfree") {
+      if (!window.Cashfree) {
+        setErr("Cashfree checkout script hasn't loaded yet. Refresh and try again.");
+        setCheckoutBusy(false);
+        return;
+      }
+      if (!order.cashfree_payment_session_id) {
+        setErr("Cashfree returned no payment session. Check the Cashfree " +
+                "provider configuration in admin.");
+        setCheckoutBusy(false);
+        return;
+      }
+      const cf = window.Cashfree({
+        mode: order.cashfree_mode === "live" ? "production" : "sandbox",
+      });
+      cf.checkout({
+        paymentSessionId: order.cashfree_payment_session_id,
+        redirectTarget: "_self",
+      });
+      return;
+    }
+
     // Razorpay path — needs the Checkout script to be loaded.
     if (!window.Razorpay) {
       setErr("Razorpay checkout script hasn't loaded yet. Refresh and try again.");
@@ -476,6 +548,8 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
     <div className="min-h-screen flex flex-col bg-slate-50">
       <Script src="https://checkout.razorpay.com/v1/checkout.js"
               strategy="lazyOnload" />
+      <Script src="https://sdk.cashfree.com/js/v3/cashfree.js"
+              strategy="lazyOnload" />
       <SiteHeader active="pricing" />
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-10">
         {/* Admin-driven notice for visitors outside India — shown only
@@ -493,33 +567,10 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
             <p className="text-sm text-amber-900">{linkifyText(intlNotice)}</p>
           </div>
         )}
-        <div className="flex items-baseline justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Pricing</h1>
-            {/* Admin-editable: pricing.subtitle in Runtime Settings. */}
-            <p className="text-slate-600 mt-2">{subtitle}</p>
-          </div>
-          {/* Currency picker. Disabled options are visible but
-              unselectable — admin needs to add an FX rate before
-              they become chargeable. */}
-          <label className="text-sm flex items-center gap-2">
-            <span className="text-slate-700">Payment currency:</span>
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-slate-300 rounded
-                         focus:ring-1 focus:ring-indigo-500 outline-none bg-white"
-            >
-              {currencyOptions.map(opt => (
-                <option key={opt.code}
-                        value={opt.code}
-                        disabled={!opt.has_fx_rate}>
-                  {opt.symbol} {opt.code}
-                  {!opt.has_fx_rate ? " (not configured)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Pricing</h1>
+          {/* Admin-editable: pricing.subtitle in Runtime Settings. */}
+          <p className="text-slate-600 mt-2">{subtitle}</p>
         </div>
 
         {checkoutCancelled && (
@@ -529,6 +580,13 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
             card form on PayPal showed an error, try again and choose
             {" "}<b>Log in to PayPal</b> instead: the same card works after
             signing in. Need help? Use the chat bubble or contact support.
+          </div>
+        )}
+        {cfReturnMsg && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-lg my-4 text-sm"
+               role="status" aria-live="polite">
+            <div className="font-semibold mb-1">Payment status</div>
+            {cfReturnMsg}
           </div>
         )}
         {err && (
@@ -616,6 +674,50 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
                     <div className="font-medium">{selectedPlan.name}</div>
                     <div className="text-slate-500">/{selectedPlan.slug}</div>
                   </div>
+
+                  {/* "Paying in" currency selector — lives INSIDE the
+                      order summary (the old top-of-page picker was easy
+                      to miss). Changing it re-quotes every plan card,
+                      the summary, and the pay button in that currency.
+                      Disabled options are visible but unselectable —
+                      admin needs to add an FX rate first. */}
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-700 mb-1">
+                      Paying in
+                    </span>
+                    <select
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value)}
+                      className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white
+                                 focus:ring-1 focus:ring-indigo-500 outline-none"
+                    >
+                      {currencyOptions.map(opt => (
+                        <option key={opt.code}
+                                value={opt.code}
+                                disabled={!opt.has_fx_rate}>
+                          {flagFor(opt.code)} {opt.code} ({opt.symbol})
+                          {!opt.has_fx_rate ? " — not available yet" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {/* Nudge toward the rail that fits the buyer: an
+                        international currency hides UPI/net banking, and
+                        INR hides international cards — say so. */}
+                    {currency !== "INR"
+                      && currencyOptions.some(o => o.code === "INR" && o.has_fx_rate) && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        In India? Switch to 🇮🇳 INR to pay with UPI, cards
+                        or net banking.
+                      </p>
+                    )}
+                    {currency === "INR"
+                      && currencyOptions.some(o => o.code !== "INR" && o.has_fx_rate) && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Outside India? Pick your currency above to pay with
+                        international cards.
+                      </p>
+                    )}
+                  </label>
 
                   <label className="block">
                     <span className="block text-xs font-medium text-slate-700 mb-1">
@@ -784,7 +886,7 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
                   {gatewayChoices.length >= 2 && (
                     <div className="mb-3" role="radiogroup" aria-label="Payment gateway">
                       <div className="text-xs font-medium text-slate-500 mb-1.5">
-                        Pay with
+                        Pay using
                       </div>
                       <div className="flex gap-2 flex-wrap">
                         {gatewayChoices.map((g) => (
@@ -813,15 +915,25 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
                         ? "Sign in to continue"
                         : (checkoutBusy
                            ? "Creating order…"
-                           // Gateway is routed by currency on the backend:
-                           // INR → Razorpay, everything else → PayPal
-                           // (card or PayPal account). The label must
-                           // match, or gateway errors get blamed on the
-                           // wrong provider.
-                           : currency === "INR"
-                             ? "Pay with Razorpay (INR)"
-                             : `Pay ${currency} — card or PayPal`)}
+                           // Gateway-neutral label: just the amount in
+                           // the selected currency. Which gateway
+                           // processes it is a routing detail (admin-
+                           // configured, may change) the buyer never
+                           // needs before the payment page itself.
+                           : quote && (currency === "INR"
+                               ? `Pay ₹${(quote.final_price_paise / 100).toFixed(2)}`
+                               : (quote.display_currency_supported
+                                  && quote.display_amount_minor != null
+                                  ? `Pay ${formatMinor(quote.display_amount_minor,
+                                                        currentCurrencyOption.symbol)}`
+                                  : `Pay in ${currency}`)) || "Pay")}
                   </button>
+                  <p className="text-xs text-slate-500 text-center -mt-2">
+                    🔒 Secure checkout ·{" "}
+                    {currency === "INR"
+                      ? "cards, UPI, net banking & more"
+                      : "international cards & more"}
+                  </p>
                   {!user && authChecked && (
                     <p className="text-xs text-slate-500 text-center">
                       You'll be redirected to sign in first — your selection

@@ -207,6 +207,20 @@ def create_order(payload: CreateOrderIn,
             "cancel_url": f"{origin}/pricing?cancelled=1",
         }
 
+    def _cashfree_kwargs():
+        # Cashfree hosted checkout returns the buyer to our pricing page;
+        # {order_id} is substituted by Cashfree with the PG order id so
+        # the frontend can call /payments/cashfree/verify on arrival.
+        origin = request.headers.get("origin") or ""
+        if not origin:
+            raise AppError(
+                "Cashfree orders require the browser's Origin header to "
+                "build the return URL.", status_code=400)
+        return {
+            "return_url": f"{origin}/pricing?cf_order={{order_id}}",
+            "customer": {"id": user.id, "email": user.email},
+        }
+
     # Attempt candidates in order. Fallback (payments.fallback_enabled)
     # applies ONLY to gateway-side order-creation failures — a down or
     # misconfigured gateway. It never re-routes a card decline (that
@@ -227,7 +241,9 @@ def create_order(payload: CreateOrderIn,
         else:
             provider = PaymentRegistry.get_by_id(config_id)
             provider_config_id = config_id
-        kwargs = _paypal_kwargs() if provider.name == "paypal" else {}
+        kwargs = (_paypal_kwargs() if provider.name == "paypal"
+                  else _cashfree_kwargs() if provider.name == "cashfree"
+                  else {})
         try:
             order = provider.create_order(
                 charge_amount_minor, receipt=receipt,
@@ -242,7 +258,9 @@ def create_order(payload: CreateOrderIn,
                         provider=provider.name, error=str(e),
                         will_fallback=config_id != attempts[-1])
     if order is None:
-        gateway_label = "Razorpay" if provider.name == "razorpay" else "PayPal"
+        gateway_label = {"razorpay": "Razorpay", "paypal": "PayPal",
+                         "cashfree": "Cashfree"}.get(provider.name,
+                                                     provider.name)
         raise AppError(
             f"Payment gateway rejected the order: {last_err}. "
             f"Verify the {gateway_label} provider's keys in "
@@ -318,6 +336,11 @@ def create_order(payload: CreateOrderIn,
                            else None),
         paypal_approval_url=(order.get("approval_url")
                               if provider.name == "paypal" else None),
+        cashfree_payment_session_id=(order.get("payment_session_id")
+                                      if provider.name == "cashfree"
+                                      else None),
+        cashfree_mode=(provider.mode if provider.name == "cashfree"
+                        else None),
         plan_slug=quote.plan_slug, plan_name=quote.plan_name,
         base_amount=quote.base_price_paise,
         discount_amount=max(0, discount),
@@ -610,6 +633,126 @@ async def webhook(request: Request,
                         processed_at=datetime.now(timezone.utc)))
     db.commit()
     return {"received": True, "event_type": event_type, "action": action}
+
+
+class CashfreeVerifyIn(BaseModel):
+    order_id: str
+
+
+@router.post("/cashfree/verify", response_model=VerifyPaymentOut)
+def cashfree_verify(payload: CashfreeVerifyIn,
+                    user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """Fast-path activation for the CASHFREE hosted flow.
+
+    The buyer lands back on /pricing?cf_order=<id>; the frontend calls
+    this to confirm server-side against Cashfree's order API (never
+    trusting the redirect alone), then activates through the shared
+    lifecycle. Idempotent — webhook-then-verify and verify-then-webhook
+    both settle on one activation."""
+    payment = db.query(Payment).filter_by(
+        provider_order_id=payload.order_id, user_id=user.id).first()
+    if not payment:
+        raise NotFoundError("Order not found.")
+    if payment.provider_name != "cashfree":
+        raise AppError(
+            f"Order {payload.order_id} is a {payment.provider_name} "
+            f"order; use that flow instead.", status_code=400)
+    if payment.provider_config_id:
+        provider = PaymentRegistry.get_by_id(payment.provider_config_id)
+    else:
+        provider = PaymentRegistry.get_for_currency(payment.currency)
+    try:
+        cf_order = provider.fetch_order(payload.order_id)
+    except Exception as e:
+        raise AppError(f"Cashfree order lookup failed: {e}",
+                       status_code=502)
+    status = (cf_order.get("order_status") or "").upper()
+    if status != "PAID":
+        # ACTIVE = buyer abandoned/still on the page; EXPIRED/FAILED —
+        # nothing captured. Report honestly; the reconcile sweep and the
+        # webhook remain the safety nets for late captures.
+        raise AppError(
+            f"Payment not completed yet (Cashfree status: {status or 'unknown'}). "
+            "If you finished paying, wait a few seconds and refresh.",
+            status_code=409)
+    sub = activate_subscription_for_payment(db, payment,
+                                            captured_via="verify")
+    return VerifyPaymentOut(
+        status="active", plan_slug=sub.plan, expires_at=sub.expires_at,
+    )
+
+
+@router.post("/cashfree/webhook")
+async def cashfree_webhook(request: Request,
+                           db: Session = Depends(get_db)):
+    """Cashfree server-to-server settlement (fires even if the buyer
+    never returns to our site). Signature: x-webhook-signature =
+    base64(HMAC-SHA256(x-webhook-timestamp + raw body, secret)),
+    verified against EVERY enabled Cashfree account (multi-account
+    fan-out, same discipline as the Razorpay webhook)."""
+    body = await request.body()
+    signature = request.headers.get("x-webhook-signature") or ""
+    timestamp = request.headers.get("x-webhook-timestamp") or ""
+    provider = None
+    matched_cfg_id = None
+    for _cfg_id, candidate in PaymentRegistry.enabled_by_type("cashfree"):
+        if candidate.verify_webhook(timestamp, body, signature):
+            provider = candidate
+            matched_cfg_id = _cfg_id
+            break
+    if provider is None:
+        from app.core.audit import audit_log
+        audit_log(db, None, "cashfree.webhook_rejected_invalid_signature", {
+            "received_sig_prefix": signature[:8] or None,
+            "body_length": len(body),
+        })
+        raise AppError(
+            "Invalid Cashfree webhook signature. Check the secret on the "
+            "Cashfree provider row in admin → Payment Providers.",
+            status_code=400)
+    if matched_cfg_id is not None:
+        from app.models.payment_provider import PaymentProviderConfig
+        row = db.get(PaymentProviderConfig, matched_cfg_id)
+        if row is not None:
+            row.last_webhook_at = datetime.now(timezone.utc)
+            db.flush()
+
+    event = json.loads(body or b"{}")
+    etype = (event.get("type") or "").upper()
+    data = event.get("data") or {}
+    cf_payment = (data.get("payment") or {})
+    order_id = ((data.get("order") or {}).get("order_id")
+                or cf_payment.get("order_id") or "")
+    event_id = (f"cf_{cf_payment.get('cf_payment_id') or 'na'}_"
+                f"{etype.lower() or 'unknown'}")
+
+    # Idempotency: same dedupe ledger the Razorpay webhook uses.
+    if db.query(WebhookEvent).filter_by(event_id=event_id).first():
+        return {"received": True, "duplicate": True}
+    db.add(WebhookEvent(event_id=event_id, payload=event))
+    db.flush()
+
+    action = "logged"
+    payment = (db.query(Payment)
+               .filter_by(provider_order_id=order_id,
+                          provider_name="cashfree").first()
+               if order_id else None)
+    if etype == "PAYMENT_SUCCESS_WEBHOOK" and payment is not None:
+        if cf_payment.get("cf_payment_id") and not payment.provider_payment_id:
+            payment.provider_payment_id = str(
+                cf_payment["cf_payment_id"])[:64]
+        activate_subscription_for_payment(db, payment,
+                                          captured_via="webhook")
+        action = "activated"
+    elif etype == "PAYMENT_FAILED_WEBHOOK" and payment is not None:
+        mark_payment_failed(db, payment)
+        action = "failed"
+    ev = db.query(WebhookEvent).filter_by(event_id=event_id).first()
+    if ev:
+        ev.processed_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"received": True, "event_type": etype, "action": action}
 
 
 @router.post("/paypal/webhook")
