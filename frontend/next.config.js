@@ -18,6 +18,18 @@ const nextConfig = {
       { source: "/uploads/:path*", destination: `${backend}/uploads/:path*` },
     ];
   },
+  async redirects() {
+    return [
+      // The Model Error Lab superseded the Threshold Explorer (it
+      // contains the threshold interaction plus fit/imbalance/curves).
+      // Permanent redirect preserves bookmarks and any search equity.
+      {
+        source: "/labs/threshold-explorer",
+        destination: "/labs/metrics-lab",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [{
       source: "/(.*)",

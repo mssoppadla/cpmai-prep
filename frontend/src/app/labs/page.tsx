@@ -24,7 +24,7 @@ export default function LabsIndexPage() {
         </p>
         <div className="grid sm:grid-cols-2 gap-5">
           <Link
-            href="/labs/threshold-explorer"
+            href="/labs/metrics-lab"
             className="block bg-white border border-slate-200 rounded-2xl p-6
                        hover:border-indigo-300 hover:shadow-md transition"
           >
@@ -37,11 +37,12 @@ export default function LabsIndexPage() {
               </span>
             </div>
             <h2 className="font-semibold text-lg text-slate-900 mb-1">
-              Threshold Explorer
+              Classification Metrics Lab
             </h2>
             <p className="text-sm text-slate-600">
-              Drag the classification threshold and watch precision, recall,
-              the confusion matrix, ROC and PR curves recompute live.
+              Underfitting, overfitting, the imbalance trap — trigger each
+              failure mode, watch train vs test data, the bias–variance
+              target and both AUC curves react, and learn the remedy.
             </p>
             <span className="inline-block mt-4 text-sm font-medium text-indigo-600">
               Open the lab →

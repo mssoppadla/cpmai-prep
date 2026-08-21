@@ -533,6 +533,14 @@ EDITABLE: dict[str, Callable] = {
     # 'created' Razorpay orders and activates any it finds captured
     # (webhook-outage safety net).
     "payments.reconcile_enabled":        _bool,
+    # Classification Metrics Lab (public /labs/metrics-lab): admin-
+    # editable page TITLE + two teaching-copy HTML blocks.
+    # HTML allowed: b/i/strong/em/u, span with style="color:...", br,
+    # p, ul/ol/li, table/thead/tbody/tr/td/th, h3/h4, a href. The lab
+    # sanitizes to that allowlist at render. Empty = built-in default.
+    "labs.metrics_lab_title":            _short_str(80),
+    "labs.metrics_lab_takeaway_html":    _optional_str(8000),
+    "labs.metrics_lab_reference_html":   _optional_str(12000),
     # WhatsApp chat bubble — floats beside the AI assistant on every
     # page, works logged-out. Empty number or enabled=false hides it.
     "chat.whatsapp_enabled":             _bool,

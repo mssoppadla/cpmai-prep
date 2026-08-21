@@ -25,6 +25,23 @@ def threshold_explorer_config():
     return load_threshold_config()
 
 
+@router.get("/labs/metrics-lab")
+def metrics_lab_config():
+    """Admin-editable teaching copy for the public Classification Metrics Lab.
+    Two HTML blocks (Settings → labs.*): the AUC-usage takeaway card and
+    the cause/consequence/remedy reference table. Empty setting → the
+    frontend falls back to its built-in defaults, so a wiped setting can
+    never blank the page."""
+    return {
+        "title": settings_store.get_str(
+            "labs.metrics_lab_title", "Classification Metrics Lab"),
+        "takeaway_html": settings_store.get_str(
+            "labs.metrics_lab_takeaway_html", ""),
+        "reference_html": settings_store.get_str(
+            "labs.metrics_lab_reference_html", ""),
+    }
+
+
 @router.get("/topics")
 def list_topics(db: Session = Depends(get_db)):
     return [

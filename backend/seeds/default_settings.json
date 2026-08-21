@@ -395,6 +395,21 @@
     "description": "Hourly safety net: for recent unpaid Razorpay orders (30min-7days old), ask the gateway directly whether a captured payment exists; if yes, activate the subscription and send the invoice exactly as a webhook would (captured_via='reconcile'). Catches money lost to disabled webhooks or closed browser tabs. Turn off only while debugging gateway API issues."
   },
   {
+    "key": "labs.metrics_lab_title",
+    "value": "Classification Metrics Lab",
+    "description": "Display name of the /labs/metrics-lab page — shown as the page heading, browser title, labs-index card and breadcrumb. Rename the lab here any time; the URL stays /labs/metrics-lab."
+  },
+  {
+    "key": "labs.metrics_lab_takeaway_html",
+    "value": "<b>1 · Compare models by the AUC number</b> (always on held-out data): ~0.5 coin flip · 0.7–0.8 okay · 0.8–0.9 good · &gt;0.9 excellent — or suspicious, check the Gap.<br><b>2 · Pick which AUC to read by class balance:</b> balanced → AUC-ROC; rare positives → PR-AUC. If they disagree, believe PR-AUC.<br><b>3 · Set the threshold from the curve's shape:</b> decide which mistake costs more (FP vs FN), find that trade-off point, use its threshold. The dot moves — <b>the AUC never does</b>: only a better model lifts the curve.",
+    "description": "'How to use the AUC curves' card on /labs/metrics-lab. HTML allowed: <b> <i> <u> <span style=\"color:#c00\"> <br> <p> <ul><li> <a href>. Empty = built-in default."
+  },
+  {
+    "key": "labs.metrics_lab_reference_html",
+    "value": "<table><thead><tr><th>You observe</th><th>Why</th><th>Consequence</th><th>Remedy</th></tr></thead><tbody><tr><td>Precision low, recall fine</td><td>Loose threshold / FP flood</td><td>False alarms erode trust</td><td>Raise threshold; rebalance</td></tr><tr><td>Recall low, precision fine</td><td>Strict threshold / rare positives</td><td>Real cases slip through</td><td>Lower threshold; oversample, class weights</td></tr><tr><td>Both low, train ≈ test</td><td>Underfit — high bias</td><td>Bad everywhere; threshold useless</td><td>More features/capacity, boosting</td></tr><tr><td>Train great, test poor</td><td>Overfit — high variance</td><td>Accuracy drops on real data</td><td>Regularization, bagging, more data, early stop</td></tr><tr><td>Both high (bias + variance)</td><td>Wrong model AND too little data</td><td>Unreliable and wrong — worst case</td><td>More data first, then grow capacity</td></tr><tr><td>Accuracy high, P or R low</td><td>Imbalance — negatives dominate</td><td>Metric lies; model useless at its job</td><td>Judge by F1/PR-AUC; rebalance</td></tr></tbody></table>",
+    "description": "Reference table (cause · consequence · remedy) on /labs/metrics-lab. Add a row by copying a <tr>...</tr> block. Same HTML allowlist as the takeaway card; bold with <b>, color with <span style=\"color:#b91c1c\">. Empty = built-in default."
+  },
+  {
     "key": "chat.whatsapp_enabled",
     "value": false,
     "description": "Show the green WhatsApp chat bubble beside the AI assistant on every page (works for logged-out visitors too). Clicking opens a WhatsApp chat with chat.whatsapp_number in the visitor's own WhatsApp app/web — you see each sender as a normal WhatsApp contact. Requires chat.whatsapp_number to be set."
