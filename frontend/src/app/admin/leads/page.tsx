@@ -8,7 +8,7 @@
  * every row — leads AND signed-up users (notes persist to the matching
  * table via admin.leads.updateNotes / admin.users.updateNotes).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { admin, auth, errMsg } from "@/lib/api";
 import { leadTier } from "@/types/api";
 import type { ContactRow, LeadTier, UserOut } from "@/types/api";
@@ -527,7 +527,38 @@ type SharedWindow = "7d" | "30d" | "90d";
 // lead to investigate, not proof of multi-accounting.
 // ============================================================================
 
+/** Collapsible section chrome shared by the analytics widgets. Both
+ *  start COLLAPSED so the contacts table is visible as soon as the
+ *  page loads; the body (and its data fetch) only exists once opened. */
+function CollapsibleHeader({ title, subtitle, open, onToggle, controls }: {
+  title: string; subtitle: string; open: boolean;
+  onToggle: () => void; controls?: ReactNode;
+}) {
+  return (
+    <header className={`px-5 py-3 flex items-center justify-between
+                         flex-wrap gap-3 ${open ? "border-b border-slate-200" : ""}`}>
+      <button type="button" onClick={onToggle}
+              aria-expanded={open}
+              className="flex items-start gap-2 text-left flex-1 min-w-0">
+        <span aria-hidden
+              className={`mt-0.5 text-slate-400 transition-transform ${
+                open ? "rotate-90" : ""}`}>▶</span>
+        <span>
+          <span className="block text-sm font-semibold text-slate-900">
+            {title}
+          </span>
+          <span className="block text-xs text-slate-500 mt-0.5">
+            {subtitle}
+          </span>
+        </span>
+      </button>
+      {open && controls}
+    </header>
+  );
+}
+
 function SharedAccessSection() {
+  const [open, setOpen] = useState(false);
   const [window, setWindow] = useState<SharedWindow>("30d");
   const [data, setData] = useState<Awaited<
     ReturnType<typeof admin.anonymousTraffic.sharedAccess>
@@ -535,43 +566,40 @@ function SharedAccessSection() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!open) return;         // fetch only when expanded
     let cancelled = false;
     admin.anonymousTraffic.sharedAccess(window)
       .then((d) => { if (!cancelled) setData(d); })
       .catch((e) => { if (!cancelled) setErr(errMsg(e)); });
     return () => { cancelled = true; };
-  }, [window]);
+  }, [open, window]);
 
   const empty = data
     && data.shared_browsers.length === 0 && data.shared_ips.length === 0;
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl mb-6">
-      <header className="px-5 py-3 border-b border-slate-200
-                          flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">
-            Shared access
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Two or more accounts signing in from the same device or IP —
-            spot one person using multiple ids. Same device is a strong
-            signal; same IP can be an office or mobile network.
-          </p>
-        </div>
-        <select value={window}
-                onChange={(e) => setWindow(e.target.value as SharedWindow)}
-                className="px-2 py-1 text-xs border border-slate-300 rounded">
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-        </select>
-      </header>
-
-      {err && (
+      <CollapsibleHeader
+        title="Shared access"
+        subtitle="Two or more accounts signing in from the same device or
+                  IP — spot one person using multiple ids. Same device is
+                  a strong signal; same IP can be an office or mobile
+                  network."
+        open={open}
+        onToggle={() => setOpen(o => !o)}
+        controls={
+          <select value={window}
+                  onChange={(e) => setWindow(e.target.value as SharedWindow)}
+                  className="px-2 py-1 text-xs border border-slate-300 rounded">
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+          </select>
+        }
+      />
+      {!open ? null : err ? (
         <div className="px-5 py-3 text-sm text-rose-700 bg-rose-50">{err}</div>
-      )}
-      {!data ? (
+      ) : !data ? (
         <div className="px-5 py-4 text-sm text-slate-500">Loading…</div>
       ) : empty ? (
         <div className="px-5 py-4 text-sm text-slate-500">
@@ -646,6 +674,7 @@ function SharedAccessSection() {
 }
 
 function AnonymousTrafficSection() {
+  const [open, setOpen] = useState(false);
   const [window, setWindow] = useState<AnonWindow>("7d");
   const [data, setData] = useState<Awaited<
     ReturnType<typeof admin.anonymousTraffic.summary>
@@ -653,12 +682,13 @@ function AnonymousTrafficSection() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!open) return;         // fetch only when expanded
     let cancelled = false;
     admin.anonymousTraffic.summary(window)
       .then((d) => { if (!cancelled) setData(d); })
       .catch((e) => { if (!cancelled) setErr(errMsg(e)); });
     return () => { cancelled = true; };
-  }, [window]);
+  }, [open, window]);
 
   const maxDayEvents = useMemo(() => {
     if (!data) return 0;
@@ -667,40 +697,35 @@ function AnonymousTrafficSection() {
 
   return (
     <section className="bg-white border border-slate-200 rounded-xl mb-6">
-      <header className="px-5 py-3 border-b border-slate-200
-                          flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">
-            Visitors
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Known users vs anonymous visitors across the whole site.
-            Anonymous visitors move to the known side from the moment
-            they sign up — even when they later return signed out.
-          </p>
-          {/* Bridge to Visitor Insights v2 — the broader dashboard
-              that adds top-pages, funnel, and per-visitor timeline.
-              The summary widget below remains the at-a-glance view
-              for operators sitting on /admin/leads. */}
-          <a href="/admin/insights"
-              className="text-xs text-blue-600 hover:underline mt-1 inline-block">
-            Open full Visitor Insights dashboard →
-          </a>
-        </div>
-        <select value={window}
-                onChange={(e) => setWindow(e.target.value as AnonWindow)}
-                className="px-2 py-1 text-xs border border-slate-300 rounded">
-          <option value="24h">Last 24 hours</option>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-        </select>
-      </header>
-
-      {err && (
+      <CollapsibleHeader
+        title="Visitors"
+        subtitle="Known users vs anonymous visitors across the whole
+                  site. Anonymous visitors move to the known side from
+                  the moment they sign up — even when they later return
+                  signed out."
+        open={open}
+        onToggle={() => setOpen(o => !o)}
+        controls={
+          <div className="flex items-center gap-3">
+            {/* Bridge to Visitor Insights v2 — the broader dashboard
+                with top-pages, funnel, and per-visitor timeline. */}
+            <a href="/admin/insights"
+                className="text-xs text-blue-600 hover:underline">
+              Full dashboard →
+            </a>
+            <select value={window}
+                    onChange={(e) => setWindow(e.target.value as AnonWindow)}
+                    className="px-2 py-1 text-xs border border-slate-300 rounded">
+              <option value="24h">Last 24 hours</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+            </select>
+          </div>
+        }
+      />
+      {!open ? null : err ? (
         <div className="px-5 py-3 text-sm text-rose-700 bg-rose-50">{err}</div>
-      )}
-
-      {!data ? (
+      ) : !data ? (
         <div className="px-5 py-6 text-sm text-slate-500">Loading…</div>
       ) : data.totals.events === 0 ? (
         <div className="px-5 py-6 text-sm text-slate-500">
