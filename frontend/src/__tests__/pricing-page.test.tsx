@@ -235,13 +235,15 @@ describe("checkout redesign (currency in summary, neutral pay button)", () => {
     global.fetch = buildFetch(QUOTE_NO_OFFER);
     window.history.replaceState(null, "", "/pricing");
     render(<PricingClient initialPlans={null} initialCurrencies={null} />);
-    await waitFor(() => {
-      expect(screen.getByText("Exam Bundle")).toBeInTheDocument();
-    });
-    expect(screen.getByText("Paying in")).toBeInTheDocument();
+    // findBy, not waitFor+getBy: the summary (and its "Paying in"
+    // selector) renders one state-update AFTER the plan list loads —
+    // the auto-select-first-plan effect. Asserting synchronously after
+    // the plan card appears raced that effect and flaked on slow CI
+    // runners (2026-08-22 deploy gate) while always passing locally.
+    expect(await screen.findByText("Paying in")).toBeInTheDocument();
     // The old header picker label is gone.
     expect(screen.queryByText(/Payment currency:/)).toBeNull();
-    // Flag + code in the option.
+    // Flag + code in the option (renders with the selector above).
     expect(screen.getByRole("option", { name: /🇮🇳 INR/ })).toBeInTheDocument();
   });
 
