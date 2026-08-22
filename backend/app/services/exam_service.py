@@ -726,6 +726,11 @@ class ExamService:
                    "anonymous": actor_user_id is None,
                    "timed_out": timed_out})
         emit_event(self.db, "exam.submitted", user_id=actor_user_id,
+                   # Anonymous attempts stamp the browser's anon token
+                   # (same value as its X-Anon-ID) so the submission is
+                   # visible in journey history and claimable at login.
+                   anon_id=(session.anon_token
+                            if actor_user_id is None else None),
                    metadata={"exam_set_id": es.id if es else None,
                              "exam_session_id": session.id,
                              "score": score, "passed": passed,

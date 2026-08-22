@@ -155,6 +155,16 @@ function clearTokens() {
  * Persisted in localStorage so the same browser keeps the same in-progress
  * attempt across navigations. Servers treat it as opaque.
  */
+/**
+ * The SAME stored value doubles as the browser's persistent analytics
+ * identity, sent as X-Anon-ID on every API call. One id means login can
+ * claim BOTH the journey history and the anonymous exam attempts this
+ * token already owns (backend link_identity). Exported for the tracker.
+ */
+export function getAnonId(): string {
+  return getOrCreateAnonToken();
+}
+
 function getOrCreateAnonToken(): string {
   if (typeof window === "undefined") return "";
   let t = window.localStorage.getItem(ANON_KEY);
@@ -270,6 +280,12 @@ async function request<T>(path: string, opts: FetchOpts = {}): Promise<{
     const at = getOrCreateAnonToken();
     if (at) headers.set("X-Anon-Token", at);
   }
+  // Persistent browser identity on EVERY call (CORS already allows the
+  // header). Journey events written server-side carry it, and the auth
+  // endpoints use it to claim this browser's anonymous history at
+  // login/signup. Opaque UUID — no PII.
+  const aid = getAnonId();
+  if (aid) headers.set("X-Anon-ID", aid);
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
@@ -1664,22 +1680,34 @@ export const admin = {
    *  events (refused-with-context, missing-citation, etc.) so admins
    *  can see when the LLM goes off the rails — and compare legacy vs
    *  agentic flows side-by-side once the agentic toggle ships. */
-  /** Anonymous-visitor traffic — reads the `assistant.anon.*` audit
-   *  events that fire when an unauthenticated user clicks the chat
-   *  bubble. Drives the "Anonymous traffic" section on /admin/leads. */
+  /** Visitor-traffic rollup (known users vs anonymous) built on the
+   *  journey_events stream. Drives the "Visitors" section on
+   *  /admin/leads. `signed_up` = anonymous visitors in the window who
+   *  have since created an account (tracked as known going forward);
+   *  `returning_anonymous` = anonymous visitors seen on 2+ days. */
   anonymousTraffic: {
     async summary(window: "24h" | "7d" | "30d" = "7d") {
       const { data } = await request<{
         window: string;
         since: string;
-        totals: { unique_anons: number; events: number };
+        totals: {
+          known_users: number;
+          anonymous: number;
+          signed_up: number;
+          returning_anonymous: number;
+          events: number;
+        };
         by_region: {
           country: string | null;
           city:    string | null;
           events: number;
-          unique_anons: number;
+          known_users: number;
+          anonymous: number;
         }[];
-        by_day: { day: string; events: number; unique_anons: number }[];
+        by_day: {
+          day: string; events: number;
+          known_users: number; anonymous: number;
+        }[];
       }>(`/admin/anonymous-traffic/summary?window=${window}`,
          { authed: true });
       return data;

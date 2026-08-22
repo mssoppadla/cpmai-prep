@@ -82,5 +82,12 @@ def soft_delete_user(db: Session, user: User) -> bool:
     user.google_id = None
     user.is_active = False
     user.deleted_at = datetime.now(timezone.utc)
+    # Drop the browser→account identity links: after redaction the
+    # account must not remain joinable to browsing history via the
+    # anon_id map (mirrors the journey_events anon_id scrub).
+    from app.models.anon_identity_link import AnonIdentityLink
+    (db.query(AnonIdentityLink)
+       .filter(AnonIdentityLink.user_id == user.id)
+       .delete(synchronize_session=False))
     db.commit()
     return True

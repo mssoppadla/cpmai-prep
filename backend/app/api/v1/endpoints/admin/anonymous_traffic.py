@@ -1,20 +1,27 @@
-"""Admin view over anonymous-visitor activity.
+"""Admin view over visitor traffic — known users vs anonymous.
 
-Reads the ``assistant.anon.*`` events written by /api/v1/assistant/anon-event.
-Returns three rollups for the operator dashboard:
+Feeds the Contacts page's Daily/Weekly/Monthly visitors widget from
+journey_events (the same data every other analytics surface uses —
+previously this read only the assistant widget's audit-log pings, so
+it undercounted and could never tell known from anonymous).
 
-  1. Headline: unique anonymous visitors in the selected window
-     (de-duplicated by ``metadata.anon_id``).
-  2. By region: ranked list — where unconverted traffic is coming from,
-     keyed on (country, city) so the same flavour of "Location" the
-     leads table renders below shows up here too.
-  3. By day: daily counts — date-wise split for the window.
+Classification, per event row:
 
-Why aggregate server-side rather than ship raw rows: even at ~10 anon
-bubble-opens per day, a 30-day window can be a few hundred rows. The
-frontend asks "what's the rollup" not "give me the rows", so we shape
-the response to what the dashboard needs. Operator can drill into raw
-audit_logs by action prefix if they ever need the per-event detail.
+  * ``user_id`` set → a KNOWN user's visit.
+  * only ``anon_id`` set → look up anon_identity_links:
+      - linked and the event is AFTER ``linked_at`` → KNOWN (the
+        person signed up earlier; even signed-out visits from that
+        browser attribute to their account from that moment on).
+      - linked but the event PRE-dates the link → counted as an
+        anonymous visit (historical counts are not rewritten), and the
+        visitor surfaces in ``signed_up`` — "of M anonymous, K have
+        since signed up and are tracked as known going forward".
+      - not linked → truly anonymous.
+  * neither id (legacy sendBeacon rows) → counts toward ``events``
+    only; no visitor identity to bucket.
+
+``returning_anonymous`` = anonymous visitors seen on 2+ distinct days
+inside the window — the "same unknown person keeps coming back" count.
 """
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -24,15 +31,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_admin_user, get_db
-from app.models.audit_log import AuditLog
+from app.models.anon_identity_link import AnonIdentityLink
+from app.models.journey_event import JourneyEvent
 from app.models.user import User
 
 router = APIRouter()
 
 
-# Same window taxonomy the assistant-drift dashboard uses. Keeping these
-# aligned means a future operator can flip windows on either dashboard
-# with the same mental model.
+# Same window taxonomy the assistant-drift dashboard uses.
 _WINDOW_TO_DELTA = {
     "24h": timedelta(hours=24),
     "7d":  timedelta(days=7),
@@ -40,10 +46,9 @@ _WINDOW_TO_DELTA = {
 }
 WindowLiteral = Literal["24h", "7d", "30d"]
 
-# Every anon event lands under this action prefix. The dashboard query
-# scans audit_logs for actions matching this — the (created_at, action)
-# index makes that scan cheap regardless of total table size.
-_ANON_ACTION_PREFIX = "assistant.anon."
+
+def _as_utc(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 @router.get("/summary")
@@ -52,108 +57,101 @@ def anonymous_traffic_summary(
     db: Session = Depends(get_db),
     _admin: User = Depends(get_admin_user),
 ):
-    """Aggregated anonymous-visitor traffic for the selected window.
+    """Known/anonymous visitor rollup for the selected window.
 
-    Example payload::
+    Payload::
 
         {
-          "window": "7d",
-          "since":  "2026-05-07T12:00:00Z",
+          "window": "7d", "since": "...Z",
           "totals": {
-            "unique_anons": 42,        // distinct anon_id values seen
-            "events":       137,        // total anon.* events (anons * avg actions)
+            "known_users": 5,          // distinct signed-in/linked visitors
+            "anonymous": 10,           // distinct unlinked (at event time) visitors
+            "signed_up": 2,            // of those, have since created an account
+            "returning_anonymous": 3,  // anonymous seen on 2+ distinct days
+            "events": 137
           },
-          "by_region": [
-            {"country": "IN", "city": "Bengaluru", "events": 30, "unique_anons": 11},
-            {"country": "IN", "city": "Mumbai",    "events": 28, "unique_anons":  8},
-            {"country": "US", "city": "Seattle",   "events": 32, "unique_anons": 11},
-            {"country": null,"city": null,         "events": 47, "unique_anons": 12}  // IP unresolved
-          ],
-          "by_day": [
-            {"day": "2026-05-07", "events":  8, "unique_anons":  4},
-            {"day": "2026-05-08", "events": 12, "unique_anons":  6},
-            ...
-          ]
+          "by_region": [{"country","city","events","known_users","anonymous"}],
+          "by_day":    [{"day","events","known_users","anonymous"}]
         }
-
-    Bucketing by anon_id de-dupes the same browser opening the chat 5
-    times in a session. The single-event counts also surface so the
-    operator can see "high-intent" anons (multiple opens) vs "drive-by"
-    anons (one open) if they want.
-
-    Grouping by (country, city) — not just country — matches the
-    "Location" column the leads table renders below this widget. A
-    country with multiple cities will produce multiple rows (Bengaluru
-    vs Mumbai are separate buckets). Within-country sub-locations can
-    surface as separate rows in the ranked list, which is what we want
-    operationally — operators can see WHICH city the unconverted
-    interest is concentrated in.
-
-    Country = null is preserved deliberately — anonymous visitors with
-    private/datacenter/proxy IPs won't resolve, and those are worth
-    surfacing distinctly rather than silently hiding under "Unknown".
     """
     since = datetime.now(timezone.utc) - _WINDOW_TO_DELTA[window]
 
-    rows = (db.query(AuditLog)
-            .filter(AuditLog.action.like(_ANON_ACTION_PREFIX + "%"))
-            .filter(AuditLog.created_at >= since)
+    rows = (db.query(JourneyEvent.user_id, JourneyEvent.anon_id,
+                     JourneyEvent.country, JourneyEvent.city,
+                     JourneyEvent.created_at)
+            .filter(JourneyEvent.created_at >= since)
             .all())
 
-    # Per-region: keyed on the (country, city) tuple so each city
-    # surfaces as its own row in the ranked list. unique_anons is the
-    # number operators usually want ("how many DIFFERENT people from
-    # Bengaluru?"); events is useful for spotting bot spikes.
-    region_events: dict[tuple[str | None, str | None], int] = defaultdict(int)
-    region_anons:  dict[tuple[str | None, str | None], set[str]] = defaultdict(set)
+    # Resolve links only for anon_ids actually present in the window.
+    window_anon_ids = {r.anon_id for r in rows if r.anon_id}
+    links: dict[str, datetime] = {}
+    if window_anon_ids:
+        for l in (db.query(AnonIdentityLink)
+                  .filter(AnonIdentityLink.anon_id.in_(window_anon_ids))
+                  .all()):
+            links[l.anon_id] = _as_utc(l.linked_at)
 
-    # Per-day: same split. Use the row's created_at date (UTC) so the
-    # dashboard isn't fighting timezones — operators can mentally shift
-    # if they care.
+    region_events: dict[tuple, int] = defaultdict(int)
+    region_known: dict[tuple, set] = defaultdict(set)
+    region_anon:  dict[tuple, set] = defaultdict(set)
     day_events: dict[str, int] = defaultdict(int)
-    day_anons:  dict[str, set[str]] = defaultdict(set)
-
-    seen_anons: set[str] = set()
+    day_known:  dict[str, set] = defaultdict(set)
+    day_anon:   dict[str, set] = defaultdict(set)
+    known_users: set = set()
+    anon_visitors: set[str] = set()
+    anon_days: dict[str, set[str]] = defaultdict(set)   # anon_id → days seen
     total_events = 0
 
     for r in rows:
-        meta = r.metadata_json or {}
-        country = meta.get("country")  # ISO-3166-1 alpha-2 or None
-        city    = meta.get("city")     # GeoIP city name or None
-        anon_id = meta.get("anon_id") or f"_no_anon_{r.id}"
-        # The fallback _no_anon_<row_id> ensures uniqueness for rows
-        # with a missing anon_id (very rare — middleware injects one,
-        # but defensive). It won't conflate "no anon_id" rows together
-        # into one fake user.
-
-        region_key = (country, city)
-        region_events[region_key] += 1
-        region_anons[region_key].add(anon_id)
-
-        day_key = r.created_at.astimezone(timezone.utc).date().isoformat()
-        day_events[day_key] += 1
-        day_anons[day_key].add(anon_id)
-
-        seen_anons.add(anon_id)
         total_events += 1
+        created = _as_utc(r.created_at)
+        day_key = created.date().isoformat()
+        region_key = (r.country, r.city)
+        region_events[region_key] += 1
+        day_events[day_key] += 1
+
+        known_key = None
+        anon_key = None
+        linked_at = links.get(r.anon_id) if r.anon_id else None
+        if linked_at is not None and created < linked_at:
+            # Event pre-dates the signup. The login-time backfill stamps
+            # user_id onto these rows (so the PROFILE timeline is
+            # complete), but the widget's history is never rewritten:
+            # they stay anonymous visits here, surfacing in signed_up.
+            anon_key = r.anon_id
+        elif r.user_id is not None:
+            known_key = f"u:{r.user_id}"
+        elif linked_at is not None:
+            # Previously-signed-up browser revisiting (even signed
+            # out): a known user's visit from the link onward.
+            known_key = f"a:{r.anon_id}"
+        elif r.anon_id:
+            anon_key = r.anon_id
+        # else: legacy row with no identity — events-only.
+
+        if known_key is not None:
+            known_users.add(known_key)
+            region_known[region_key].add(known_key)
+            day_known[day_key].add(known_key)
+        elif anon_key is not None:
+            anon_visitors.add(anon_key)
+            region_anon[region_key].add(anon_key)
+            day_anon[day_key].add(anon_key)
+            anon_days[anon_key].add(day_key)
+
+    signed_up = sum(1 for a in anon_visitors if a in links)
+    returning_anonymous = sum(1 for days in anon_days.values()
+                              if len(days) >= 2)
 
     by_region = sorted(
-        [
-            {
-                "country": c,
-                "city":    city,
-                "events":  e,
-                "unique_anons": len(region_anons[(c, city)]),
-            }
-            for (c, city), e in region_events.items()
-        ],
-        key=lambda d: d["events"],
-        reverse=True,
+        [{"country": c, "city": city, "events": e,
+          "known_users": len(region_known[(c, city)]),
+          "anonymous": len(region_anon[(c, city)])}
+         for (c, city), e in region_events.items()],
+        key=lambda d: d["events"], reverse=True,
     )
 
-    # Fill in zero-count days so the dashboard renders a continuous
-    # bar chart rather than skipping gaps. Iterate from the window's
-    # start date forward to today.
+    # Continuous day series (zero-filled) so the bar chart has no gaps.
     start_day = since.date()
     end_day = datetime.now(timezone.utc).date()
     by_day: list[dict] = []
@@ -163,7 +161,8 @@ def anonymous_traffic_summary(
         by_day.append({
             "day": key,
             "events": day_events.get(key, 0),
-            "unique_anons": len(day_anons.get(key, set())),
+            "known_users": len(day_known.get(key, set())),
+            "anonymous": len(day_anon.get(key, set())),
         })
         cursor = cursor + timedelta(days=1)
 
@@ -171,7 +170,10 @@ def anonymous_traffic_summary(
         "window": window,
         "since": since.isoformat().replace("+00:00", "Z"),
         "totals": {
-            "unique_anons": len(seen_anons),
+            "known_users": len(known_users),
+            "anonymous": len(anon_visitors),
+            "signed_up": signed_up,
+            "returning_anonymous": returning_anonymous,
             "events": total_events,
         },
         "by_region": by_region,
