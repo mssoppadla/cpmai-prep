@@ -29,8 +29,15 @@ router = APIRouter()
 
 
 def _ctx(request: Request) -> dict:
+    # Proxy-aware: behind Caddy, request.client.host is the proxy's
+    # PRIVATE address (172.16.x), which stamped every historical login
+    # audit with the same useless IP and blinded shared-IP detection.
+    # extract_client_ip honors X-Forwarded-For with the trusted-proxy
+    # depth; fall back to the direct peer (dev / tests / no proxy).
+    ip = extract_client_ip(request) or (
+        request.client.host if request.client else None)
     return {
-        "ip": request.client.host if request.client else None,
+        "ip": ip,
         "user_agent": request.headers.get("user-agent", "")[:255],
         "request_id": getattr(request.state, "request_id", None),
     }

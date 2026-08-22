@@ -200,3 +200,40 @@ def test_shared_access_empty_when_no_reuse(client, db, user, admin):
     # Both accounts DID authenticate from the client IP — that's real
     # sharing per the signal's definition, so it may legitimately list
     # the IP. Pin only that solo browsers stay unflagged here.
+
+
+def test_login_audit_records_forwarded_client_ip(client, db, user):
+    """Behind Caddy, request.client.host is the proxy's PRIVATE address
+    — every historical login audit stamped 172.16.x, which blinded
+    shared-IP detection. The audit ctx must honor X-Forwarded-For
+    (trusted-proxy depth 1): rightmost untrusted hop wins."""
+    r = client.post("/api/v1/auth/login",
+                    headers={"X-Forwarded-For": "203.0.113.77, 172.16.2.1"},
+                    json={"email": user.email, "password": "password123"})
+    assert r.status_code == 200
+    from app.models.audit_log import AuditLog
+    row = (db.query(AuditLog)
+           .filter_by(action="auth.login.success", user_id=user.id)
+           .order_by(AuditLog.id.desc()).first())
+    assert row is not None
+    assert row.ip == "203.0.113.77"
+
+
+def test_shared_access_ignores_private_proxy_ips(client, db, user, admin):
+    """Legacy audits all carry the proxy's private IP — grouping them
+    renders the whole user base as one fake shared IP. Private and
+    loopback addresses never surface; real public IPs still do."""
+    from app.models.audit_log import AuditLog
+    for uid in (user.id, admin.id):
+        db.add(AuditLog(user_id=uid, action="auth.login.success",
+                        ip="172.16.2.1", metadata_json={}))
+        db.add(AuditLog(user_id=uid, action="auth.login.success",
+                        ip="8.8.8.8", metadata_json={}))
+    db.commit()
+    h = auth_header(client, admin.email)
+    body = client.get(
+        "/api/v1/admin/anonymous-traffic/shared-access?window=7d",
+        headers=h).json()
+    ips = {r["ip"] for r in body["shared_ips"]}
+    assert "8.8.8.8" in ips
+    assert "172.16.2.1" not in ips

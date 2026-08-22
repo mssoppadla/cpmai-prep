@@ -278,9 +278,21 @@ def shared_access(
     def _iso(dt):
         return dt.isoformat().replace("+00:00", "Z") if dt else None
 
+    def _is_private(ip: str) -> bool:
+        # Historical audits recorded the reverse proxy's PRIVATE address
+        # (172.16.x) for every login — grouping those renders the whole
+        # user base as one fake "shared IP". Drop private/loopback
+        # addresses; unparseable values pass through (test transports).
+        import ipaddress
+        try:
+            parsed = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        return parsed.is_private or parsed.is_loopback
+
     shared_ips = []
     for ip, umap in ip_users.items():
-        if len(umap) < 2:
+        if len(umap) < 2 or _is_private(ip):
             continue
         users = [{**users_by_id.get(uid, {"id": uid, "email": None,
                                           "name": None}),
