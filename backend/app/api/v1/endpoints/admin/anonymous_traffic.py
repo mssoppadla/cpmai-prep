@@ -179,3 +179,132 @@ def anonymous_traffic_summary(
         "by_region": by_region,
         "by_day": by_day,
     }
+
+
+# ── Shared-access detection ──────────────────────────────────────────
+# "Are two or more accounts signing in from the same place?" Two
+# independent signals, strongest first:
+#
+#   * shared BROWSER — two accounts logged in from the same physical
+#     browser profile (the identity.anon_linked audit fires on every
+#     claim, so a re-link records the second account). Near-certain
+#     same-person/same-machine.
+#   * shared IP — two accounts authenticated from the same IP (login/
+#     signup audits store it). Weaker: office/campus NAT and mobile
+#     carriers legitimately put many people behind one IP, so treat as
+#     a lead to investigate, not proof.
+
+_AUTH_ACTIONS = (
+    "auth.login.success", "auth.signup",
+    "auth.login.google", "auth.signup.google", "auth.google.linked",
+)
+
+_SHARED_WINDOWS = {
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+    "90d": timedelta(days=90),
+}
+SharedWindowLiteral = Literal["7d", "30d", "90d"]
+
+
+@router.get("/shared-access")
+def shared_access(
+    window: SharedWindowLiteral = Query("30d"),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+):
+    """Accounts sharing a login IP or a browser, in the window.
+
+    Payload::
+
+        {
+          "window": "30d", "since": "...Z",
+          "shared_ips": [{
+            "ip": "1.2.3.4",
+            "users": [{"id", "email", "name", "logins",
+                        "last_login_at"}],   # 2+ entries, most-recent first
+          }],
+          "shared_browsers": [{
+            "anon_id": "….uuid",
+            "users": [{"id", "email", "name", "linked_at"}],
+          }]
+        }
+    """
+    from app.models.audit_log import AuditLog
+
+    since = datetime.now(timezone.utc) - _SHARED_WINDOWS[window]
+
+    # IP → {user_id → [login count, last_at]}
+    ip_users: dict[str, dict[int, list]] = defaultdict(dict)
+    rows = (db.query(AuditLog.ip, AuditLog.user_id, AuditLog.created_at)
+            .filter(AuditLog.action.in_(_AUTH_ACTIONS),
+                    AuditLog.created_at >= since,
+                    AuditLog.ip.isnot(None),
+                    AuditLog.user_id.isnot(None))
+            .all())
+    for ip, uid, at in rows:
+        entry = ip_users[ip].setdefault(uid, [0, None])
+        entry[0] += 1
+        at = _as_utc(at)
+        if entry[1] is None or at > entry[1]:
+            entry[1] = at
+
+    # Browser (anon_id) → {user_id → linked_at}. Every claim writes an
+    # identity.anon_linked audit, so a browser used by two accounts has
+    # two rows even though anon_identity_links keeps only the latest.
+    browser_users: dict[str, dict[int, datetime]] = defaultdict(dict)
+    for row in (db.query(AuditLog)
+                .filter(AuditLog.action == "identity.anon_linked",
+                        AuditLog.created_at >= since,
+                        AuditLog.user_id.isnot(None))
+                .all()):
+        aid = (row.metadata_json or {}).get("anon_id")
+        if not aid:
+            continue
+        at = _as_utc(row.created_at)
+        prev = browser_users[aid].get(row.user_id)
+        if prev is None or at > prev:
+            browser_users[aid][row.user_id] = at
+
+    # Resolve user identities once for both lists.
+    all_uids = ({u for m in ip_users.values() for u in m}
+                | {u for m in browser_users.values() for u in m})
+    users_by_id = {}
+    if all_uids:
+        for u in db.query(User).filter(User.id.in_(all_uids)).all():
+            users_by_id[u.id] = {"id": u.id, "email": u.email,
+                                 "name": u.name}
+
+    def _iso(dt):
+        return dt.isoformat().replace("+00:00", "Z") if dt else None
+
+    shared_ips = []
+    for ip, umap in ip_users.items():
+        if len(umap) < 2:
+            continue
+        users = [{**users_by_id.get(uid, {"id": uid, "email": None,
+                                          "name": None}),
+                  "logins": cnt, "last_login_at": _iso(last)}
+                 for uid, (cnt, last) in umap.items()]
+        users.sort(key=lambda u: u["last_login_at"] or "", reverse=True)
+        shared_ips.append({"ip": ip, "users": users})
+    shared_ips.sort(key=lambda r: len(r["users"]), reverse=True)
+
+    shared_browsers = []
+    for aid, umap in browser_users.items():
+        if len(umap) < 2:
+            continue
+        users = [{**users_by_id.get(uid, {"id": uid, "email": None,
+                                          "name": None}),
+                  "linked_at": _iso(at)}
+                 for uid, at in umap.items()]
+        users.sort(key=lambda u: u["linked_at"] or "", reverse=True)
+        shared_browsers.append({"anon_id": aid, "users": users})
+    shared_browsers.sort(key=lambda r: len(r["users"]), reverse=True)
+
+    return {
+        "window": window,
+        "since": since.isoformat().replace("+00:00", "Z"),
+        "shared_ips": shared_ips,
+        "shared_browsers": shared_browsers,
+    }

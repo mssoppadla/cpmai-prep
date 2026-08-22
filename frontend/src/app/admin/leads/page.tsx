@@ -174,6 +174,7 @@ export default function ContactsPage() {
           and the contact stream below answers "of those who did
           convert, what are their details". */}
       <AnonymousTrafficSection />
+      <SharedAccessSection />
 
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4
                       flex gap-2 flex-wrap items-center">
@@ -517,6 +518,132 @@ function ScoreChip({ score }: { score: number | null }) {
 // ============================================================================
 
 type AnonWindow = "24h" | "7d" | "30d";
+type SharedWindow = "7d" | "30d" | "90d";
+
+// ============================================================================
+// Shared access — accounts signing in from the same browser or IP.
+// Browser sharing (identity claims from one device) is near-certain
+// same-machine; IP sharing can be office/campus/mobile NAT, so it's a
+// lead to investigate, not proof of multi-accounting.
+// ============================================================================
+
+function SharedAccessSection() {
+  const [window, setWindow] = useState<SharedWindow>("30d");
+  const [data, setData] = useState<Awaited<
+    ReturnType<typeof admin.anonymousTraffic.sharedAccess>
+  > | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    admin.anonymousTraffic.sharedAccess(window)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setErr(errMsg(e)); });
+    return () => { cancelled = true; };
+  }, [window]);
+
+  const empty = data
+    && data.shared_browsers.length === 0 && data.shared_ips.length === 0;
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl mb-6">
+      <header className="px-5 py-3 border-b border-slate-200
+                          flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">
+            Shared access
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Two or more accounts signing in from the same device or IP —
+            spot one person using multiple ids. Same device is a strong
+            signal; same IP can be an office or mobile network.
+          </p>
+        </div>
+        <select value={window}
+                onChange={(e) => setWindow(e.target.value as SharedWindow)}
+                className="px-2 py-1 text-xs border border-slate-300 rounded">
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="90d">Last 90 days</option>
+        </select>
+      </header>
+
+      {err && (
+        <div className="px-5 py-3 text-sm text-rose-700 bg-rose-50">{err}</div>
+      )}
+      {!data ? (
+        <div className="px-5 py-4 text-sm text-slate-500">Loading…</div>
+      ) : empty ? (
+        <div className="px-5 py-4 text-sm text-slate-500">
+          No shared access detected in this window.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y
+                          md:divide-y-0 md:divide-x divide-slate-100">
+          <div className="px-5 py-4">
+            <div className="text-xs text-slate-500 font-medium mb-2">
+              Same device, multiple accounts
+            </div>
+            {data.shared_browsers.length === 0 ? (
+              <div className="text-xs text-slate-400">None</div>
+            ) : (
+              <ul className="space-y-3 text-xs">
+                {data.shared_browsers.map((b) => (
+                  <li key={b.anon_id}>
+                    <div className="font-mono text-slate-400 truncate"
+                         title={b.anon_id}>
+                      device {b.anon_id.slice(0, 8)}…
+                    </div>
+                    <ul className="mt-1 space-y-0.5">
+                      {b.users.map((u) => (
+                        <li key={u.id} className="text-slate-700">
+                          <span className="font-medium">{u.email ?? `user #${u.id}`}</span>
+                          {u.linked_at && (
+                            <span className="text-slate-400 ml-1.5">
+                              linked {new Date(u.linked_at).toLocaleDateString()}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="px-5 py-4">
+            <div className="text-xs text-slate-500 font-medium mb-2">
+              Same IP, multiple accounts
+            </div>
+            {data.shared_ips.length === 0 ? (
+              <div className="text-xs text-slate-400">None</div>
+            ) : (
+              <ul className="space-y-3 text-xs">
+                {data.shared_ips.map((r) => (
+                  <li key={r.ip}>
+                    <div className="font-mono text-slate-400">{r.ip}</div>
+                    <ul className="mt-1 space-y-0.5">
+                      {r.users.map((u) => (
+                        <li key={u.id} className="text-slate-700">
+                          <span className="font-medium">{u.email ?? `user #${u.id}`}</span>
+                          <span className="text-slate-400 ml-1.5">
+                            {u.logins} login{u.logins === 1 ? "" : "s"}
+                            {u.last_login_at &&
+                              ` · last ${new Date(u.last_login_at).toLocaleDateString()}`}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
 
 function AnonymousTrafficSection() {
   const [window, setWindow] = useState<AnonWindow>("7d");
