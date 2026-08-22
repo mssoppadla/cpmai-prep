@@ -544,11 +544,12 @@ function AnonymousTrafficSection() {
                           flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-sm font-semibold text-slate-900">
-            Anonymous traffic
+            Visitors
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Visitors who opened the chat without signing in. Where are
-            they coming from, when did they show up?
+            Known users vs anonymous visitors across the whole site.
+            Anonymous visitors move to the known side from the moment
+            they sign up — even when they later return signed out.
           </p>
           {/* Bridge to Visitor Insights v2 — the broader dashboard
               that adds top-pages, funnel, and per-visitor timeline.
@@ -576,28 +577,49 @@ function AnonymousTrafficSection() {
         <div className="px-5 py-6 text-sm text-slate-500">Loading…</div>
       ) : data.totals.events === 0 ? (
         <div className="px-5 py-6 text-sm text-slate-500">
-          No anonymous traffic recorded in this window.
+          No visitor traffic recorded in this window.
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-0 divide-y
                           md:divide-y-0 md:divide-x divide-slate-100">
-          {/* Column 1: headline */}
+          {/* Column 1: headline — known vs anonymous, side by side.
+              Historical anonymous counts are never rewritten; the
+              "signed up" line shows how many of them converted and
+              are tracked as known from their signup onward. */}
           <div className="px-5 py-4">
-            <div className="text-xs text-slate-500 font-medium">
-              Unique visitors
+            <div className="flex gap-6">
+              <div>
+                <div className="text-xs text-slate-500 font-medium">
+                  Known users
+                </div>
+                <div className="text-3xl font-bold text-emerald-700 mt-1">
+                  {data.totals.known_users}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500 font-medium">
+                  Anonymous
+                </div>
+                <div className="text-3xl font-bold text-slate-900 mt-1">
+                  {data.totals.anonymous}
+                </div>
+              </div>
             </div>
-            <div className="text-3xl font-bold text-slate-900 mt-1">
-              {data.totals.unique_anons}
-            </div>
-            <div className="text-xs text-slate-500 mt-1">
-              {/* "events" is the union of page_view + bubble_open anon
-                  events. Older copy said "chat-bubble opens" — no
-                  longer accurate since the widget-mount commit
-                  started recording page views as separate events. */}
-              {data.totals.events} total event{data.totals.events === 1 ? "" : "s"}
-              <span className="text-slate-400 ml-1">
-                (page views + bubble opens)
-              </span>
+            {data.totals.signed_up > 0 && (
+              <div className="text-xs text-emerald-700 mt-2">
+                {data.totals.signed_up} of {data.totals.anonymous} anonymous
+                signed up — tracked as known going forward
+              </div>
+            )}
+            {data.totals.returning_anonymous > 0 && (
+              <div className="text-xs text-slate-500 mt-1">
+                {data.totals.returning_anonymous} anonymous visitor
+                {data.totals.returning_anonymous === 1 ? "" : "s"} seen on
+                multiple days
+              </div>
+            )}
+            <div className="text-xs text-slate-400 mt-1">
+              {data.totals.events} tracked event{data.totals.events === 1 ? "" : "s"}
             </div>
           </div>
 
@@ -628,9 +650,11 @@ function AnonymousTrafficSection() {
                           : label}
                       </span>
                       <span>
-                        <strong>{c.unique_anons}</strong>
+                        <strong className="text-emerald-700">{c.known_users}</strong>
+                        <span className="text-slate-400 mx-0.5">/</span>
+                        <strong>{c.anonymous}</strong>
                         <span className="text-slate-400 ml-1">
-                          ({c.events} open{c.events === 1 ? "" : "s"})
+                          known / anon
                         </span>
                       </span>
                     </li>
@@ -666,7 +690,9 @@ function AnonymousTrafficSection() {
                            style={{ width: `${widthPct}%` }} />
                       <span className="absolute inset-0 flex items-center
                                          px-1.5 text-[10px] text-slate-700">
-                        {d.events > 0 ? d.events : ""}
+                        {(d.known_users > 0 || d.anonymous > 0)
+                          ? `${d.known_users} known · ${d.anonymous} anon`
+                          : ""}
                       </span>
                     </div>
                   </li>

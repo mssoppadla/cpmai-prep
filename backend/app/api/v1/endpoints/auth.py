@@ -21,6 +21,7 @@ from app.services.auth.google_auth import (
     InvalidTokenError, NotConfiguredError,
 )
 from app.services.geoip import extract_client_ip, lookup as geo_lookup
+from app.services.identity_link import link_identity
 from app.services.tracking_service import emit_event
 from app.services.email.automation import enqueue_for_trigger
 
@@ -85,6 +86,9 @@ def signup(payload: SignupIn, request: Request, db: Session = Depends(get_db)):
     # Also set the last_login_* fields on signup, since the signup IS
     # the first login session.
     _enrich_user_at_login(user, request, db)
+    # Claim this browser's anonymous history (journey events + finished
+    # anonymous exam attempts) for the new account. Fail-soft.
+    link_identity(db, user, getattr(request.state, "anon_id", None))
     emit_event(db, "auth.signup", user_id=user.id,
                anon_id=getattr(request.state, "anon_id", None),
                session_id=getattr(request.state, "session_id", None),
@@ -103,6 +107,9 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
     # GeoIP enrichment of the last-login snapshot. Doesn't touch
     # user.country/city (those are signup-snapshot semantics).
     _enrich_user_at_login(user, request, db)
+    # Claim this browser's anonymous history (journey events + finished
+    # anonymous exam attempts). Fail-soft.
+    link_identity(db, user, getattr(request.state, "anon_id", None))
     # anon_id/session_id link this user to their anonymous browsing
     # history — the User Insights page journey joins through them.
     emit_event(db, "auth.login", user_id=user.id,
@@ -169,6 +176,10 @@ def google_login(payload: GoogleLoginIn, request: Request,
         audit_log(db, user.id, "auth.login.google",
                   {"email": user.email}, **ctx)
 
+    # Claim this browser's anonymous history — all Google branches
+    # (fresh signup, link, returning login) just authenticated this
+    # browser. Fail-soft.
+    link_identity(db, user, getattr(request.state, "anon_id", None))
     emit_event(db, "auth.login.google", user_id=user.id,
                anon_id=getattr(request.state, "anon_id", None),
                session_id=getattr(request.state, "session_id", None),

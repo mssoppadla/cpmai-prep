@@ -124,119 +124,170 @@ def test_summary_requires_admin(client, user):
 
 
 # ============================================================ /summary aggregation
+# The summary now rolls up journey_events (known vs anonymous), not the
+# assistant audit pings. Classification: user_id → known; anon_id
+# linked in anon_identity_links AND event after linked_at → known;
+# linked but event pre-dates the link → anonymous + counted in
+# signed_up; unlinked → anonymous.
 
-def _seed_anon_event(db, *, anon_id: str | None = "anon-1",
-                      country: str | None = "IN",
-                      city: str | None = "Bengaluru",
-                      kind: str = "bubble_open",
-                      minutes_ago: int = 5):
-    """Direct DB write matching the shape /anon-event would have produced.
-    Keeps the aggregation tests independent of the endpoint."""
-    row = AuditLog(
-        user_id=None,
-        action=f"assistant.anon.{kind}",
-        metadata_json={"anon_id": anon_id, "country": country, "city": city},
-        created_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+from app.models.anon_identity_link import AnonIdentityLink
+from app.models.journey_event import JourneyEvent
+
+
+def _seed_journey(db, *, user_id=None, anon_id=None,
+                  country="IN", city="Bengaluru",
+                  minutes_ago=5, event="page.view"):
+    row = JourneyEvent(
+        event=event, user_id=user_id, anon_id=anon_id,
+        country=country, city=city,
+        created_at=datetime.now(timezone.utc)
+        - timedelta(minutes=minutes_ago),
     )
     db.add(row); db.commit()
     return row
 
 
-def test_summary_empty_when_no_events(client, admin):
+def _link(db, anon_id, user_id, minutes_ago=0):
+    db.add(AnonIdentityLink(
+        anon_id=anon_id, user_id=user_id,
+        linked_at=datetime.now(timezone.utc)
+        - timedelta(minutes=minutes_ago)))
+    db.commit()
+
+
+def test_summary_with_no_visitor_traffic(client, admin):
+    # NOTE: auth_header logs the admin in, which itself emits an
+    # auth.login journey event — the admin IS a known visitor in the
+    # window. That's correct behavior, so the baseline here is 1 known
+    # user, not zero.
     h = auth_header(client, admin.email)
-    r = client.get("/api/v1/admin/anonymous-traffic/summary?window=7d",
-                   headers=h)
-    body = r.json()
-    assert body["totals"]["unique_anons"] == 0
-    assert body["totals"]["events"] == 0
-    assert body["by_region"] == []
-    # by_day is always populated (even with zeros) so the chart
-    # renders a continuous timeline. 7 days + today = 8 buckets.
+    body = client.get("/api/v1/admin/anonymous-traffic/summary?window=7d",
+                      headers=h).json()
+    assert body["totals"] == {"known_users": 1, "anonymous": 0,
+                              "signed_up": 0, "returning_anonymous": 0,
+                              "events": 1}
+    # by_day always populated (zero-filled) — 7 days + today = 8.
     assert len(body["by_day"]) == 8
-    assert all(d["events"] == 0 for d in body["by_day"])
 
 
-def test_summary_dedupes_unique_anons(client, admin, db):
-    """Same browser opening the bubble 5 times in a session counts as
-    1 unique anon, not 5. Distinguishes 'high-intent' single anons
-    from genuine multi-visitor traffic."""
-    for _ in range(5):
-        _seed_anon_event(db, anon_id="anon-A", country="IN", city="Bengaluru")
-    _seed_anon_event(db, anon_id="anon-B", country="IN", city="Bengaluru")
-
-    h = auth_header(client, admin.email)
-    body = client.get("/api/v1/admin/anonymous-traffic/summary",
-                       headers=h).json()
-    assert body["totals"]["unique_anons"] == 2
-    assert body["totals"]["events"] == 6
-    assert body["by_region"] == [
-        {"country": "IN", "city": "Bengaluru",
-         "events": 6, "unique_anons": 2},
-    ]
-
-
-def test_summary_groups_by_region(client, admin, db):
-    """Two cities in the same country surface as separate rows so the
-    operator can see WHICH city the unconverted interest sits in.
-    Renders like the leads-table 'Location' column below."""
-    _seed_anon_event(db, anon_id="anon-IN1", country="IN", city="Bengaluru")
-    _seed_anon_event(db, anon_id="anon-IN2", country="IN", city="Bengaluru")
-    _seed_anon_event(db, anon_id="anon-IN3", country="IN", city="Mumbai")
-    _seed_anon_event(db, anon_id="anon-US1", country="US", city="Seattle")
-    _seed_anon_event(db, anon_id="anon-noip", country=None, city=None)
+def test_summary_counts_known_and_anonymous_separately(client, admin,
+                                                       user, db):
+    _seed_journey(db, user_id=user.id)                 # known (signed in)
+    _seed_journey(db, user_id=user.id)                 # same user — dedupe
+    _seed_journey(db, anon_id="anon-A")                # anonymous
+    _seed_journey(db, anon_id="anon-A")                # same browser — dedupe
+    _seed_journey(db, anon_id="anon-B", country="US", city="Seattle")
 
     h = auth_header(client, admin.email)
     body = client.get("/api/v1/admin/anonymous-traffic/summary",
-                       headers=h).json()
+                      headers=h).json()
+    assert body["totals"]["known_users"] == 2   # seeded user + admin login
+    assert body["totals"]["anonymous"] == 2
+    assert body["totals"]["signed_up"] == 0
+    assert body["totals"]["events"] == 6        # 5 seeded + admin login
     by_region = {(r["country"], r["city"]): r for r in body["by_region"]}
-    # Bengaluru and Mumbai are separate rows under IN.
-    assert by_region[("IN", "Bengaluru")]["events"] == 2
-    assert by_region[("IN", "Bengaluru")]["unique_anons"] == 2
-    assert by_region[("IN", "Mumbai")]["events"] == 1
-    assert by_region[("US", "Seattle")]["events"] == 1
-    # Null IPs (private/datacenter) preserved as a distinct bucket so
-    # operators can spot them rather than them silently hiding.
-    assert by_region[(None, None)]["events"] == 1
+    assert by_region[("IN", "Bengaluru")]["known_users"] == 1
+    assert by_region[("IN", "Bengaluru")]["anonymous"] == 1
+    assert by_region[("US", "Seattle")]["anonymous"] == 1
 
 
-def test_summary_window_24h_excludes_older(client, admin, db):
-    """24h window must drop a 25h-old event."""
-    _seed_anon_event(db, minutes_ago=60 * 25)   # 25 hours ago
+def test_summary_signed_up_keeps_historical_anon_count(client, admin,
+                                                       user, db):
+    """The owner's rule: don't rewrite history when someone signs up.
+    Pre-link anon events still count the visitor as anonymous, but the
+    payload says how many of them have since signed up."""
+    _seed_journey(db, anon_id="anon-conv", minutes_ago=120)  # browsed…
+    _link(db, "anon-conv", user.id, minutes_ago=60)          # …signed up
+    _seed_journey(db, anon_id="anon-stay", minutes_ago=90)   # never did
+
     h = auth_header(client, admin.email)
-    body = client.get("/api/v1/admin/anonymous-traffic/summary?window=24h",
-                       headers=h).json()
-    assert body["totals"]["unique_anons"] == 0
+    body = client.get("/api/v1/admin/anonymous-traffic/summary",
+                      headers=h).json()
+    assert body["totals"]["anonymous"] == 2      # history not rewritten
+    assert body["totals"]["signed_up"] == 1      # "1 of 2 signed up"
+    assert body["totals"]["known_users"] == 1    # only the admin's login
 
 
-def test_summary_by_day_fills_zero_count_gaps(client, admin, db):
-    """The frontend renders by_day as a bar chart — fill zero-count
-    days so the chart doesn't skip gaps. Regression guard: this is
-    the subtle "missing zero bars look like missing data" bug."""
-    # Today only — no events on the other 6 days of the 7d window.
-    _seed_anon_event(db, minutes_ago=10)
+def test_summary_linked_browser_counts_known_after_link(client, admin,
+                                                        user, db):
+    """A previously-signed-up browser revisiting — even signed out —
+    counts as a KNOWN user's visit from linked_at forward."""
+    _link(db, "anon-known", user.id, minutes_ago=60)
+    _seed_journey(db, anon_id="anon-known", minutes_ago=5)   # after link
+
+    h = auth_header(client, admin.email)
+    body = client.get("/api/v1/admin/anonymous-traffic/summary",
+                      headers=h).json()
+    assert body["totals"]["known_users"] == 2   # linked browser + admin
+    assert body["totals"]["anonymous"] == 0
+    assert body["totals"]["signed_up"] == 0
+
+
+def test_summary_returning_anonymous_across_days(client, admin, db):
+    """Same unlinked browser on 2+ distinct days = returning."""
+    _seed_journey(db, anon_id="anon-ret", minutes_ago=60 * 26)  # 2 days ago
+    _seed_journey(db, anon_id="anon-ret", minutes_ago=5)        # today
+    _seed_journey(db, anon_id="anon-one", minutes_ago=5)        # single day
 
     h = auth_header(client, admin.email)
     body = client.get("/api/v1/admin/anonymous-traffic/summary?window=7d",
-                       headers=h).json()
+                      headers=h).json()
+    assert body["totals"]["anonymous"] == 2
+    assert body["totals"]["returning_anonymous"] == 1
+
+
+def test_summary_window_24h_excludes_older(client, admin, db):
+    _seed_journey(db, anon_id="anon-old", minutes_ago=60 * 25)
+    h = auth_header(client, admin.email)
+    body = client.get("/api/v1/admin/anonymous-traffic/summary?window=24h",
+                      headers=h).json()
+    assert body["totals"]["anonymous"] == 0
+
+
+def test_summary_by_day_fills_zero_count_gaps(client, admin, db):
+    _seed_journey(db, anon_id="anon-today", minutes_ago=10)
+    h = auth_header(client, admin.email)
+    body = client.get("/api/v1/admin/anonymous-traffic/summary?window=7d",
+                      headers=h).json()
     days = body["by_day"]
-    assert len(days) == 8   # 7 days + today
-    # Exactly one day has events; the rest are zero.
-    nonzero_days = [d for d in days if d["events"] > 0]
-    assert len(nonzero_days) == 1
-    assert nonzero_days[0]["events"] == 1
+    assert len(days) == 8
+    # Today carries the seeded anon event + the admin's login; every
+    # other day is zero-filled.
+    nonzero = [d for d in days if d["events"] > 0]
+    assert len(nonzero) == 1
+    assert nonzero[0]["anonymous"] == 1 and nonzero[0]["known_users"] == 1
 
 
-def test_summary_response_shape(client, admin, db):
-    """Pin the response keys so the frontend can rely on shape."""
-    _seed_anon_event(db, country="IN", city="Bengaluru")
+def test_summary_response_shape(client, admin, user, db):
+    _seed_journey(db, user_id=user.id)
     h = auth_header(client, admin.email)
     body = client.get("/api/v1/admin/anonymous-traffic/summary",
-                       headers=h).json()
-    assert set(body.keys()) >= {
-        "window", "since", "totals", "by_region", "by_day"
-    }
-    assert set(body["totals"].keys()) == {"unique_anons", "events"}
-    # Each region row carries country + city + counts.
+                      headers=h).json()
+    assert set(body.keys()) >= {"window", "since", "totals",
+                                "by_region", "by_day"}
+    assert set(body["totals"].keys()) == {
+        "known_users", "anonymous", "signed_up",
+        "returning_anonymous", "events"}
     assert set(body["by_region"][0].keys()) == {
-        "country", "city", "events", "unique_anons",
-    }
+        "country", "city", "events", "known_users", "anonymous"}
+    assert set(body["by_day"][0].keys()) == {
+        "day", "events", "known_users", "anonymous"}
+
+
+def test_summary_backfilled_prelogin_events_stay_anonymous(client, admin,
+                                                           user, db):
+    """Login backfills user_id onto pre-login rows for the profile
+    timeline — but the widget must NOT reclassify them: pre-link
+    events stay anonymous history, surfacing only via signed_up."""
+    _seed_journey(db, anon_id="anon-bf", user_id=user.id,
+                  minutes_ago=120)                       # backfilled row
+    _link(db, "anon-bf", user.id, minutes_ago=60)        # signed up later
+    _seed_journey(db, anon_id="anon-bf", user_id=user.id,
+                  minutes_ago=5)                         # post-link visit
+
+    h = auth_header(client, admin.email)
+    body = client.get("/api/v1/admin/anonymous-traffic/summary",
+                      headers=h).json()
+    assert body["totals"]["anonymous"] == 1      # the pre-link visit
+    assert body["totals"]["signed_up"] == 1
+    assert body["totals"]["known_users"] == 2    # user (post-link) + admin

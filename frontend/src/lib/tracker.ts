@@ -67,6 +67,8 @@ interface TrackEvent {
   metadata?: Record<string, unknown>;
 }
 
+import { getAnonId } from "./api";
+
 const BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 const TRACK_URL = BASE + "/track";
@@ -184,6 +186,20 @@ export function trackAuthHeaders(): Record<string, string> {
   }
 }
 
+/**
+ * The browser's persistent anonymous id — the same value the exam-guest
+ * flow uses (minted on first read). Carried in the BATCH BODY (not a
+ * header) because sendBeacon can't set headers; the backend accepts
+ * either, header first.
+ */
+function anonIdForBatch(): string | null {
+  try {
+    return getAnonId() || null;
+  } catch {
+    return null;   // storage blocked — events stay identity-less
+  }
+}
+
 async function flush(): Promise<void> {
   if (queue.length === 0) return;
   const batch = queue;
@@ -191,6 +207,7 @@ async function flush(): Promise<void> {
   const payload = JSON.stringify({
     events: batch,
     sent_at: new Date().toISOString(),
+    anon_id: anonIdForBatch(),
   });
   try {
     // Prefer keepalive fetch (allows JSON body + bearer token).
@@ -201,7 +218,6 @@ async function flush(): Promise<void> {
       headers: { "Content-Type": "application/json", ...trackAuthHeaders() },
       body: payload,
       keepalive: true,
-      credentials: "include",  // ship the anon_id cookie
     });
   } catch (e) {
     // Don't requeue — back-pressure would balloon memory under
@@ -220,6 +236,9 @@ function flushSync(): void {
   const payload = JSON.stringify({
     events: batch,
     sent_at: new Date().toISOString(),
+    // sendBeacon carries no headers — the body anon_id is the ONLY
+    // identity these tab-close events get.
+    anon_id: anonIdForBatch(),
   });
   try {
     if (navigator.sendBeacon) {
@@ -234,7 +253,6 @@ function flushSync(): void {
       headers: { "Content-Type": "application/json", ...trackAuthHeaders() },
       body: payload,
       keepalive: true,
-      credentials: "include",
     });
   } catch {
     // Swallow — we tried.

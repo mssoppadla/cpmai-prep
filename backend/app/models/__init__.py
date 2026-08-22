@@ -22,6 +22,7 @@ from app.models.assistant_flagged_turn import AssistantFlaggedTurn    # noqa
 from app.models.rag_chunk import RagChunk                            # noqa
 from app.models.rag_document import RagDocument                      # noqa
 from app.models.payment_provider import PaymentProviderConfig    # noqa
+from app.models.anon_identity_link import AnonIdentityLink        # noqa
 from app.models.faq import FaqItem                                # noqa
 from app.models.content_page import ContentPage                   # noqa
 from app.models.lms import (                                       # noqa

@@ -98,6 +98,10 @@ class TrackBatchIn(BaseModel):
     # Client-clock timestamp at batch send — currently unused but
     # captured for future client-vs-server clock-skew analysis.
     sent_at: datetime | None = None
+    # The browser's persistent anonymous id, carried in the BODY as
+    # well as the X-Anon-ID header because sendBeacon (tab-close
+    # flushes) cannot set headers. Header wins when both are present.
+    anon_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class TrackBatchAck(BaseModel):
@@ -143,7 +147,7 @@ def track(
 
     # ── Identity + tenant resolution ───────────────────────────────
     user_id = user.id if user else None
-    anon_id = getattr(request.state, "anon_id", None)
+    anon_id = getattr(request.state, "anon_id", None) or batch.anon_id
     request_id = getattr(request.state, "request_id", None) or str(uuid.uuid4())
     tenant_id = get_current_tenant_id()
 
