@@ -151,3 +151,52 @@ def test_gdpr_delete_drops_identity_links(client, db, user):
     from app.services.user_deletion import soft_delete_user
     assert soft_delete_user(db, user) is True
     assert db.query(AnonIdentityLink).filter_by(user_id=user.id).count() == 0
+
+
+# ============================================== /shared-access detection
+
+def test_shared_access_requires_admin(client, user):
+    h = auth_header(client, user.email)
+    r = client.get("/api/v1/admin/anonymous-traffic/shared-access",
+                   headers=h)
+    assert r.status_code in (401, 403)
+
+
+def test_shared_access_flags_ip_and_browser_reuse(client, db, user, admin):
+    """Two accounts from the same browser (X-Anon-ID) and, via the
+    test client, the same IP: both signals must surface with both
+    accounts listed. A browser/IP used by only ONE account must not."""
+    _login(client, user.email, aid=AID)              # account 1, browser AID
+    _login(client, admin.email, aid=AID)             # account 2, same browser
+    _login(client, admin.email, aid="admin-only-browser")   # solo browser
+
+    h = auth_header(client, admin.email)
+    body = client.get(
+        "/api/v1/admin/anonymous-traffic/shared-access?window=30d",
+        headers=h).json()
+
+    # Same browser, two accounts → flagged with both emails.
+    shared = {b["anon_id"]: b for b in body["shared_browsers"]}
+    assert AID in shared
+    emails = {u["email"] for u in shared[AID]["users"]}
+    assert emails == {user.email, admin.email}
+    # Solo browser never flagged.
+    assert "admin-only-browser" not in shared
+
+    # Test client logins all come from one IP → the two accounts show
+    # as sharing it, with per-account login counts.
+    assert len(body["shared_ips"]) == 1
+    ip_users = {u["email"]: u for u in body["shared_ips"][0]["users"]}
+    assert set(ip_users) == {user.email, admin.email}
+    assert ip_users[admin.email]["logins"] >= 2   # logged in twice+
+
+def test_shared_access_empty_when_no_reuse(client, db, user, admin):
+    _login(client, user.email, aid="browser-a")
+    h = auth_header(client, admin.email)   # admin logs in (same test IP)
+    body = client.get(
+        "/api/v1/admin/anonymous-traffic/shared-access?window=7d",
+        headers=h).json()
+    assert body["shared_browsers"] == []
+    # Both accounts DID authenticate from the client IP — that's real
+    # sharing per the signal's definition, so it may legitimately list
+    # the IP. Pin only that solo browsers stay unflagged here.

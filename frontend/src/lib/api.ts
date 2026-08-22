@@ -1712,6 +1712,28 @@ export const admin = {
          { authed: true });
       return data;
     },
+    /** Accounts sharing a login IP or a browser — spot one person
+     *  running multiple ids from the same system. Browser sharing is
+     *  near-certain same-machine; IP sharing can be office/mobile NAT,
+     *  treat as a lead to investigate. */
+    async sharedAccess(window: "7d" | "30d" | "90d" = "30d") {
+      const { data } = await request<{
+        window: string;
+        since: string;
+        shared_ips: {
+          ip: string;
+          users: { id: number; email: string | null; name: string | null;
+                   logins: number; last_login_at: string | null }[];
+        }[];
+        shared_browsers: {
+          anon_id: string;
+          users: { id: number; email: string | null; name: string | null;
+                   linked_at: string | null }[];
+        }[];
+      }>(`/admin/anonymous-traffic/shared-access?window=${window}`,
+         { authed: true });
+      return data;
+    },
   },
   /** Visitor Insights v2 — broader funnel + page-level analytics built
    *  on the journey_events stream populated by the SPA tracker. Backs
