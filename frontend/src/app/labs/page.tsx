@@ -48,6 +48,33 @@ export default function LabsIndexPage() {
               Open the lab →
             </span>
           </Link>
+          <Link
+            href="/labs/data-pipeline-navigator"
+            className="block bg-white border border-slate-200 rounded-2xl p-6
+                       hover:border-indigo-300 hover:shadow-md transition"
+          >
+            <div className="flex gap-2 mb-3">
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                D-III · Data Understanding &amp; Preparation
+              </span>
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                No login needed
+              </span>
+            </div>
+            <h2 className="font-semibold text-lg text-slate-900 mb-1">
+              Data Pipeline Navigator
+            </h2>
+            <p className="text-sm text-slate-600">
+              Run one fraud-detection project through the whole CPMAI data
+              lifecycle — profile the 4 V&apos;s, validate at the source,
+              govern lineage, label, size, explore, cleanse, encode,
+              balance and split. Twelve live simulations; every decision
+              carries forward into a generated readiness report.
+            </p>
+            <span className="inline-block mt-4 text-sm font-medium text-indigo-600">
+              Open the lab →
+            </span>
+          </Link>
         </div>
       </main>
       <SiteFooter />

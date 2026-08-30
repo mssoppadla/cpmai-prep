@@ -40,6 +40,15 @@ const nextConfig = {
         { key: "Referrer-Policy",             value: "strict-origin-when-cross-origin" },
         { key: "Permissions-Policy",          value: "camera=(), microphone=(), geolocation=()" },
       ],
+    }, {
+      // The Data Pipeline Navigator simulator is a static page embedded
+      // in an <iframe> by /labs/data-pipeline-navigator. The global DENY
+      // above blocks even same-origin framing, so relax to SAMEORIGIN
+      // for this one file (still no third-party framing).
+      source: "/labs/pipeline-sim.html",
+      headers: [
+        { key: "X-Frame-Options", value: "SAMEORIGIN" },
+      ],
     }];
   },
 };

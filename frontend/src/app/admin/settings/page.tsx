@@ -28,6 +28,7 @@ const GROUP_ORDER: readonly string[] = [
   "embeddings",  // RAG embedding provider id + cache TTL
   "rag",         // top-k + similarity threshold
   "pmi",         // pmi.org link-out URLs
+  "labs",        // interactive labs copy (metrics lab, pipeline navigator)
   "auth",        // auth-related knobs
   "geoip",       // GeoIP MaxMind config
 ];
@@ -46,6 +47,7 @@ const GROUP_LABEL: Record<string, string> = {
   embeddings: "Embedding provider",
   rag:        "RAG retrieval",
   pmi:        "PMI links",
+  labs:       "Interactive labs",
   auth:       "Authentication",
   geoip:      "GeoIP",
 };

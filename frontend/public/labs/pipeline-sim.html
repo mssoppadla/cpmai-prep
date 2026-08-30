@@ -1,0 +1,1285 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Data Pipeline Navigator</title>
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F5F6F2; --panel:#FFFFFF; --ink:#1B2430; --muted:#5A6572;
+  --line:#DDE2DA; --accent:#177E74; --accent-soft:#E2F0EE;
+  --good:#2E7D46; --good-bg:#E7F3EA; --bad:#B4483A; --bad-bg:#F8ECE9;
+  --warn:#9A6B1F; --warn-bg:#F7EFDD; --chip:#EDEFE9;
+  /* data colours = Okabe-Ito colourblind-safe palette */
+  --blue:#0072B2; --orange:#E69F00; --okG:#009E73; --okP:#CC79A7; --okV:#D55E00; --okS:#56B4E9;
+  --shadow:0 1px 3px rgba(20,30,40,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#10161F; --panel:#171F2B; --ink:#E8ECF1; --muted:#93A0AE;
+    --line:#28323F; --accent:#3FB8AB; --accent-soft:#15332F;
+    --good:#5FBF7A; --good-bg:#16301F; --bad:#E08573; --bad-bg:#3A211C;
+    --warn:#D9A94E; --warn-bg:#33290F; --chip:#212B38;
+    --blue:#56B4E9; --orange:#E69F00; --okG:#00C79A; --okP:#E39AC0; --okV:#F07D33; --okS:#7CC7F0;
+    --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10161F; --panel:#171F2B; --ink:#E8ECF1; --muted:#93A0AE;
+  --line:#28323F; --accent:#3FB8AB; --accent-soft:#15332F;
+  --good:#5FBF7A; --good-bg:#16301F; --bad:#E08573; --bad-bg:#3A211C;
+  --warn:#D9A94E; --warn-bg:#33290F; --chip:#212B38;
+  --blue:#56B4E9; --orange:#E69F00; --okG:#00C79A; --okP:#E39AC0; --okV:#F07D33; --okS:#7CC7F0;
+  --shadow:0 1px 3px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.55 "IBM Plex Sans",system-ui,sans-serif}
+.wrap{display:grid;grid-template-columns:270px 1fr;min-height:100vh}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+.rail{border-right:1px solid var(--line);padding:22px 16px;position:sticky;top:0;height:100vh;overflow-y:auto}
+@media(max-width:900px){.rail{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line)}}
+.brand{font-family:Sora,sans-serif;font-weight:700;font-size:18px;letter-spacing:-.01em}
+.brand small{display:block;font-family:"IBM Plex Mono",monospace;font-weight:400;font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:4px}
+.steps{margin-top:16px;display:flex;flex-direction:column;gap:2px}
+.step-btn{display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:8px 9px;cursor:pointer;color:var(--ink);font:inherit;font-size:13.5px}
+.step-btn:hover{background:var(--chip)}
+.step-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.step-btn.active{background:var(--accent-soft);font-weight:600}
+.step-btn .num{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted);min-width:20px;padding-top:2px}
+.step-btn.active .num{color:var(--accent)}
+.phase-tag{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:14px 0 5px;padding-left:9px}
+.main{padding:30px clamp(18px,4vw,54px);max-width:1020px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+h1{font-family:Sora,sans-serif;font-size:clamp(22px,3vw,30px);margin:6px 0 8px;letter-spacing:-.02em;text-wrap:balance}
+.lede{color:var(--muted);max-width:70ch;margin:0 0 18px;font-size:14.5px}
+.sim{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+.controls{display:flex;flex-wrap:wrap;gap:14px 22px;margin-bottom:14px;align-items:flex-end}
+.ctl{display:flex;flex-direction:column;gap:4px;min-width:150px;flex:1 1 150px;max-width:230px}
+.ctl label{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ctl .val{color:var(--accent);text-transform:none;letter-spacing:0}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.btnrow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.b{font:inherit;font-size:13.5px;font-weight:600;border:1.5px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:8px 14px;cursor:pointer}
+.b:hover{border-color:var(--accent)}
+.b:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.b.on{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+.b.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+canvas{width:100%;display:block;border-radius:10px;background:var(--bg);border:1px solid var(--line)}
+.meters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.meter{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
+.meter b{display:block;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.meter .mv{font-family:"IBM Plex Mono",monospace;font-size:16px;font-weight:500}
+.bar{height:7px;background:var(--chip);border-radius:5px;margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:5px;background:var(--accent);transition:width .35s,background .35s}
+.note{margin-top:13px;border-radius:9px;padding:10px 14px;font-size:13.5px;display:flex;gap:9px;align-items:flex-start}
+.note.best{background:var(--good-bg)} .note.warn{background:var(--warn-bg)} .note.avoid{background:var(--bad-bg)}
+.note .badge{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;white-space:nowrap;padding:2px 8px;border-radius:20px;margin-top:2px}
+.note.best .badge{background:var(--good);color:var(--bg)}
+.note.warn .badge{background:var(--warn);color:var(--bg)}
+.note.avoid .badge{background:var(--bad);color:var(--bg)}
+.nav{display:flex;justify-content:space-between;margin-top:24px;gap:12px}
+.nav .b{padding:10px 20px}
+.doctrine{margin-top:16px;font-size:13px;color:var(--muted)}
+.doctrine b{color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+.subttl{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.stagebox{border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg);text-align:center;flex:1;min-width:110px;position:relative}
+.stagebox.err{border-color:var(--bad);background:var(--bad-bg)}
+.stagebox.okd{border-color:var(--good)}
+.stagebox b{font-size:13px;display:block}
+.stagebox .cnt{font-family:"IBM Plex Mono",monospace;font-size:17px;margin-top:3px}
+.stagebox .chk{font-family:"IBM Plex Mono",monospace;font-size:10.5px;margin-top:3px;color:var(--muted)}
+.flowrow{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap}
+.arrow{align-self:center;color:var(--muted);font-size:18px}
+.pill{display:inline-block;background:var(--chip);border-radius:20px;padding:2px 10px;font-size:12px;font-family:"IBM Plex Mono",monospace;margin:2px 3px 2px 0}
+.plog{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px 15px;margin:0 0 16px;box-shadow:var(--shadow)}
+.plog .pt{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:5px}
+.plog .pe{font-size:12.5px;color:var(--muted)}
+.plog .pd{display:inline-block;border:1px solid var(--line);background:var(--bg);border-radius:20px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0}
+.plog .pd b{color:var(--accent);font-weight:600}
+.tip{border-bottom:1.5px dotted var(--accent);cursor:pointer}
+.expl{display:none;background:var(--accent-soft);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:9px 12px;font-size:12.5px;margin:6px 0 8px;line-height:1.5}
+.expl.open{display:block}
+.expl b{color:var(--accent);font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.07em;text-transform:uppercase}
+.biz{background:var(--warn-bg);border-radius:8px;padding:7px 11px;font-size:12.5px;margin:8px 0 0}
+.biz b{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--warn)}
+.lgnd{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 0 0;font-size:12.5px;color:var(--muted)}
+.lgnd .sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.folds{display:flex;gap:6px;margin:12px 0 4px;flex-wrap:wrap;align-items:center}
+.fold{flex:1;min-width:74px;border:2px solid var(--line);border-radius:8px;padding:7px 6px;text-align:center;font-family:"IBM Plex Mono",monospace;font-size:11px;cursor:pointer;background:var(--bg)}
+.fold.enc{border-color:var(--okV);background:var(--bad-bg)}
+.fold.src{border-color:var(--okG);background:var(--good-bg)}
+.exmap{font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin:0 0 12px;overflow-x:auto;white-space:nowrap}
+.exmap b{color:var(--accent)}
+</style>
+<div class="wrap">
+  <aside class="rail">
+    <div class="brand">Data Pipeline Navigator<small>CPMAI · live simulators</small></div>
+    <div id="steplist"></div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+<script>
+"use strict";
+let raf=0, cleanup=null;
+function stopAnim(){ if(raf)cancelAnimationFrame(raf); raf=0; if(cleanup){cleanup();cleanup=null;} }
+function cssv(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function mulberry(seed){ let a=seed>>>0; return function(){ a|=0;a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function setup(cv,h){ const dpr=window.devicePixelRatio||1; const w=cv.clientWidth||cv.parentElement.clientWidth; cv.width=w*dpr; cv.height=h*dpr; cv.style.height=h+"px"; const g=cv.getContext("2d"); g.scale(dpr,dpr); return [g,w,h]; }
+function gauss(r){ return (r()+r()+r()+r()-2)/2; }
+const E=(s)=>{const d=document.createElement("div");d.textContent=s;return d.innerHTML;};
+
+/* One continuous project: decisions accumulate stage to stage */
+const ORDER=["landscape","integration","checks","pipeline","labelling","sizing","findings","cleanse","encoder","imbalance","split"];
+const DLBL={landscape:"Data profile",checks:"Validation",pipeline:"Pipelines",integration:"Integration",sizing:"Data sizing",labelling:"Labelling",findings:"EDA findings",cleanse:"Cleansing",encoder:"Encoding",imbalance:"Imbalance fix",split:"Split"};
+const PROJECT={};
+const UI={};   /* per-stage control state so revisiting a stage restores your choices */
+function setDecision(k,v){ PROJECT[k]=v; const el=document.getElementById("plogd"); if(el)el.innerHTML=logHTML(); }
+function logHTML(){
+ const made=ORDER.filter(k=>PROJECT[k]);
+ if(!made.length)return `<span class="pe">No decisions yet — everything you choose here follows the project into the next stage.</span>`;
+ return made.map(k=>`<span class="pd">${DLBL[k]}: <b>${PROJECT[k]}</b></span>`).join("");
+}
+
+/* ============ STEP DEFINITIONS ============ */
+const STEPS=[
+
+/* 1 — 4 V's particle stream */
+{phase:"Data profiling · CPMAI II",title:"Data profiling — the 4 V's, live",eyebrow:"Profile the data before touching it",
+lede:"Back in Phase I (business understanding), the team already did a high-level data feasibility check and raised the access requests — that's why access is granted on day one of Phase II. Your job now is the DETAILED profiling that feasibility couldn't do: watch the actual transaction stream below and measure it. Drag each V slider to match what you observe, then hide a customer segment to see representativeness — the failure no metric shows. When you're done, press “Generate profiling report” — that report is this stage's real-world deliverable.",
+build(el){
+ el.innerHTML=`<div class="controls">
+   <div class="ctl"><label><span class="tip" title="Volume = how MUCH data arrives. Drives storage, compute and cost.">Volume</span> <span class="val" id="v1v">40%</span></label><input type="range" id="v1" min="5" max="100" value="40"></div>
+   <div class="ctl"><label><span class="tip" title="Velocity = how FAST data arrives after the real event. High velocity = events reach you in seconds (good timeliness); low velocity = they arrive hours late.">Velocity</span> <span class="val" id="v2v">30%</span></label><input type="range" id="v2" min="5" max="100" value="30"></div>
+   <div class="ctl"><label><span class="tip" title="Variety = mix of formats. Circles = clean table rows; squares/triangles = JSON logs, free text, images — each format needs its own parsing. Inconsistent formats across sources are also where CONSISTENCY problems live (e.g. dates as 01/02/2026 in CRM but 2026-02-01 in payments).">Variety</span> <span class="val" id="v3v">20%</span></label><input type="range" id="v3" min="0" max="100" value="20"></div>
+   <div class="ctl"><label><span class="tip" title="Veracity = can you TRUST the values? Red wobbling dots are bad records: typos, wrong amounts, sensor noise, mislabeled fields.">Veracity problems</span> <span class="val" id="v4v">10%</span></label><input type="range" id="v4" min="0" max="80" value="10"></div>
+  </div>
+  <div class="btnrow"><button class="b" id="repBtn" title="Representativeness: the source only covers some customer groups. The missing group produces NO data at all — so no quality metric can see the hole.">Hide the “Cash-on-delivery &amp; rural” segment (representativeness)</button>
+  <button class="b primary" id="profBtn">📋 Generate profiling report</button></div>
+  <canvas id="cv1"></canvas>
+  <div class="meters">
+   <div class="meter"><b>Records / sec (volume × velocity)</b><div class="mv" id="m1">–</div></div>
+   <div class="meter"><b>Bad records (veracity)</b><div class="mv" id="m2">–</div><div class="bar"><i id="m2b"></i></div></div>
+   <div class="meter"><b>Arrival lag (timeliness)</b><div class="mv" id="m5">–</div></div>
+   <div class="meter"><b>Population coverage</b><div class="mv" id="m4">100%</div><div class="bar"><i id="m4b" style="width:100%"></i></div></div>
+  </div>
+  <div class="note warn" id="n1" style="display:none"><span class="badge">Blind spot</span><span>The bottom lane went dark: cash-on-delivery &amp; rural customers never enter your data, so the fraud model will never learn THEIR fraud patterns. Every quality metric still looks perfect — <b>volume never fixes coverage</b>. Only comparing the data against the real customer population reveals it.</span></div>
+  <div class="note best" id="prof1" style="display:none"><span class="badge">Profiling report</span><span id="prof1t"></span></div>
+  <div class="doctrine"><b>The five quality dimensions, and where to SEE each one here:</b> <b>completeness</b> — are fields filled in? (measured properly in the EDA stage's sparsity panel) · <b>accuracy</b> — the red bad records · <b>consistency</b> — does the same fact look the same everywhere? Raise Variety and imagine ₹1,200 written as "1,200", "1200.00" and "1.2K" across the three lanes — same value, three spellings · <b>timeliness</b> — the Arrival-lag meter: low velocity means events reach you hours after they happen, fine for a morning fraud review, useless for real-time blocking · <b>relevance</b> — is this even the data the fraud question needs?<br><br><b>Profiling vs EDA (don't mix them up):</b> profiling is the quick STRUCTURAL scan at intake — the 4 V's, schema &amp; data types, unique counts &amp; cardinality, duplicate rate, null rates, coverage. EDA comes later and digs into STATISTICAL behaviour — distributions, correlations, outliers, class balance — to prepare for modelling. The cleanest test: <b>profiling compares your data against the OUTSIDE WORLD</b> ("does the source even contain rural customers?" — representativeness lives here, because no amount of analysing collected data reveals what was never collected), while <b>EDA examines the data against ITSELF</b> ("of the transactions I have, what share is fraud? how is revenue distributed?"). That's why representativeness is a profiling question but class balance is an EDA question, even though both are about proportions. One more feasibility item the course stresses: <b>privacy</b> — these are payment records, so compliance controls and <b>anonymization</b> (removing personal identifiers) are part of data feasibility itself, not an afterthought.</div>`;
+ const cv=el.querySelector("#cv1"); const [g,w,h]=setup(cv,260);
+ const r=mulberry(7); let parts=[]; let rep=false;
+ const shapes=["circle","square","tri"];
+ const SEGS=["Card customers","Wallet / UPI users","Cash-on-delivery & rural"];
+ el.querySelector("#repBtn").onclick=(e)=>{rep=!rep;e.target.classList.toggle("on",rep);
+   el.querySelector("#n1").style.display=rep?"flex":"none";
+   el.querySelector("#m4").textContent=rep?"67%":"100%";
+   const b=el.querySelector("#m4b"); b.style.width=rep?"67%":"100%"; b.style.background=rep?cssv("--bad"):cssv("--accent");};
+ function recordProfile(){ const ver=+el.querySelector("#v4").value;
+  setDecision("landscape",(ver>25?"noisy feed":"trusted feed")+(document.querySelector("#repBtn.on")?" + coverage gap":"")); }
+ const st=UI.s1||(UI.s1={v1:40,v2:30,v3:20,v4:10,rep:false});
+ ["v1","v2","v3","v4"].forEach(id=>{const s=el.querySelector("#"+id);
+  s.value=st[id]; el.querySelector("#"+id+"v").textContent=s.value+"%";
+  s.oninput=()=>{st[id]=+s.value;el.querySelector("#"+id+"v").textContent=s.value+"%";recordProfile();};});
+ el.querySelector("#repBtn").addEventListener("click",()=>{st.rep=!st.rep;recordProfile();});
+ if(st.rep){ st.rep=false; el.querySelector("#repBtn").click(); }
+ function tick(){
+  const vol=+el.querySelector("#v1").value, vel=+el.querySelector("#v2").value,
+        vty=+el.querySelector("#v3").value, ver=+el.querySelector("#v4").value;
+  const laneH=(h-40)/3;
+  const spawn=parts.length>2400?0:vol/14;   /* stop spawning at the cap instead of deleting in-flight dots */
+  for(let i=0;i<spawn;i++){ if(r()<spawn-Math.floor(spawn)&&i===Math.floor(spawn))break;
+   const seg=Math.floor(r()*3); if(rep&&seg===2)continue;
+   parts.push({x:-8,y:14+seg*laneH+6+r()*(laneH-12),s:shapes[r()<vty/100?(r()<.5?1:2):0],bad:r()<ver/100,ph:r()*6.28});}
+  const sp=0.6+vel/16;
+  parts.forEach(p=>{p.x+=sp; if(p.bad)p.y+=Math.sin(p.x/9+p.ph)*1.6;});
+  parts=parts.filter(p=>p.x<w+10);
+  g.clearRect(0,0,w,h);
+  const ok=cssv("--accent"), bad=cssv("--bad"), mut1=cssv("--muted"), ln1=cssv("--line");
+  /* customer-segment lanes */
+  for(let s2=0;s2<3;s2++){ const ly=14+s2*laneH;
+   if(rep&&s2===2){ g.fillStyle=cssv("--bad-bg"); g.fillRect(0,ly,w,laneH); }
+   g.strokeStyle=ln1; g.beginPath(); g.moveTo(0,ly); g.lineTo(w,ly); g.stroke();
+   g.fillStyle=(rep&&s2===2)?bad:mut1; g.font="10px 'IBM Plex Mono'";
+   g.fillText(SEGS[s2]+((rep&&s2===2)?" — MISSING: not in the source, no data ever arrives":""),8,ly+12); }
+  parts.forEach(p=>{ g.fillStyle=p.bad?bad:ok; g.strokeStyle=g.fillStyle;
+   if(p.s==="circle"){g.beginPath();g.arc(p.x,p.y,3,0,6.29);g.fill();}
+   else if(p.s==="square"){g.fillRect(p.x-3,p.y-3,6,6);}
+   else{g.beginPath();g.moveTo(p.x,p.y-4);g.lineTo(p.x+3.5,p.y+2.5);g.lineTo(p.x-3.5,p.y+2.5);g.closePath();g.fill();}});
+  el.querySelector("#m1").textContent=Math.round(vol*vel*2.1);
+  el.querySelector("#m2").textContent=ver+"%";
+  const m2b=el.querySelector("#m2b"); m2b.style.width=ver+"%"; m2b.style.background=ver>30?bad:cssv("--warn");
+  const lagMin=Math.round((105-vel)*2.2);
+  el.querySelector("#m5").textContent=lagMin<15?"~"+lagMin+" min — near real-time":"~"+(lagMin/60).toFixed(1)+" h behind";
+  raf=requestAnimationFrame(tick);
+ } tick();
+ el.querySelector("#profBtn").onclick=()=>{
+  const vol=+el.querySelector("#v1").value, vel=+el.querySelector("#v2").value,
+        vty=+el.querySelector("#v3").value, ver=+el.querySelector("#v4").value;
+  const lagMin=Math.round((105-vel)*2.2);
+  const p1=el.querySelector("#prof1"); p1.style.display="flex";
+  el.querySelector("#prof1t").innerHTML=
+   `<b>Volume:</b> ≈ ${(vol*8640*vel/1000).toFixed(0)}k records/day — ${vol>60?"needs distributed storage/compute":"manageable on standard infrastructure"} &nbsp;·&nbsp; `+
+   `<b>Timeliness:</b> events arrive ~${lagMin<60?lagMin+" min":(lagMin/60).toFixed(1)+" h"} after they happen — ${lagMin<15?"real-time scoring is feasible":"fine for daily fraud review, NOT for real-time blocking"} &nbsp;·&nbsp; `+
+   `<b>Variety / consistency:</b> ${vty<15?"single tabular format — consistency easy to enforce":vty<50?"mixed formats — align date/currency/ID conventions across sources before joining":"highly mixed formats — expect heavy per-source parsing and consistency rules"} &nbsp;·&nbsp; `+
+   `<b>Accuracy (veracity):</b> ~${ver}% bad records — ${ver>25?"cleaning must be a major workstream":"normal cleaning effort"} &nbsp;·&nbsp; `+
+   `<b>Representativeness:</b> ${rep?"<b style='color:var(--bad)'>GAP — cash-on-delivery &amp; rural customers absent; model will be blind to their fraud. Escalate before modelling.</b>":"all three customer segments present"} &nbsp;·&nbsp; `+
+   `<b>Schema &amp; types:</b> 22 columns — amount is numeric but stored as text in the web-log feed; fix the type before joining &nbsp;·&nbsp; `+
+   `<b>Uniqueness &amp; cardinality:</b> transaction_id 100% unique ✓ · duplicate rate ~0.4% (dedupe in the pipeline) · <b>pincode has ~12,000 unique values — flagged now, handled later in the Encoder stage</b>`;
+  setDecision("landscape","profiled ✓ · "+(ver>25?"noisy":"clean")+(rep?" · coverage gap":""));
+ };
+}},
+
+/* 2 — ETL validation sim */
+{phase:"Data acquisition & integration · CPMAI II",title:"Validate at the source",eyebrow:"Reconciliation counts & checksums",
+lede:()=>`With the ${PROJECT.integration||"integration"} framework agreed, collection begins through an Extract-Transform-Load (ETL) pipeline. To be precise about the order inside it: <b>Collect (Extract) IS the data-collection step</b>; Transform and Load happen only AFTER collection is complete — they are pipeline steps, not collection. Validation must cover every one of these hops. The client is retiring their old payments system next quarter, so integrity baselines must be captured NOW, while the source still exists. Run 10,000 transactions through, inject a defect, pick where checks run — then decommission the source and try to reconcile.`,
+build(el){
+ el.innerHTML=`<div class="controls">
+  <div class="ctl" style="max-width:290px"><label>Inject a defect</label>
+   <div class="btnrow" style="margin:0"><button class="b on" data-bug="none">None</button><button class="b" data-bug="c" title="The extraction API silently skips its last page — 300 rows never get collected">Lose rows in Collect</button><button class="b" data-bug="t" title="A join inside Transform silently drops rows">Drop rows in Transform</button><button class="b" data-bug="l" title="Bytes get corrupted while writing to the store">Corrupt bytes in Load</button></div></div>
+  <div class="ctl" style="max-width:330px"><label>Where do checks run?</label>
+   <div class="btnrow" style="margin:0"><button class="b" data-chk="end">End only</button><button class="b on" data-chk="all">Every stage</button></div></div>
+  </div>
+  <div class="btnrow"><button class="b primary" id="run">▶ Run pipeline</button><button class="b" id="decom">Decommission source system</button></div>
+  <div class="flowrow" id="flow">
+   <div class="stagebox" id="s0"><b>Source</b><div class="cnt" id="c0">10,000</div><div class="chk" id="k0">checksum a91f…</div></div><div class="arrow">→</div>
+   <div class="stagebox" id="s1"><b>Collect (Extract)</b><div class="cnt" id="c1">–</div><div class="chk" id="k1"></div><div class="chk" id="bt1"></div></div><div class="arrow">→</div>
+   <div class="stagebox" id="s2"><b>Transform<br><small style="font-weight:400;color:var(--muted)">after collection</small></b><div class="cnt" id="c2">–</div><div class="chk" id="k2"></div><div class="chk" id="bt2"></div></div><div class="arrow">→</div>
+   <div class="stagebox" id="s3"><b>Load</b><div class="cnt" id="c3">–</div><div class="chk" id="k3"></div><div class="chk" id="bt3"></div></div>
+  </div>
+  <div class="note" id="res" style="display:none"></div>
+  <div class="doctrine"><b>Doctrine:</b> reconciliation counts and checksums must run <b>while the source system still exists</b>; quality is checked at <b>every Extract-Transform-Load (ETL) stage</b> (consistency), never once at the end. <b>Sequence inside the pipeline:</b> Collect (Extract) pulls raw data from the source — that is data collection. Transformation only ever happens after collection; because it changes the data, it needs its own reconciliation check, which is why "validate at the source only" is not enough.</div>`;
+ const st2=UI.s2||(UI.s2={bug:"none",chk:"all",dec:false});
+ let bug=st2.bug, chk=st2.chk, dec=false, running=false;
+ function markBug(){ ["bt1","bt2","bt3"].forEach(id=>el.querySelector("#"+id).textContent="");
+  const tgt={c:"bt1",t:"bt2",l:"bt3"}[bug];
+  if(tgt){const e2=el.querySelector("#"+tgt);e2.textContent="⚠ defect injected HERE";e2.style.color="var(--bad)";} }
+ el.querySelectorAll("[data-bug]").forEach(b=>{b.classList.toggle("on",b.dataset.bug===bug);
+  b.onclick=()=>{bug=st2.bug=b.dataset.bug;el.querySelectorAll("[data-bug]").forEach(x=>x.classList.toggle("on",x===b));markBug();};});
+ markBug();
+ el.querySelectorAll("[data-chk]").forEach(b=>{b.classList.toggle("on",b.dataset.chk===chk);
+  b.onclick=()=>{chk=st2.chk=b.dataset.chk;el.querySelectorAll("[data-chk]").forEach(x=>x.classList.toggle("on",x===b));};});
+ const res=el.querySelector("#res");
+ el.querySelector("#decom").onclick=(e)=>{dec=st2.dec=!dec;e.target.classList.toggle("on",dec);
+  const s0=el.querySelector("#s0"); s0.style.opacity=dec?0.35:1;
+  el.querySelector("#c0").textContent=dec?"???":"10,000"; el.querySelector("#k0").textContent=dec?"gone":"checksum a91f…";};
+ if(st2.dec){ st2.dec=false; el.querySelector("#decom").click(); }
+ function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+ el.querySelector("#run").onclick=async()=>{
+  if(running)return; running=true; res.style.display="none";
+  const countsBy={none:[10000,10000,10000,10000], c:[10000,9700,9700,9700], t:[10000,10000,9412,9412], l:[10000,10000,10000,10000]};
+  const counts=countsBy[bug];
+  for(let i=1;i<=3;i++){el.querySelector("#s"+i).className="stagebox";el.querySelector("#c"+i).textContent="–";el.querySelector("#k"+i).textContent="";}
+  let caughtAt=-1;
+  for(let i=1;i<=3;i++){
+   const box=el.querySelector("#s"+i), c=el.querySelector("#c"+i), k=el.querySelector("#k"+i);
+   for(let n=0;n<=10;n++){c.textContent=Math.round(counts[i]*n/10).toLocaleString();await sleep(45);}
+   if(counts[i]<counts[i-1])c.innerHTML=`<span style="font-size:12px">in ${counts[i-1].toLocaleString()} → out</span> ${counts[i].toLocaleString()}`;
+   const checkHere=(chk==="all")||(chk==="end"&&i===3);
+   if(checkHere&&!dec){
+    const fail=(counts[i]!==10000)||(i===3&&bug==="l");
+    k.textContent=fail?(bug==="l"&&i===3?"checksum ✗":`count ✗ ${counts[i].toLocaleString()}≠10,000 (source)`):(bug!=="none"?"count ✓ · checksum ✓ — this stage is innocent":"count ✓ · checksum ✓");
+    box.className="stagebox "+(fail?"err":"okd");
+    if(fail&&caughtAt<0)caughtAt=i;
+   } else if(checkHere&&dec){ k.textContent="nothing to reconcile against"; box.className="stagebox err"; }
+   else { k.textContent="(unchecked)"; }
+   await sleep(180);
+  }
+  running=false;
+  const names=["","Collect (Extract)","Transform","Load"];
+  if(dec){ res.className="note avoid"; res.innerHTML=`<span class="badge">Too late</span><span>The source is gone — counts and checksums have <b>no baseline to compare against</b>. Whatever the defect was, you can never again prove your copy is complete. Validate while the source still exists.</span>`; }
+  else if(bug==="none"){ res.className="note best"; res.innerHTML=`<span class="badge">Clean run</span><span>All ${chk==="all"?"stage checks":"final checks"} passed. Note: a clean run proves this batch, not the pipeline — keep the checks in place.</span>`; }
+  else if(chk==="all"&&bug==="c"){ res.className="note best"; res.innerHTML=`<span class="badge">Localised</span><span>Defect caught <b>at Collect itself</b>: 9,700 collected vs the source's 10,000 — the extraction quietly skipped 300 rows. The ONLY thing that caught it was comparing against the <b>source baseline</b> — which is exactly why counts and checksums must run while the source system still exists. Decommission the source and re-run to see this safety net vanish.</span>`; }
+  else if(chk==="all"){ res.className="note best"; res.innerHTML=`<span class="badge">Localised</span><span>Defect caught <b>at ${names[caughtAt]}</b>. Note why Collect still shows a clean 10,000: the data really WAS intact when collected — the defect happened inside ${names[caughtAt]} itself, after collection. A defect can only ever be DETECTED at or after the stage where it occurs — the clean checks upstream don't "miss" it, they prove those stages innocent, which is what pins the break to exactly one stage.</span>`; }
+  else { res.className="note warn"; res.innerHTML=`<span class="badge">Detected, not localised</span><span>The end-only check failed — but was it Extract, Transform, or Load? You now debug three stages instead of one, and everything already flowed downstream. This is why quality runs at <b>every</b> ETL stage.</span>`; }
+  res.style.display="flex";
+  setDecision("checks", dec?"baseline lost (source gone) ✗":
+   chk==="all"?(bug==="none"?"per-stage checks ✓ · clean run":"per-stage checks ✓ · caught "+({c:"Collect",t:"Transform",l:"Load"})[bug]+" defect"):
+   "end-only check (weak — defect not localised)");
+ };
+}},
+
+/* 3 — Lineage DAG */
+{phase:"Data governance & lineage · CPMAI II",title:"Lineage & pipeline reuse",eyebrow:"Traceability, compliance, no wholesale reuse",
+lede:()=>`Your validated ETL${PROJECT.checks?" ("+PROJECT.checks+")":""} is now a documented, version-controlled pipeline feeding Model A (fraud) — and the client's compliance team wants to audit any score — click any node to see in plain words what that step does AND trace its lineage. Then a second team asks to reuse your pipeline for Model B (churn). The "reuse wholesale" button deliberately shows the WRONG setup — both models wired to the same Encode v3 step — so you can see why the answer in a real project is always fork &amp; version: every model, and every retraining run of it, gets its own pipeline.`,
+build(el){
+ el.innerHTML=`<div class="btnrow">
+   <button class="b on" id="mA">Model A only</button>
+   <button class="b" id="mRe">Reuse pipeline wholesale for Model B</button>
+   <button class="b" id="mFk">Fork &amp; version for Model B</button></div>
+  <canvas id="cv3"></canvas>
+  <div class="note best" id="n3"><span class="badge">Lineage</span><span id="n3t">Click a node to highlight where its data originated and every change applied on the way — that trace is what gives you <b>compliance and traceability</b>.</span></div>`;
+ const cv=el.querySelector("#cv3"); const [g,w,h]=setup(cv,300);
+ const mode={m:"A"}; let sel=null;
+ const N={ crm:{x:.07,y:.2,l:"CRM db",d:"the customer master system — names, accounts, contact history"},
+  web:{x:.07,y:.5,l:"Web logs",d:"raw clickstream events from the website, one row per click"},
+  pay:{x:.07,y:.8,l:"Payments",d:"the transaction ledger — amounts, timestamps, outcomes"},
+  clean:{x:.32,y:.35,l:"Clean+dedupe",d:"fixes formats (dates, currencies) and removes duplicate records so each real-world customer/transaction appears exactly once"},
+  sess:{x:.32,y:.65,l:"Sessionise",d:"groups raw web clicks into user sessions (one visit = one row) so behaviour becomes a usable feature"},
+  fj:{x:.55,y:.5,l:"Feature join",d:"merges the cleaned sources into ONE row per transaction — the model-ready table"},
+  enc:{x:.74,y:.5,l:"Encode v3",d:"turns categories into numbers (version 3 of the encoder — the version number is what version control tracks)"},
+  ma:{x:.92,y:.32,l:"Model A",d:"the fraud model — consumes the encoded features"},
+  mb:{x:.92,y:.68,l:"Model B",d:"the churn model the second team wants to build"} };
+ const EDGES=[["crm","clean"],["pay","clean"],["web","sess"],["clean","fj"],["sess","fj"],["fj","enc"],["enc","ma"]];
+ function up(n,acc){ acc.add(n); EDGES.concat(mode.m==="reuse"?[["enc","mb"]]:mode.m==="fork"?[["fj","encB"],["encB","mb"]]:[]).forEach(e=>{ if(e[1]===n) up(e[0],acc); }); return acc; }
+ function draw(){
+  g.clearRect(0,0,w,h);
+  const nodes={...N}; let edges=EDGES.slice();
+  if(mode.m==="reuse") edges.push(["enc","mb"]);
+  if(mode.m==="fork"){ nodes.encB={x:.74,y:.82,l:"Encode v1-B"}; edges.push(["fj","encB"],["encB","mb"]); }
+  const lit = sel? up(sel,new Set()) : null;
+  const ln=cssv("--line"), acc=cssv("--accent"), bad=cssv("--bad"), ink=cssv("--ink"), mut=cssv("--muted");
+  edges.forEach(e=>{ const a=nodes[e[0]],b=nodes[e[1]]; if(!a||!b)return;
+   const hot=lit&&lit.has(e[1])&&lit.has(e[0]);
+   const poison=mode.m==="reuse"&&(e[1]==="mb"||e[1]==="ma");
+   g.strokeStyle=hot?acc:(poison?bad:ln); g.lineWidth=hot?2.5:1.5;
+   g.beginPath(); g.moveTo(a.x*w+44,a.y*h); g.bezierCurveTo((a.x+.1)*w+44,a.y*h,(b.x-.1)*w-44,b.y*h,b.x*w-44,b.y*h); g.stroke(); });
+  Object.entries(nodes).forEach(([k,n])=>{
+   if(k==="mb"&&mode.m==="A")return;
+   const hot=lit&&lit.has(k);
+   const poison=mode.m==="reuse"&&(k==="mb"||k==="enc");
+   g.fillStyle=hot?cssv("--accent-soft"):(poison?cssv("--bad-bg"):cssv("--panel"));
+   g.strokeStyle=hot?acc:(poison?bad:ln); g.lineWidth=hot?2:1.5;
+   const x=n.x*w,y=n.y*h; g.beginPath(); if(g.roundRect)g.roundRect(x-44,y-16,88,32,8); else g.rect(x-44,y-16,88,32); g.fill(); g.stroke();
+   g.fillStyle=hot?acc:(poison?bad:ink); g.font="11.5px 'IBM Plex Sans'"; g.textAlign="center"; g.fillText(n.l,x,y+4); });
+  if(mode.m==="reuse"){ g.fillStyle=bad; g.font="11px 'IBM Plex Mono'"; g.textAlign="left";
+   g.fillText("ANTI-PATTERN: two models sharing ONE Encode v3 — a change for A silently breaks B",w*.12,h-8); }
+  if(mode.m==="fork"){ g.fillStyle=cssv("--good"); g.font="11px 'IBM Plex Mono'"; g.textAlign="left";
+   g.fillText("correct: Model B has its OWN versioned encode step (Encode v1-B)",w*.18,h-8); }
+ }
+ draw();
+ cv.onclick=(ev)=>{ const r=cv.getBoundingClientRect(); const mx=(ev.clientX-r.left),my=(ev.clientY-r.top);
+  sel=null; const nodes={...N}; if(mode.m==="fork")nodes.encB={x:.74,y:.82,l:""};
+  Object.entries(nodes).forEach(([k,n])=>{ if(k==="mb"&&mode.m==="A")return;
+   if(Math.abs(mx-n.x*w)<46&&Math.abs(my-n.y*h)<18)sel=k; });
+  draw();
+  const t=el.querySelector("#n3t"), n3=el.querySelector("#n3");
+  if(sel){ const nd=N[sel]||{l:"Encode v1-B",d:"Model B's own encoder — its first version"};
+   n3.className="note best"; t.innerHTML=`<b>${nd.l}</b> — ${nd.d}.<br>Lineage: every highlighted upstream node is a documented origin or change that feeds it. This trace answers the auditor's "where did this number come from?" — <b>compliance + traceability</b>.`; }
+ };
+ function setMode(m,btn){ mode.m=m; sel=null; ["mA","mRe","mFk"].forEach(id=>el.querySelector("#"+id).classList.toggle("on",el.querySelector("#"+id)===btn)); draw();
+  const t=el.querySelector("#n3t"), n3=el.querySelector("#n3");
+  setDecision("pipeline", m==="reuse"?"reused wholesale ✗":m==="fork"?"forked + versioned per model ✓":PROJECT.pipeline);
+  if(m==="reuse"){ n3.className="note avoid"; t.innerHTML=`<b>Wholesale reuse:</b> Model B now depends on transforms tuned for Model A. Change the encoder for A and B breaks — and B's lineage claims changes it never asked for. Pipelines are <b>pattern- and model-specific: never reused wholesale</b>.`; }
+  else if(m==="fork"){ n3.className="note best"; t.innerHTML=`<b>Fork &amp; version — the real-world answer:</b> Model B gets its own encoder (Encode v1-B), documented and version-controlled as a separate pipeline. The design PATTERN is reused; the pipeline is not. And yes — this applies to retraining too: each training/retraining run of a model goes through its model's own versioned pipeline, so any prediction can be traced to the exact pipeline version that produced its features.`; }
+  else { n3.className="note best"; t.innerHTML=`Click a node to trace its lineage.`; } }
+ el.querySelector("#mA").onclick=e=>{UI.s3="A";setMode("A",e.target);};
+ el.querySelector("#mRe").onclick=e=>{UI.s3="reuse";setMode("reuse",e.target);};
+ el.querySelector("#mFk").onclick=e=>{UI.s3="fork";setMode("fork",e.target);};
+ if(UI.s3==="reuse")setMode("reuse",el.querySelector("#mRe"));
+ else if(UI.s3==="fork")setMode("fork",el.querySelector("#mFk"));
+}},
+
+/* 4 — Integration frameworks */
+{phase:"Data acquisition & integration · CPMAI II",title:"Data integration frameworks",eyebrow:"How the sources will come together",
+lede:()=>`Access is granted${PROJECT.landscape?" and the feed is profiled ("+PROJECT.landscape+")":""}. Before building any pipeline, the architecture board asks you to decide HOW the three source systems will be integrated — this choice shapes everything you collect and validate next. Switch between the four frameworks and watch how (and whether) data actually moves. Fraud scoring is reviewed each morning, so hours-stale data is acceptable — for now.`,
+build(el){
+ el.innerHTML=`<div class="btnrow">
+   <button class="b on" data-f="batch" title="Data copied on a schedule (e.g. nightly) into an analytics store — cheap, simple, hours stale">Batch ETL</button>
+   <button class="b" data-f="rt" title="Every event moves the moment it happens — seconds-fresh, most complex and costly">Real-Time Streaming</button>
+   <button class="b" data-f="fed" title="No data moves: the query travels to each source, computes there, only results return">Federated</button>
+   <button class="b" data-f="lake" title="One permanent, governed central store that accumulates everything — filled by batch or streaming jobs">Warehouse / Lakehouse</button></div>
+  <canvas id="cv4"></canvas>
+  <div class="meters">
+   <div class="meter"><b>Data freshness</b><div class="mv" id="g1">–</div><div class="bar"><i id="g1b"></i></div></div>
+   <div class="meter"><b>Build cost & complexity</b><div class="mv" id="g2">–</div><div class="bar"><i id="g2b"></i></div></div>
+   <div class="meter"><b>Governance / single truth</b><div class="mv" id="g3">–</div><div class="bar"><i id="g3b"></i></div></div>
+   <div class="meter"><b>Data movement</b><div class="mv" id="g4">–</div></div>
+  </div>
+  <div class="note best" id="n4"><span class="badge" id="n4b">Fit</span><span id="n4t"></span></div>
+  <div class="doctrine"><b>How to tell them apart:</b> <b>Batch ETL</b> and <b>Real-time streaming</b> answer <i>WHEN data moves</i> — on a schedule (pulses) vs continuously (steady stream). <b>Warehouse / Lakehouse</b> answers <i>WHERE it ends up</i> — one central governed store, which is usually FILLED by batch or streaming jobs, so "batch ETL into a lakehouse" is a normal combination, not a contradiction. <b>Federated</b> is the odd one out: <i>no data moves at all — the COMPUTE moves instead</i>. The virtual layer forwards your QUERY out to each source system, <b>each source runs the computation locally on its own data</b> (watch its box flash green), and only the small result set travels back. So what IS the "virtual layer"? Not a database — a <b>query engine</b> (a data-virtualization tool) that knows where every table lives and speaks each source's language; it permanently stores nothing. And yes — the returning result IS data travelling; the point is <b>scale and content</b>: your question about 200 million raw payment rows comes back as a 20-row aggregated answer. The raw, sensitive records never leave their home system — which is exactly why federated fits when data legally cannot move.</div>`;
+ const cv=el.querySelector("#cv4"); const [g,w,h]=setup(cv,250);
+ let mode=UI.s4||"batch", t0=performance.now(), dots=[], lakeRows=3.20;  /* millions of rows already in the store */
+ el.querySelectorAll("[data-f]").forEach(b=>b.classList.toggle("on",b.dataset.f===mode));
+ const SRC=[.18,.5,.82].map(f=>({x:w*.12,y:h*f}));
+ const TGT={x:w*.85,y:h*.5};
+ const CFG={
+  batch:{f:["Hours stale","55%"],c:["Low","25%"],g:["Good","70%"],m:"Copied on schedule",
+   note:["best","Default choice","Nightly/hourly jobs with easy per-stage quality gates. When decisions tolerate hours of latency — most ML training does — batch ETL is the pragmatic winner."]},
+  rt:{f:["Seconds","98%"],c:["Highest","95%"],g:["Hard inline","45%"],m:"Continuous stream",
+   note:["warn","Only if needed","Sub-minute freshness for fraud/monitoring — at the price of the most complex, costly infrastructure, with quality checks forced inline. Overkill for daily decisions."]},
+  fed:{f:["Live at query","80%"],c:["Medium","50%"],g:["Weak — sources rule","30%"],m:"None — queried in place",
+   note:["warn","Situational","No copies: a virtual layer queries data where it lives. Right when data legally or politically cannot move; wrong when you need fast joins or uniform quality enforcement."]},
+  lake:{f:["Minutes–hours","70%"],c:["High upfront","80%"],g:["Single source of truth","95%"],m:"Consolidated once",
+   note:["best","Strategic","Everything lands in one governed store serving BI and ML alike. The long-term enterprise play when many teams share the same data for years — a big migration to get there."]}};
+ el.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{mode=UI.s4=b.dataset.f;dots=[];
+  el.querySelectorAll("[data-f]").forEach(x=>x.classList.toggle("on",x===b)); apply();
+  setDecision("integration",{batch:"batch ETL",rt:"real-time streaming",fed:"federated",lake:"lakehouse"}[mode]);});
+ function apply(){ const c=CFG[mode];
+  [["g1","f"],["g2","c"],["g3","g"]].forEach(([id,k])=>{ el.querySelector("#"+id).textContent=c[k][0];
+   const bar=el.querySelector("#"+id+"b"); bar.style.width=c[k][1];
+   bar.style.background=(id==="g2")?(parseInt(c[k][1])>70?cssv("--bad"):cssv("--warn")):cssv("--accent");});
+  el.querySelector("#g4").textContent=c.m;
+  const n=el.querySelector("#n4"); n.className="note "+c.note[0];
+  el.querySelector("#n4b").textContent=c.note[1]; el.querySelector("#n4t").innerHTML=c.note[2]; }
+ apply();
+ function tick(ts){
+  g.clearRect(0,0,w,h);
+  const ln=cssv("--line"), acc=cssv("--accent"), ink=cssv("--ink"), mut=cssv("--muted");
+  SRC.forEach((s,i)=>{ const hot=mode==="fed"&&s.flash&&(ts-s.flash<500);
+   g.strokeStyle=hot?cssv("--okG"):ln; g.fillStyle=hot?cssv("--good-bg"):cssv("--panel"); g.lineWidth=hot?2.5:1.5;
+   g.beginPath(); if(g.roundRect)g.roundRect(s.x-38,s.y-15,76,30,8); else g.rect(s.x-38,s.y-15,76,30); g.fill(); g.stroke();
+   g.fillStyle=ink; g.font="11px 'IBM Plex Sans'"; g.textAlign="center"; g.fillText(["CRM","ERP","Web logs"][i],s.x,s.y+4);
+   if(hot){ g.fillStyle=cssv("--okG"); g.font="9.5px 'IBM Plex Mono'"; g.fillText("computing locally…",s.x,s.y+27); } });
+  const isLake=mode==="lake";
+  g.strokeStyle=isLake?acc:ln; g.fillStyle=cssv("--panel"); g.lineWidth=isLake?2:1.5;
+  g.beginPath(); if(g.roundRect)g.roundRect(TGT.x-46,TGT.y-26,92,52,10); else g.rect(TGT.x-46,TGT.y-26,92,52); g.fill(); g.stroke();
+  if(isLake){ /* the store visibly ACCUMULATES — history only ever grows; the box pulses as rows land */
+   const fh=30+8*Math.sin(lakeRows*9);
+   g.fillStyle=cssv("--accent-soft");
+   g.fillRect(TGT.x-45,TGT.y+26-fh,90,fh-1);
+   g.strokeStyle=acc; g.beginPath(); g.roundRect?g.roundRect(TGT.x-46,TGT.y-26,92,52,10):g.rect(TGT.x-46,TGT.y-26,92,52); g.stroke(); }
+  g.fillStyle=ink; g.textAlign="center";
+  g.fillText(mode==="fed"?"Virtual layer":(isLake?"Lakehouse":mode==="rt"?"Stream processor":"Analytics store"),TGT.x,TGT.y+4);
+  if(isLake){ g.fillStyle=cssv("--accent"); g.font="9.5px 'IBM Plex Mono'";
+   g.fillText("history: "+lakeRows.toFixed(2)+"M rows — grows forever, nothing deleted",TGT.x,TGT.y+40);
+   g.fillText("one governed copy · read by BI + ML",TGT.x,TGT.y+53); }
+  if(mode==="batch"){ const cyc=2.4-((ts/1000)%2.4); g.fillStyle=mut; g.font="9.5px 'IBM Plex Mono'";
+   g.fillText("⏱ next batch window in "+cyc.toFixed(1)+"s",TGT.x,TGT.y+40);
+   g.fillText("store REFRESHED each run",TGT.x,TGT.y+53); }
+  if(mode==="rt"){ g.fillStyle=mut; g.font="9.5px 'IBM Plex Mono'"; g.fillText("scores events in seconds",TGT.x,TGT.y+40); }
+  if(mode==="fed"){ g.fillStyle=mut; g.font="9.5px 'IBM Plex Mono'"; g.fillText("holds NO data",TGT.x,TGT.y+40); }
+  SRC.forEach(s=>{ g.strokeStyle=ln; g.lineWidth=1; g.setLineDash(mode==="fed"?[4,4]:[]);
+   g.beginPath(); g.moveTo(s.x+40,s.y); g.lineTo(TGT.x-48,TGT.y); g.stroke(); g.setLineDash([]); });
+  const sec=ts/1000;
+  if(mode==="rt"){ if(Math.random()<.5)SRC.forEach(s=>dots.push({s,p:0,back:false})); }
+  else if(mode==="batch"){ if(sec%2.4<0.05&&dots.length<60)SRC.forEach(s=>{for(let i=0;i<6;i++)dots.push({s,p:-i*.04,back:false});}); }
+  else if(mode==="lake"){ if(sec%3<0.05&&dots.length<60)SRC.forEach(s=>{for(let i=0;i<5;i++)dots.push({s,p:-i*.05,back:false});}); }
+  else { if(Math.random()<.14)SRC.forEach(s=>dots.push({s,p:0,back:true,ret:false})); }
+  dots.forEach(d=>{ d.p+=(mode==="rt"?.022:.014);
+   if(d.back&&d.p>=1&&!d.ret){d.ret=true;d.p=-.35;d.s.flash=ts;}
+   if(mode==="lake"&&!d.back&&d.p>=1&&!d.counted){d.counted=true;lakeRows+=0.01;} });
+  dots=dots.filter(d=>d.p<1.02||false);
+  dots.forEach(d=>{ if(d.p<0)return; const a=d.ret?{x:TGT.x-48,y:TGT.y}:{x:d.s.x+40,y:d.s.y};
+   const b=d.ret?{x:d.s.x+40,y:d.s.y}:{x:TGT.x-48,y:TGT.y};
+   const x=a.x+(b.x-a.x)*d.p, y=a.y+(b.y-a.y)*d.p;
+   g.fillStyle=d.ret?cssv("--orange"):acc; g.beginPath(); g.arc(x,y,d.back?2.5:3,0,6.29); g.fill(); });
+  g.fillStyle=mut; g.font="10.5px 'IBM Plex Mono'"; g.textAlign="left";
+  g.fillText(mode==="batch"?"grouped pulses = scheduled batch windows (e.g. nightly) — data moves, but only on the clock":
+   mode==="rt"?"unbroken stream = every event moves the moment it happens":
+   mode==="fed"?"teal dot = your QUERY travels TO the data · box flashes green = that source COMPUTES the answer locally · orange dot = only the small result returns":
+   "pulses consolidate everything into one permanent governed store — unlike streaming, the point is the STORE, not the speed",12,h-10);
+  raf=requestAnimationFrame(tick);
+ } raf=requestAnimationFrame(tick);
+}},
+
+/* 5 — curse of dimensionality */
+{phase:"Data understanding — sizing & EDA · CPMAI II",title:"Goldilocks & the curse of dimensionality",eyebrow:"How much data is 'just right'",
+lede:()=>`Labelled data is arriving${PROJECT.labelling?" ("+PROJECT.labelling+")":""} and the feature brainstorm produced 40 candidate columns. Here's the core idea in one sentence: <b>a model can only handle situations it has seen examples of — like a new employee who can only deal with cases they were trained on.</b> A "situation" is one combination of feature values: "a LARGE transaction at NIGHT" is one situation; "a SMALL transaction in the MORNING" is another. Every dot below is one of your past transactions; every square is one situation the model needs at least one example of. Now watch what adding features does to the number of situations.`,
+build(el){
+ el.innerHTML=`<div class="doctrine" style="margin:0 0 14px"><b>Try this, in order:</b> ① With <b>1 feature</b> (transaction amount, split into 5 buckets from tiny to huge) there are only 5 situations — your dots easily cover all of them. ② Move to <b>2 features</b> (amount × hour of day): now 5 × 5 = 25 situations — still mostly covered. ③ Drag features to <b>6</b> (add country, device, merchant type, customer age): 5×5×5×5×5×5 = 15,625 situations, but you still have the same few hundred transactions — almost every situation has NO example, so the model must guess there. That guessing is the <b>curse of dimensionality</b>. ④ Try to fix it by dragging <b>rows</b> to 2,000 — coverage barely improves, because 2,000 examples can't fill 15,625 boxes. ⑤ Drag features back to 2 — coverage snaps back instantly. <b>Lesson: when data is thin, removing features works; collecting more rows barely does. "Goldilocks" = the amount of data that matches the number of situations — not too little, not wastefully more.</b></div>
+  <div class="controls">
+   <div class="ctl"><label><span class="tip" title="How many columns describe each transaction: amount, hour of day, country, device type… Each added feature MULTIPLIES the number of possible situations.">Features (columns used)</span> <span class="val" id="d5v">2</span></label><input type="range" id="d5" min="1" max="10" value="2"></div>
+   <div class="ctl"><label><span class="tip" title="How many example transactions you actually have — the dots.">Rows of data (examples)</span> <span class="val" id="r5v">200</span></label><input type="range" id="r5" min="20" max="2000" step="20" value="200"></div>
+   <div class="ctl"><label><span class="tip" title="How finely each feature is split. Amount with 5 buckets = tiny / small / medium / large / huge.">Buckets per feature</span> <span class="val" id="b5v">6</span></label><input type="range" id="b5" min="3" max="10" value="6"></div>
+  </div>
+  <div class="lgnd" id="feat5" style="margin:0 0 10px"></div>
+  <canvas id="cv5"></canvas>
+  <div class="meters">
+   <div class="meter"><b>Situations the model must learn</b><div class="mv" id="m51">–</div></div>
+   <div class="meter"><b>Situations your data covers</b><div class="mv" id="m52">–</div><div class="bar"><i id="m52b"></i></div></div>
+   <div class="meter"><b>Rows you HAVE vs rows you NEED</b><div class="mv" id="m53" style="font-size:13px">–</div>
+    <div class="bar"><i id="m53a"></i></div><div class="bar" style="margin-top:3px"><i id="m53b" style="background:var(--bad)"></i></div></div>
+   <div class="meter"><b>Goldilocks verdict</b><div class="mv" id="m54" style="font-size:13px">–</div></div>
+  </div>
+  <div class="note warn" id="n5" style="display:none"><span class="badge">Curse</span><span id="n5t"></span></div>
+  <div class="doctrine"><b>Doctrine:</b> Goldilocks = just the right amount of data for the problem. More features demand <b>explosively</b> more rows — which is why Step 8 avoids one-hot exploding 12,000 pincode columns, and why dimensionality <i>reduction</i> beats feature-piling.</div>`;
+ const cv=el.querySelector("#cv5"); const [g,w,h]=setup(cv,270);
+ const st5=UI.s5||(UI.s5={d5:2,r5:200,b5:6});
+ const ids=["d5","r5","b5"];
+ ids.forEach(id=>{const s=el.querySelector("#"+id); s.value=st5[id];
+  s.oninput=()=>{st5[id]=+s.value;draw();};});
+ function draw(){
+  const D=+el.querySelector("#d5").value, R=+el.querySelector("#r5").value, B=+el.querySelector("#b5").value;
+  el.querySelector("#d5v").textContent=D; el.querySelector("#r5v").textContent=R; el.querySelector("#b5v").textContent=B;
+  const r=mulberry(11+D*31+B);
+  g.clearRect(0,0,w,h);
+  const acc=cssv("--accent"), ln=cssv("--line"), mut=cssv("--muted"), bad=cssv("--bad");
+  const cells=Math.pow(B,D);
+  let occupied;
+  if(D<=2){
+   const size=Math.min(h-72,w*.5), ox=(w-size)/2, oy=22;
+   const filled=new Set();
+   const pts=[];
+   for(let i=0;i<R;i++){ const x=r(), y=D===2?r():0.5; pts.push([x,y]);
+    filled.add(Math.floor(x*B)+"_"+(D===2?Math.floor(y*B):0)); }
+   occupied=filled.size;
+   g.strokeStyle=ln; g.lineWidth=1;
+   const rows=D===2?B:1, cellW=size/B, cellH=(D===2?size:60)/rows;
+   for(let cx=0;cx<B;cx++)for(let cy=0;cy<rows;cy++){
+    const has=filled.has(cx+"_"+cy);
+    g.fillStyle=has?cssv("--accent-soft"):"transparent";
+    g.fillRect(ox+cx*cellW,oy+cy*cellH,cellW,cellH);
+    g.strokeRect(ox+cx*cellW,oy+cy*cellH,cellW,cellH);}
+   g.fillStyle=acc;
+   pts.forEach(p=>{ g.beginPath(); g.arc(ox+p[0]*size,oy+(D===2?p[1]*size:30),2.4,0,6.29); g.fill(); });
+   g.fillStyle=mut; g.font="10px 'IBM Plex Mono'"; g.textAlign="center";
+   g.fillText("transaction amount → (tiny … huge, "+B+" buckets)",ox+size/2,oy+(D===2?size:60)+16);
+   if(D===2){ g.save(); g.translate(ox-10,oy+size/2); g.rotate(-Math.PI/2);
+    g.fillText("hour of day →",0,0); g.restore(); }
+   g.font="11px 'IBM Plex Mono'";
+   g.fillText(D===1?"1 feature = "+B+" possible situations — every dot lands in one; all covered (tinted)":"2 features = "+cells+" situations — tinted squares have at least one example; white squares the model has NEVER seen",w/2,h-8);
+  } else {
+   const sample=Math.min(cells,200000); let hit=0; const seen=new Set();
+   for(let i=0;i<R;i++){ let key=""; for(let d=0;d<D;d++)key+=Math.floor(r()*B)+","; if(!seen.has(key)){seen.add(key);} }
+   occupied=seen.size;
+   const barY=h/2-30;
+   g.fillStyle=mut; g.font="12.5px 'IBM Plex Sans'"; g.textAlign="center";
+   g.fillText(`${D} features × ${B} buckets each = ${cells.toLocaleString()} possible situations the model must have seen`,w/2,barY-24);
+   const bw=w*.72, bx=(w-bw)/2;
+   g.strokeStyle=ln; g.strokeRect(bx,barY,bw,34);
+   const frac=Math.min(1,occupied/cells);
+   g.fillStyle=frac<.02?bad:acc; g.fillRect(bx,barY,Math.max(2,bw*frac),34);
+   g.fillStyle=mut; g.font="11px 'IBM Plex Mono'";
+   g.fillText(`your ${R.toLocaleString()} example transactions cover only ${occupied.toLocaleString()} of them — ${(frac*100).toPrecision(2)}% · everywhere else the model GUESSES`,w/2,barY+58);
+   g.fillText("(too many features to draw as a grid — which is exactly the problem)",w/2,barY+78);
+  }
+  const frac=occupied/cells;
+  const FEATS=["amount","hour of day","country","device type","merchant category","customer age","pincode area","channel","currency","browser"];
+  el.querySelector("#feat5").innerHTML="<span style='color:var(--muted)'>Features in the model:</span> "+FEATS.slice(0,D).map(f=>`<span class="pill">${f}</span>`).join("")+`<span style="color:var(--muted)">— every combination of their values is one cell the model must see examples of</span>`;
+  el.querySelector("#m51").textContent=cells.toLocaleString();
+  el.querySelector("#m52").textContent=(frac*100).toPrecision(3)+"%";
+  const b2=el.querySelector("#m52b"); b2.style.width=Math.max(1,frac*100)+"%"; b2.style.background=frac<.05?bad:frac<.4?cssv("--warn"):acc;
+  const need=cells;
+  el.querySelector("#m53").textContent="have "+R.toLocaleString()+" · need ≈ "+(need>1e9?need.toExponential(1):need.toLocaleString());
+  const mx53=Math.max(R,need);
+  el.querySelector("#m53a").style.width=Math.max(1,R/mx53*100)+"%";
+  el.querySelector("#m53b").style.width=Math.max(1,need/mx53*100)+"%";
+  const v=el.querySelector("#m54"), n5=el.querySelector("#n5"), t=el.querySelector("#n5t");
+  if(frac>=.85&&R>cells*5){ v.textContent="more than enough — extra rows now add cost, not accuracy"; }
+  else if(frac>=.85){ v.textContent="just right ✓ — nearly every situation has examples"; }
+  else if(frac>=.5){ v.textContent="borderline — the model guesses in "+Math.round((1-frac)*100)+"% of situations"; }
+  else if(frac>=.15){ v.textContent="thin — most situations have NO example"; }
+  else { v.textContent="starved — curse of dimensionality territory"; }
+  setDecision("sizing",D+" features / "+R.toLocaleString()+" rows — "+(frac>=.85?"just right ✓":frac>=.5?"borderline":frac>=.15?"thin":"starved"));
+  if(frac<.1){ n5.style.display="flex"; t.innerHTML=`Coverage is ${(frac*100).toPrecision(2)}%. To keep the coverage you had at 2 features you'd need <b>${cells>1e6?cells.toExponential(1):cells.toLocaleString()} rows</b> — demand grows exponentially with each feature. The practical escape: <b>reduce dimensions</b> (drop or compress features), don't just chase rows.`; }
+  else n5.style.display="none";
+ }
+ draw();
+}},
+
+/* 6 — labelling */
+{phase:"Data labelling — ground truth · CPMAI II→III",title:"Labelling strategy simulator",eyebrow:"Who creates the ground truth",
+lede:()=>`The pipeline is governed${PROJECT.pipeline?" ("+PROJECT.pipeline+")":""} — but supervised learning needs ground truth, and fraud labels don't exist yet. <b>Each grey dot below is one historical transaction waiting for a human (or model) to stamp it "fraud" or "legitimate".</b> Pick a workforce and press run: dots turn teal when labelled correctly and red when the label is WRONG — and these are confidential payment records, so who sees them matters as much as cost.`,
+build(el){
+ el.innerHTML=`<div class="btnrow">
+   <button class="b on" data-w="int" title="Your own domain experts label — highest quality, data never leaves, but slow and expensive">Internal staff</button>
+   <button class="b" data-w="out" title="A contracted labelling firm with QA layers — scalable middle ground, needs an NDA">Outsourcing / agency</button>
+   <button class="b" data-w="crowd" title="Anonymous crowd micro-tasks — cheapest, but usually REJECTED on quality and confidentiality grounds">Crowdsourcing</button>
+   <button class="b" data-w="act" title="The model labels easy items itself and asks humans only about the hard ones — far fewer human labels">Active learning</button>
+   <button class="b" data-w="syn" title="Generated examples — allowed only when controlled, archived and vetted">Synthetic data</button></div>
+  <div class="btnrow"><button class="b primary" id="run6">▶ Send 400 transactions for labelling</button>
+   <span class="subttl" id="st6" style="align-self:center;margin:0">0 / 400 labelled · 0 wrong</span></div>
+  <canvas id="cv6"></canvas>
+  <div class="lgnd">
+   <span><i class="sw" style="background:var(--chip);border:1px solid var(--line)"></i>unlabelled — waiting</span>
+   <span><i class="sw" style="background:var(--accent)"></i>labelled CORRECTLY</span>
+   <span><i class="sw" style="background:var(--bad)"></i>labelled WRONG — model will learn this error</span>
+   <span><i class="sw" style="background:var(--blue)"></i>model self-labelled (active learning only)</span>
+  </div>
+  <div class="meters">
+   <div class="meter"><b>Label error rate</b><div class="mv" id="m61">–</div><div class="bar"><i id="m61b"></i></div></div>
+   <div class="meter"><b>Cost</b><div class="mv" id="m62">–</div><div class="bar"><i id="m62b"></i></div></div>
+   <div class="meter"><b>Human labels needed</b><div class="mv" id="m63">–</div></div>
+   <div class="meter"><b>Data leaves the org?</b><div class="mv" id="m64" style="font-size:13px">–</div></div>
+  </div>
+  <div class="note best" id="n6" style="display:none"><span class="badge" id="n6b"></span><span id="n6t"></span></div>`;
+ const cv=el.querySelector("#cv6"); const [g,w,h]=setup(cv,230);
+ const CFG={
+  int:{err:.03,cost:.9,human:400,leave:"No",batch:9,note:["best","Quality pick","Domain experts, ~3% error, data never leaves the building — but expensive and slow. Preferred when labels need judgment or data is sensitive."]},
+  out:{err:.09,cost:.55,human:400,leave:"Yes (NDA)",batch:18,note:["warn","Scalable middle","A managed vendor with QA layers: ~9% error at half the cost. The usual choice for large volumes of moderately-skilled labelling; domain nuance suffers."]},
+  crowd:{err:.28,cost:.15,human:400,leave:"Yes — uncontrolled",batch:20,note:["avoid","Usually rejected","Cheapest and fastest — and ~28% of labels are wrong, with zero domain knowledge and no confidentiality. This is why crowdsourcing is usually rejected on quality grounds."]},
+  act:{err:.04,cost:.35,human:120,leave:"No",batch:14,note:["best","Efficient multiplier","The model flags only the ~30% most informative items for expert review; the rest it labels itself with high confidence. Dramatically fewer human labels — needs a working model first (cold start)."]},
+  syn:{err:.07,cost:.2,human:0,leave:"No",batch:25,note:["warn","Controlled use only","Generated examples: unlimited volume for rare cases, but the distribution can drift from reality. Legitimate only when controlled, archived, and vetted like any other source."]}};
+ let mode=UI.s6||"int", running=false;
+ el.querySelectorAll("[data-w]").forEach(b=>{b.classList.toggle("on",b.dataset.w===mode);
+  b.onclick=()=>{mode=UI.s6=b.dataset.w;
+  el.querySelectorAll("[data-w]").forEach(x=>x.classList.toggle("on",x===b)); reset();};});
+ const COLS=40,ROWS=10,PAD=14;
+ function cell(i){ const cw=(w-PAD*2)/COLS, ch=(h-PAD*2-20)/ROWS;
+  return [PAD+(i%COLS)*cw+cw/2, PAD+Math.floor(i/COLS)*ch+ch/2]; }
+ let state=[];
+ function reset(){ state=Array(400).fill(0); drawGrid(); el.querySelector("#n6").style.display="none";
+  el.querySelector("#st6").textContent="0 / 400 labelled · 0 wrong";
+  ["m61","m62","m63"].forEach(id=>el.querySelector("#"+id).textContent="–");
+  el.querySelector("#m64").textContent="–"; }
+ function drawGrid(){ g.clearRect(0,0,w,h);
+  const ln=cssv("--line"), acc=cssv("--accent"), bad=cssv("--bad"), mut=cssv("--muted"), blue=cssv("--blue");
+  state.forEach((s,i)=>{ const [x,y]=cell(i);
+   g.fillStyle= s===0?cssv("--chip") : s===1?acc : s===2?bad : blue;
+   g.beginPath(); g.arc(x,y,4,0,6.29); g.fill(); });
+  g.fillStyle=mut; g.font="10.5px 'IBM Plex Mono'";
+  g.fillText("grey = unlabelled · teal = correct label · red = WRONG label · blue = model self-labelled (active learning)",PAD,h-6); }
+ reset();
+ el.querySelector("#run6").onclick=async()=>{ if(running)return; running=true; reset();
+  const btn=el.querySelector("#run6"); btn.textContent="Labelling in progress… (each tick = one batch coming back)"; btn.style.opacity=".7";
+  const c=CFG[mode]; const r=mulberry(42); let done=0, wrong=0;
+  const order=[...Array(400).keys()];
+  function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+  for(let i=0;i<400;i+=c.batch){
+   for(let j=i;j<Math.min(400,i+c.batch);j++){
+    const idx=order[j];
+    if(mode==="act"&&j>=c.human){ state[idx]= r()<.02 ? 2 : 3; if(state[idx]===2)wrong++; }
+    else { state[idx]= r()<c.err?2:1; if(state[idx]===2)wrong++; }
+    done++; }
+   drawGrid();
+   el.querySelector("#st6").textContent=done+" / 400 labelled · "+wrong+" wrong"+(mode==="act"?" · humans only label the hard "+c.human:"");
+   await sleep(mode==="crowd"||mode==="syn"?15:mode==="int"?40:25);
+  }
+  btn.textContent="▶ Send 400 transactions for labelling"; btn.style.opacity="1";
+  el.querySelector("#m61").textContent=(wrong/4).toFixed(1)+"%";
+  const b1=el.querySelector("#m61b"); b1.style.width=Math.min(100,wrong/4*3)+"%"; b1.style.background=wrong/400>.15?cssv("--bad"):wrong/400>.06?cssv("--warn"):cssv("--good");
+  el.querySelector("#m62").textContent="$".repeat(Math.max(1,Math.round(c.cost*5)));
+  el.querySelector("#m62b").style.width=(c.cost*100)+"%";
+  el.querySelector("#m63").textContent=c.human;
+  el.querySelector("#m64").textContent=c.leave;
+  const n=el.querySelector("#n6"); n.className="note "+c.note[0]; n.style.display="flex";
+  el.querySelector("#n6b").textContent=c.note[1]; el.querySelector("#n6t").innerHTML=c.note[2];
+  setDecision("labelling",{int:"internal staff",out:"outsourced agency",crowd:"crowdsourced (risky)",act:"active learning",syn:"synthetic (vetted)"}[mode]+" · "+(wrong/4).toFixed(1)+"% label noise");
+  running=false; };
+}},
+
+/* 7 — EDA lab */
+{phase:"Data understanding — sizing & EDA · CPMAI II",title:"Exploratory Data Analysis (EDA) lab",eyebrow:"Document in Phase II, treat in Phase III",
+lede:()=>`Data is labelled and features are scoped${PROJECT.sizing?" ("+PROJECT.sizing+")":""} — time for Exploratory Data Analysis (EDA) before any modelling. This dataset has five things wrong with it: skewness, multicollinearity, sparsity, outliers and class imbalance. Explore each panel and press “Document finding” when you can see the issue — and <b>click any dotted-underlined term to open a full explanation: what it is, whether it's good or bad, and what to do about it</b>. The report you assemble here is Phase II's deliverable; every finding gets TREATED in the stages that follow.`,
+build(el){
+ el.innerHTML=`<div class="grid2">
+   <div><p class="subttl">Revenue distribution — <span class="tip" data-ex="x1" title="Click for full explanation">skewness</span></p>
+    <div class="expl" id="x1"><b>What it is:</b> how lopsided the distribution is. A <i>bell curve</i> is the symmetric, "well-behaved" shape — most values near the middle, equally few on both sides, mean = median. Right-skew = most values small, plus a long tail of huge ones dragging the MEAN above the MEDIAN.<br><b>Good or bad?</b> Not an error — skewed revenue is normal in business — but a <i>warning flag</i>: averages become misleading and many models assume bell-ish inputs.<br><b>Next action:</b> document it now (Phase II). In Phase III: log-transform the column or use median-based statistics. Never delete the tail — those may be your biggest customers or the fraud itself.</div>
+    <canvas id="c71" ></canvas>
+    <div class="controls" style="margin:8px 0 0"><div class="ctl"><label>Skew <span class="val" id="s7v"></span></label><input type="range" id="s7" min="0" max="100" value="70"></div>
+    <button class="b" data-doc="skew" style="align-self:center">Document finding</button></div>
+    <p class="biz" id="biz1"></p></div>
+   <div><p class="subttl">Website Traffic vs Page Views — <span class="tip" data-ex="x2" title="Click for full explanation">multicollinearity</span></p>
+    <div class="expl" id="x2"><b>What it is:</b> two (or more) features that move together so strongly (correlation r near 1) that they carry the SAME information — knowing one tells you the other.<br><b>Good or bad?</b> Bad for understanding, tolerable for pure prediction: the model can't tell which twin matters, coefficients wobble, and "feature importance" splits credit between them — so any business conclusion drawn from importance is misleading.<br><b>Next action:</b> document the pair now. In Phase III: drop one, or combine them into a single feature (e.g. pages-per-visit). Rule of thumb: worry above r ≈ 0.85.</div>
+    <canvas id="c72"></canvas>
+    <div class="controls" style="margin:8px 0 0"><div class="ctl"><label>Correlation <span class="val" id="q7v"></span></label><input type="range" id="q7" min="0" max="99" value="94"></div>
+    <button class="b" data-doc="multi" style="align-self:center">Document finding</button></div>
+    <p class="biz" id="biz2"></p></div>
+   <div><p class="subttl">Field population — <span class="tip" data-ex="x3" title="Click for full explanation">sparsity (missing / null / zero)</span></p>
+    <div class="expl" id="x3"><b>What it is:</b> fields that are largely empty — missing values, NULLs, empty strings, or zeros that mean "unknown" rather than the number 0.<br><b>Good or bad?</b> A thin field is dangerous, not useless: whatever the model learns from it is really learned from GUESSES (imputed values), while decisions built on it still look data-driven.<br><b>Next action:</b> count and record it per field now. In Phase III: impute carefully (median / model-based) if the field matters, drop it if it's too thin to trust — and always ask WHY it's empty (a form nobody fills? a segment that never gets asked?).</div>
+    <canvas id="c73"></canvas>
+    <div class="controls" style="margin:8px 0 0"><div class="ctl"><label>Missingness <span class="val" id="p7v"></span></label><input type="range" id="p7" min="0" max="80" value="35"></div>
+    <button class="b" data-doc="sparse" style="align-self:center">Document finding</button></div>
+    <p class="biz" id="biz3"></p></div>
+   <div><p class="subttl"><span class="tip" data-ex="x4" title="Click for full explanation">Class balance</span></p>
+    <div class="expl" id="x4"><b>What it is:</b> the ratio between outcome classes in the data you HAVE — here legitimate vs fraud (≈92 : 8). (Different from representativeness, which asks whether a group is missing from the source entirely — that was a profiling question.)<br><b>Good or bad?</b> Imbalance itself is reality (fraud IS rare) — the danger is what it does to training: a lazy model scores ~92% accuracy by never flagging fraud, making the class you actually care about invisible.<br><b>Next action:</b> measure and record the ratio now. In Phase III: SMOTE / resampling on the TRAINING split, stratified splitting so every set can measure the minority, and judge the model by recall/precision — never accuracy.</div>
+    <canvas id="c74"></canvas>
+    <div class="controls" style="margin:8px 0 0"><div class="ctl"><label>Minority share <span class="val" id="i7v"></span></label><input type="range" id="i7" min="1" max="50" value="8"></div>
+    <button class="b" data-doc="imbal" style="align-self:center">Document finding</button></div>
+    <p class="biz" id="biz4"></p></div>
+   <div><p class="subttl">Revenue <span class="tip" data-ex="x5" title="Click for full explanation">outliers — box plot</span></p>
+    <div class="expl" id="x5"><b>What it is:</b> values far outside the normal range. Reading the box plot: the box holds the middle 50% of values, the line inside is the median, the whiskers mark the normal range — red dots beyond them are outliers.<br><b>Good or bad?</b> Depends entirely on WHY: a data-entry error (₹12,000 typed as ₹1,200,000) is bad data; a genuine whale customer is your best data. Either way, outliers dominate averages and model fits.<br><b>Next action:</b> flag and list them now. In Phase III: investigate each — fix errors, keep genuine whales (maybe cap/winsorize for sensitive models). NEVER auto-delete.</div>
+    <canvas id="c75"></canvas>
+    <div class="controls" style="margin:8px 0 0"><div class="ctl"><label>Outliers <span class="val" id="o7v"></span></label><input type="range" id="o7" min="0" max="15" value="6"></div>
+    <button class="b" data-doc="out" style="align-self:center">Document finding</button></div>
+    <p class="biz" id="biz5"></p></div>
+  </div>
+  <div class="note best" style="margin-top:16px"><span class="badge">Phase II report</span><span id="rep7">Nothing documented yet — explore each panel and log what you find.</span></div>
+  <div class="note avoid" id="trap7" style="display:none"><span class="badge">Trap</span><span>Tempted to fix these right now? That's the exam trap — <b>documenting is Phase II; treating is Phase III</b>. The findings you log here get treated in the next three stages: encoding, then class imbalance, then the split.</span></div>`;
+ const docs=UI.s7docs||(UI.s7docs=new Set());
+ const st7=UI.s7||(UI.s7={s7:70,q7:94,p7:35,i7:8,o7:6});
+ const cvs={}; const G={};
+ [["c71",150],["c72",170],["c73",150],["c74",150],["c75",120]].forEach(([id,hh])=>{ const c=el.querySelector("#"+id); const [g,w,h]=setup(c,hh); cvs[id]=[g,w,h]; });
+ const r0=mulberry(5); const base=Array.from({length:260},()=>[gauss(r0),gauss(r0)]);
+ function drawAll(){
+  const acc=cssv("--accent"), ln=cssv("--line"), mut=cssv("--muted"), bad=cssv("--bad"), orange=cssv("--orange"), blue=cssv("--blue");
+  { const [g,w,h]=cvs.c71; g.clearRect(0,0,w,h); const sk=+el.querySelector("#s7").value/100;
+   el.querySelector("#s7v").textContent=sk<.2?"≈ bell curve":sk<.6?"right-skewed":"heavy right skew";
+   const bins=Array(24).fill(0); const rr=mulberry(9);
+   for(let i=0;i<800;i++){ let v=gauss(rr); v=(1-sk)*v+sk*(Math.exp(v*1.1)-1)*.55; const b=Math.floor((v+1.6)/4.2*24); if(b>=0&&b<24)bins[b]++; }
+   const mx=Math.max(...bins); const bw=w/24;
+   bins.forEach((b,i)=>{ g.fillStyle=acc; g.fillRect(i*bw+1,h-18-(h-30)*b/mx,bw-2,(h-30)*b/mx); });
+   g.fillStyle=mut; g.font="10px 'IBM Plex Mono'"; g.fillText(sk>.5?"long tail → note for Phase III transform (log?)":"symmetric-ish",8,12); }
+  { const [g,w,h]=cvs.c72; g.clearRect(0,0,w,h); const q=+el.querySelector("#q7").value/100;
+   const hi=q>.85;
+   el.querySelector("#q7v").textContent="r ≈ "+q.toFixed(2)+(hi?" — TOO correlated":" — acceptable");
+   const px=x=>w/2+x*w*.20, py=y=>h/2+6-y*(h-46)*.26;
+   base.forEach(p=>{ const x=p[0], y=q*x+Math.sqrt(1-q*q)*p[1];
+    g.fillStyle=hi?bad:acc; g.beginPath(); g.arc(px(x),py(y),2.2,0,6.29); g.fill(); });
+   g.strokeStyle=hi?bad:mut; g.lineWidth=hi?2:1; g.setLineDash(hi?[]:[4,4]);
+   g.beginPath(); g.moveTo(px(-2.1),py(-2.1*q)); g.lineTo(px(2.1),py(2.1*q)); g.stroke(); g.setLineDash([]); g.lineWidth=1;
+   g.fillStyle=mut; g.font="9.5px 'IBM Plex Mono'";
+   g.fillText("x = Website Traffic · y = Page Views · each dot = one day",8,h-6);
+   g.fillStyle=hi?bad:cssv("--good"); g.font="10.5px 'IBM Plex Mono'";
+   g.fillText(hi?"r="+q.toFixed(2)+": dots hug the line — the two features say the SAME thing; keep only ONE"
+             :"r="+q.toFixed(2)+": cloud is wide — each feature adds its own information; keep both",8,14); }
+  { const [g,w,h]=cvs.c73; g.clearRect(0,0,w,h); const p=+el.querySelector("#p7").value/100;
+   el.querySelector("#p7v").textContent=Math.round(p*100)+"% empty";
+   const rr=mulberry(21); const cols=26,rows=8; const cw=w/cols, ch=(h-20)/rows;
+   for(let x=0;x<cols;x++)for(let y=0;y<rows;y++){ const dead=rr()<(x>cols*.6?p*1.8:p*.4);
+    g.fillStyle=dead?cssv("--chip"):acc; g.globalAlpha=dead?1:.75; g.fillRect(x*cw+1,y*ch+1,cw-2,ch-2); g.globalAlpha=1; }
+   g.fillStyle=mut; g.font="10px 'IBM Plex Mono'"; g.fillText("x-axis → 26 data FIELDS (amount, age, device…) · y-axis ↓ 8 sample customer ROWS · grey = that field is empty for that customer",8,h-6); }
+  { const [g,w,h]=cvs.c74; g.clearRect(0,0,w,h); const m=+el.querySelector("#i7").value/100;
+   el.querySelector("#i7v").textContent=Math.round(m*100)+"%";
+   const rr=mulberry(33); const n=180;
+   for(let i=0;i<n;i++){ const mino=i<n*m;
+    let x=(mino?.68:.32)+gauss(rr)*.11, y=.5+gauss(rr)*.16;
+    g.fillStyle=mino?orange:blue; g.beginPath(); g.arc(x*w,y*(h-20)+8,3,0,6.29); g.fill(); }
+   g.fillStyle=mut; g.font="10px 'IBM Plex Mono'";
+   g.fillText("blue = majority (legit) · orange = minority (fraud) — measure the ratio, treat it in the imbalance stage",8,h-6); }
+  { const [g,w,h]=cvs.c75; g.clearRect(0,0,w,h); const o=+el.querySelector("#o7").value;
+   el.querySelector("#o7v").textContent=o+" points";
+   const rr=mulberry(41); const yMid=h/2-8;
+   const bx=w*.10, bq1=w*.26, bmed=w*.34, bq3=w*.44, bwhi=w*.58;
+   g.strokeStyle=mut; g.beginPath(); g.moveTo(bx,yMid); g.lineTo(bq1,yMid); g.moveTo(bq3,yMid); g.lineTo(bwhi,yMid); g.stroke();
+   g.strokeRect(bq1,yMid-18,bq3-bq1,36);
+   g.strokeStyle=acc; g.lineWidth=2; g.beginPath(); g.moveTo(bmed,yMid-18); g.lineTo(bmed,yMid+18); g.stroke(); g.lineWidth=1;
+   g.strokeStyle=mut; [bx,bwhi].forEach(X=>{g.beginPath();g.moveTo(X,yMid-10);g.lineTo(X,yMid+10);g.stroke();});
+   for(let i=0;i<o;i++){ const X=bwhi+w*.06+rr()*w*.30, Y=yMid+gauss(rr)*10;
+    g.fillStyle=bad; g.beginPath(); g.arc(X,Y,3.2,0,6.29); g.fill(); }
+   g.fillStyle=mut; g.font="10px 'IBM Plex Mono'";
+   g.fillText("box = middle 50% of revenue · whisker = normal range · red dots = outliers far beyond it",8,h-6);
+   if(o>0){ g.fillStyle=bad; g.fillText(o+" transactions sit far above the normal range — data error or genuine whales? investigate, don't auto-delete",8,14); } }
+  /* business-impact lines react to the sliders */
+  { const sk=+el.querySelector("#s7").value/100, q=+el.querySelector("#q7").value/100,
+        pm=+el.querySelector("#p7").value, im=+el.querySelector("#i7").value, o=+el.querySelector("#o7").value;
+   el.querySelector("#biz1").innerHTML="<b>Business impact:</b> "+(sk<.2
+    ?"distribution is close to a bell curve — the average is a fair summary; forecasts and thresholds built on the mean are safe here."
+    :sk<.6?"moderate right skew — the mean is drifting above the median; sanity-check any forecast or threshold built on averages."
+    :"the “average” transaction is a lie — a few huge invoices drag it up, so revenue forecasts and fraud thresholds based on the mean will misfire for typical customers.");
+   el.querySelector("#biz2").innerHTML="<b>Business impact:</b> "+(q>.85
+    ?"at r = "+q.toFixed(2)+" you pay twice to collect and store two columns that say the same thing — and when leadership asks “which factor drives fraud?”, the importance ranking splits credit between the twins and misleads the answer."
+    :"at r = "+q.toFixed(2)+" the two features still carry separate information — keeping both is justified; no action needed.");
+   el.querySelector("#biz3").innerHTML="<b>Business impact:</b> "+(pm<10
+    ?"only "+pm+"% empty — decisions on these fields rest on real values; low risk."
+    :"every decision that touches a thin field is quietly based on a guess (an imputed value) — approving a transaction on a customer profile that's "+pm+"% blank looks data-driven but isn't.");
+   el.querySelector("#biz4").innerHTML="<b>Business impact:</b> "+(im>=30
+    ?"at "+im+"% minority the classes are workably balanced — accuracy is meaningful again, though recall per class still deserves a look."
+    :"a lazy model can score "+(100-im)+"% accuracy by never flagging fraud at all — the dashboard looks great while every fraudulent transaction sails through and the losses land on the P&amp;L.");
+   el.querySelector("#biz5").innerHTML="<b>Business impact:</b> "+(o===0
+    ?"no outliers right now — totals and averages are representative; keep the check in place anyway."
+    :o+" “whale” transaction"+(o>1?"s":"")+" can dominate every total and average — delete them blindly and you erase your best customers; keep them unexamined and one data-entry error skews the whole model.");
+  }
+ }
+ ["s7","q7","p7","i7","o7"].forEach(id=>{const s=el.querySelector("#"+id); if(st7[id]!==undefined)s.value=st7[id];
+  s.oninput=()=>{st7[id]=+s.value;drawAll();};});
+ drawAll();
+ const LBL={skew:"heavy right skew in revenue (candidate log-transform)",multi:"Traffic ↔ Page Views r>0.9 (drop/combine one)",sparse:"sparse right-hand fields (impute or drop)",imbal:"class imbalance ≈8% minority (treat with SMOTE)",out:"revenue outliers beyond the whiskers (investigate / cap)"};
+ function updateReport(){
+  el.querySelectorAll("[data-doc]").forEach(b=>{ if(docs.has(b.dataset.doc)){b.classList.add("on");b.textContent="Documented ✓";} });
+  if(!docs.size)return;
+  el.querySelector("#rep7").innerHTML="Findings logged: "+[...docs].map(d=>`<span class="pill">${LBL[d]}</span>`).join(" ")+(docs.size===5?"<br><b>Phase II data-understanding report complete.</b>":"");
+  el.querySelector("#trap7").style.display="flex";
+  setDecision("findings",docs.size+"/5 documented"+(docs.size===5?" ✓":"")); }
+ el.querySelectorAll("[data-doc]").forEach(b=>b.onclick=()=>{ docs.add(b.dataset.doc); updateReport(); });
+ updateReport();
+ el.querySelectorAll(".tip[data-ex]").forEach(t=>t.onclick=()=>{ el.querySelector("#"+t.dataset.ex).classList.toggle("open"); });
+}},
+
+/* 8 — encoding */
+{phase:"Data preparation — treatment · CPMAI III",title:"Encoder playground",eyebrow:"Step 8 · High cardinality: the headline decision",
+lede:()=>`With the table cleansed${PROJECT.cleanse?" ("+PROJECT.cleanse+")":""}, the next treatment is categorical encoding. First up, the customer's Pincode column — the ~12,000 unique values your profiling report flagged back in stage 1, which no model can eat raw. <b>Read the picture like this:</b> the full table has 1,000,000 rows and we always draw the same 26 sample rows — the ROW count never changes with cardinality. What changes is the COLUMNS: one-hot creates one column per unique value (so columns explode as cardinality grows), while the dense encoders always produce one. Then toggle cross-validation (CV) off on target encoding and watch the leakage happen.`,
+build(el){
+ el.innerHTML=`<div class="controls">
+   <div class="ctl" style="max-width:280px"><label>Unique values (cardinality) <span class="val" id="k8v">12,000</span></label><input type="range" id="k8" min="0" max="100" value="100"></div>
+  </div>
+  <div class="btnrow">
+   <button class="b" data-e="oh" title="One binary column PER unique value — fine for 5 categories, catastrophic for 12,000">One-Hot</button>
+   <button class="b" data-e="lab" title="Each category becomes an arbitrary integer — invents a fake ordering the model believes">Label / Ordinal</button>
+   <button class="b" data-e="hash" title="Hash each value into a fixed number of buckets — capped width, but unrelated values collide">Hash (256 buckets)</button>
+   <button class="b on" data-e="tgt" title="Replace each category with its average target value, computed only from OTHER folds — one dense, meaningful column">Target + cross-validation (CV)</button>
+   <button class="b" data-e="freq" title="Replace each category with how often it appears — cheap side feature">Frequency</button>
+   <button class="b" id="cvT" style="margin-left:auto">Cross-validation (CV): ON</button></div>
+  <div class="exmap" id="ex8"></div>
+  <canvas id="cv8"></canvas>
+  <div id="cvviz" style="display:none">
+   <p class="subttl" style="margin:14px 0 4px">How cross-validation (CV) computes the encoding — click any fold to see who encodes it</p>
+   <div class="folds" id="folds8"></div>
+   <p style="font-size:13px;color:var(--muted);margin:4px 0 0" id="foldtxt">The 1,000,000 training rows are split into 5 folds. Click one.</p>
+  </div>
+  <div class="meters">
+   <div class="meter"><b>Columns created (rows stay 1,000,000)</b><div class="mv" id="m81">–</div></div>
+   <div class="meter"><b>Matrix memory</b><div class="mv" id="m82">–</div><div class="bar"><i id="m82b"></i></div></div>
+   <div class="meter"><b>Target-leakage risk</b><div class="mv" id="m83">–</div><div class="bar"><i id="m83b"></i></div></div>
+   <div class="meter"><b>Train → Test AUC (Area Under the ROC Curve — higher is better)</b><div class="mv" id="m84">–</div></div>
+  </div>
+  <div class="note" id="n8"><span class="badge" id="n8b"></span><span id="n8t"></span></div>`;
+ const cv=el.querySelector("#cv8"); const [g,w,h]=setup(cv,240);
+ const st8=UI.s8||(UI.s8={enc:"tgt",cvOn:true,k:100});
+ let enc=st8.enc, cvOn=st8.cvOn;
+ const kSlider=el.querySelector("#k8"); kSlider.value=st8.k;
+ el.querySelectorAll("[data-e]").forEach(b=>b.classList.toggle("on",b.dataset.e===enc));
+ el.querySelector("#cvT").textContent="Cross-validation (CV): "+(cvOn?"ON":"OFF");
+ function card(){ return Math.round(Math.pow(10, .7+ (kSlider.value/100)*3.38)); }
+ el.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{enc=st8.enc=b.dataset.e;
+  el.querySelectorAll("[data-e]").forEach(x=>x.classList.toggle("on",x===b)); draw();
+  setDecision("encoder",{oh:"one-hot",lab:"label/ordinal",hash:"hashing",tgt:"target + cross-validation",freq:"frequency"}[enc]+(enc==="tgt"?(cvOn?" ✓":" (NO CV — leaking!) ✗"):""));});
+ el.querySelector("#cvT").onclick=(e)=>{cvOn=st8.cvOn=!cvOn;e.target.textContent="Cross-validation (CV): "+(cvOn?"ON":"OFF");draw();
+  if(enc==="tgt")setDecision("encoder","target + cross-validation"+(cvOn?" ✓":" (NO CV — leaking!) ✗"));};
+ kSlider.oninput=()=>{st8.k=+kSlider.value;draw();};
+ /* interactive CV fold picker */
+ const foldsEl=el.querySelector("#folds8");
+ foldsEl.innerHTML=[1,2,3,4,5].map(i=>`<div class="fold" data-fold="${i}" role="button" tabindex="0">Fold ${i}<br>200k rows</div>`).join("");
+ foldsEl.querySelectorAll(".fold").forEach(f=>f.onclick=()=>{
+  const k=+f.dataset.fold;
+  foldsEl.querySelectorAll(".fold").forEach(x=>{x.classList.remove("enc","src");
+   x.classList.add(+x.dataset.fold===k?"enc":"src");
+   x.innerHTML=+x.dataset.fold===k?`Fold ${x.dataset.fold}<br>BEING ENCODED`:`Fold ${x.dataset.fold}<br>supplies averages`;});
+  el.querySelector("#foldtxt").innerHTML=`To encode a pincode in <b style="color:var(--okV)">fold ${k}</b>, the average fraud rate for that pincode is computed from the <b style="color:var(--okG)">other four folds only</b>. Fold ${k}'s own labels are never used for its own rows — so no row can smuggle its own answer into its feature. Repeat for all five folds and every row is encoded leak-free.`; });
+ function exampleFor(K){
+  if(enc==="oh")return `Example — <b>pincode 500001</b> → [0, 0, 0, … <b>1</b> … 0, 0] &nbsp;·&nbsp; a row of ${K.toLocaleString()} numbers, all zero except its own column`;
+  if(enc==="lab")return `Example — <b>pincode 500001</b> → <b>7,214</b> &nbsp;·&nbsp; just its position in a sorted list — the number itself MEANS nothing`;
+  if(enc==="hash")return `Example — <b>pincode 500001</b> → hash("500001") mod 256 → <b>bucket 112</b> &nbsp;·&nbsp; shared with ~${Math.max(1,Math.round(K/256)).toLocaleString()} unrelated pincodes (a collision)`;
+  if(enc==="tgt")return cvOn?`Example — <b>pincode 500001</b> → <b>0.031</b> &nbsp;·&nbsp; the fraud rate among OTHER folds' rows with this pincode — 12,000 values compressed into one meaningful number`
+   :`Example — <b>pincode 500001</b> → <b>0.031</b> computed INCLUDING this row's own label &nbsp;·&nbsp; the answer just leaked into the feature`;
+  return `Example — <b>pincode 500001</b> → <b>812</b> &nbsp;·&nbsp; how many rows share this pincode (its frequency)`; }
+ function draw(){
+  const K=card(); el.querySelector("#k8v").textContent=K.toLocaleString();
+  el.querySelector("#ex8").innerHTML=exampleFor(K);
+  el.querySelector("#cvviz").style.display=(enc==="tgt")?"block":"none";
+  const cvB=el.querySelector("#cvT");
+  cvB.style.opacity=(enc==="tgt")?"1":".4";
+  cvB.title=(enc==="tgt")?"Toggle cross-validation on/off and watch the leakage metrics"
+   :"Cross-validation only matters for TARGET encoding — it is the only encoder that reads the label, so it is the only one that can leak it. The other encoders never look at the label; there is nothing to protect.";
+  g.clearRect(0,0,w,h);
+  const acc=cssv("--accent"), ln=cssv("--line"), mut=cssv("--muted"), bad=cssv("--bad"), orange=cssv("--orange"), blue=cssv("--blue"), chip=cssv("--chip");
+  const r=mulberry(3);
+  const ROWS=26, rh=(h-46)/ROWS, top=26;
+  g.fillStyle=mut; g.font="10.5px 'IBM Plex Mono'";
+  let cols, note, mem, leak, auc;
+  const rows1e6=1e6;
+  if(enc==="oh"){
+   cols=K; const shown=Math.min(K,160); const cw2=(w-90)/shown;
+   g.fillText(`26 sample rows × ${K.toLocaleString()} columns (1 column PER unique value${K>shown?"; first "+shown+" drawn":""}) — each row marks its own pincode's column`,10,14);
+   for(let y=0;y<ROWS;y++){ g.fillStyle=chip; g.fillRect(80,top+y*rh,w-90,rh-1.5);
+    const hot=Math.floor(r()*shown); g.fillStyle=acc; g.fillRect(80+hot*cw2,top+y*rh,Math.max(2,cw2-1),rh-1.5);
+    g.fillStyle=mut; g.fillText("row"+(y+1),10,top+y*rh+rh*.7); }
+   mem=K*rows1e6/1e6; leak=[0,"none"];
+   auc=K>1000?"0.71 → 0.64 (drowning in sparsity)":"0.80 → 0.79";
+   note=K>1000?["avoid","Curse triggered",`${K.toLocaleString()} sparse columns — a thinly-scattered matrix that triggers the curse of dimensionality (Step 5!), drains memory, and degrades performance. One-hot is for LOW cardinality only.`]:["best","Fine at this size","At a handful of categories one-hot is simple, honest, and interpretable. The trouble only starts as cardinality grows — drag the slider right."];
+  } else if(enc==="lab"){
+   cols=1;
+   g.fillText("26 sample rows × 1 column — value = arbitrary integer id",10,14);
+   for(let y=0;y<ROWS;y++){ const v=r();
+    g.fillStyle=chip; g.fillRect(80,top+y*rh,120,rh-1.5);
+    g.fillStyle=blue; g.globalAlpha=.25+v*.75; g.fillRect(80,top+y*rh,120*v,rh-1.5); g.globalAlpha=1;
+    g.fillStyle=mut; g.fillText("row"+(y+1),10,top+y*rh+rh*.7);
+    g.fillText(Math.floor(v*K).toLocaleString(),210,top+y*rh+rh*.7); }
+   g.fillStyle=bad; g.fillText("⚠ bar length = the fake 'order' your model now believes in",300,top+30);
+   mem=rows1e6/1e6; leak=[0,"none"]; auc="0.77 → 0.69 (nonsense ordering)";
+   note=["avoid","Fake ordering","One dense column — but pincode 500001 is not 'more than' 110001. Linear models learn the invented order as signal. Only defensible for genuinely ordinal categories (S < M < L)."];
+  } else if(enc==="hash"){
+   cols=256; const shown=128; const cw2=(w-90)/shown;
+   g.fillText("26 sample rows × 256 hash buckets — collisions marked red",10,14);
+   const bucketOf={};
+   for(let y=0;y<ROWS;y++){ g.fillStyle=chip; g.fillRect(80,top+y*rh,w-90,rh-1.5);
+    const b=Math.floor(r()*shown); const clash=K>2000&&bucketOf[b]!==undefined;
+    bucketOf[b]=y;
+    g.fillStyle=clash?bad:acc; g.fillRect(80+b*cw2,top+y*rh,Math.max(2,cw2-1),rh-1.5);
+    g.fillStyle=mut; g.fillText("row"+(y+1),10,top+y*rh+rh*.7); }
+   mem=256*rows1e6/1e6; leak=[0,"none"];
+   auc="0.79 → 0.77";
+   note=["warn","Solid fallback",`Dimensionality capped at 256 no matter the cardinality, unseen pincodes hash fine, zero leakage — but ${K>2000?"~"+Math.round(K/256)+" pincodes share every bucket":"buckets are roomy"}: unrelated places get merged and nothing is interpretable.`];
+  } else if(enc==="tgt"){
+   cols=1;
+   const folds=5; const foldCols=[blue,cssv("--okG"),orange,cssv("--okP"),cssv("--okS")];
+   g.fillText(cvOn?"26 sample rows × 1 dense column — colour = which OTHER folds computed it":"26 sample rows × 1 column — computed on ALL rows incl. its own label",10,14);
+   for(let y=0;y<ROWS;y++){ const v=.15+r()*.7;
+    g.fillStyle=chip; g.fillRect(80,top+y*rh,160,rh-1.5);
+    g.fillStyle=cvOn?foldCols[y%folds]:bad; g.globalAlpha=.8; g.fillRect(80,top+y*rh,160*v,rh-1.5); g.globalAlpha=1;
+    g.fillStyle=mut; g.fillText("row"+(y+1),10,top+y*rh+rh*.7);
+    g.fillText(v.toFixed(3),250,top+y*rh+rh*.7); }
+   if(cvOn){ g.fillStyle=mut; g.fillText("row's own label NEVER touches its own encoding → leakage blocked",310,top+30); }
+   else { g.fillStyle=bad; g.fillText("each row's encoding contains its own answer → the model just memorises",310,top+30); }
+   mem=rows1e6/1e6; leak=cvOn?[8,"low (out-of-fold)"]:[95,"SEVERE"];
+   auc=cvOn?"0.83 → 0.82 ✓":"0.99 → 0.61 ✗ (memorised the target)";
+   note=cvOn?["best","Doctrine answer",`${K.toLocaleString()} values compressed into ONE dense, information-rich column, with cross-validation explicitly preventing the target from leaking into its own row. This is the answer for high-cardinality features.`]:["avoid","Leakage","Same encoder, no CV: train AUC looks miraculous, test AUC collapses. Naive target encoding is a leak, not a feature. Turn CV back on."];
+  } else {
+   cols=1;
+   g.fillText("26 sample rows × 1 column — value = how often that pincode appears",10,14);
+   for(let y=0;y<ROWS;y++){ const v=Math.pow(r(),2);
+    g.fillStyle=chip; g.fillRect(80,top+y*rh,160,rh-1.5);
+    g.fillStyle=acc; g.globalAlpha=.3+v*.6; g.fillRect(80,top+y*rh,160*Math.max(.04,v),rh-1.5); g.globalAlpha=1;
+    g.fillStyle=mut; g.fillText("row"+(y+1),10,top+y*rh+rh*.7); }
+   mem=rows1e6/1e6; leak=[0,"none"];
+   auc="0.74 → 0.73";
+   note=["warn","Side dish","Cheap, dense, leak-free — but two pincodes with equal counts become identical, and frequency may carry no signal for your target. Useful as a complementary feature, rarely sufficient alone."];
+  }
+  el.querySelector("#m81").textContent=cols.toLocaleString();
+  const memMB=mem*4; el.querySelector("#m82").textContent=memMB>=1000?(memMB/1000).toFixed(1)+" GB":Math.round(memMB)+" MB";
+  const mb=el.querySelector("#m82b"); mb.style.width=Math.min(100,Math.log10(memMB+1)/Math.log10(48001)*100)+"%"; mb.style.background=memMB>2000?bad:memMB>200?cssv("--warn"):acc;
+  el.querySelector("#m83").textContent=leak[1];
+  const lb=el.querySelector("#m83b"); lb.style.width=Math.max(2,leak[0])+"%"; lb.style.background=leak[0]>50?bad:leak[0]>0?cssv("--warn"):acc;
+  el.querySelector("#m84").textContent=auc;
+  const n=el.querySelector("#n8"); n.className="note "+note[0];
+  el.querySelector("#n8b").textContent=note[1]; el.querySelector("#n8t").innerHTML=note[2];
+ }
+ draw();
+}},
+
+/* 9 — imbalance / SMOTE */
+{phase:"Data preparation — treatment · CPMAI III",title:"Class imbalance playground",eyebrow:"Step 9 · Oversample · undersample · SMOTE",
+lede:()=>`Features are encoded${PROJECT.encoder?" ("+PROJECT.encoder+")":""} — now treat the imbalance EDA documented: 200 legitimate transactions (blue) versus 12 frauds (orange). Apply each treatment and watch the point cloud change; SMOTE literally draws its synthetic frauds on the lines between minority neighbours. Treatments are COMBINABLE (real projects often pair modest undersampling with SMOTE) — a highlighted button means you've applied it; Reset returns to the raw data.`,
+build(el){
+ el.innerHTML=`<div class="btnrow">
+   <button class="b" id="b91" title="Duplicate the rare fraud rows — nothing lost, but exact copies invite overfitting">Oversample minority ×4</button>
+   <button class="b" id="b92" title="Drop a MODEST share of the common legit rows — rebalances without fabricating data">Undersample majority (modest)</button>
+   <button class="b" id="b93" title="Gut the majority class — shown deliberately as the mistake 'modest' warns against">Undersample majority (brutal)</button>
+   <button class="b primary" id="b94" title="Synthetic Minority Over-sampling TEchnique: create NEW fraud points between real fraud neighbours — varied, not copies">Apply SMOTE</button>
+   <button class="b" id="b95" title="Back to the raw 200:12 dataset">Reset</button></div>
+  <canvas id="cv9"></canvas>
+  <div class="lgnd">
+   <span><i class="sw" style="background:var(--blue)"></i>legitimate (majority)</span>
+   <span><i class="sw" style="background:var(--orange)"></i>real fraud (minority)</span>
+   <span><i class="sw" style="background:transparent;border:2px solid var(--orange)"></i>duplicated copy (oversampling)</span>
+   <span><i class="sw" style="background:transparent;border:2px solid var(--okG)"></i>NEW synthetic fraud (SMOTE)</span>
+  </div>
+  <div class="meters">
+   <div class="meter"><b>Class ratio</b><div class="mv" id="m91">–</div></div>
+   <div class="meter"><b>"Always predict legit" accuracy</b><div class="mv" id="m92">–</div><div class="bar"><i id="m92b"></i></div></div>
+   <div class="meter"><b>Est. fraud recall</b><div class="mv" id="m93">–</div><div class="bar"><i id="m93b"></i></div></div>
+   <div class="meter"><b>Info discarded</b><div class="mv" id="m94">–</div></div>
+  </div>
+  <div class="note" id="n9" style="display:none"><span class="badge" id="n9b"></span><span id="n9t"></span></div>
+  <div class="doctrine"><b>Doctrine:</b> oversample the minority · <b>modest</b> undersampling of the majority · SMOTE = Synthetic Minority Over-sampling Technique. Apply to <b>training data only</b>, after the split (Step 10).</div>`;
+ const cv=el.querySelector("#cv9"); const [g,w,h]=setup(cv,280);
+ const r=mulberry(17);
+ function mk(){ const maj=[],min=[];
+  for(let i=0;i<200;i++)maj.push({x:.36+gauss(r)*.13,y:.5+gauss(r)*.15,k:"maj"});
+  for(let i=0;i<12;i++)min.push({x:.70+gauss(r)*.07,y:.46+gauss(r)*.09,k:"min"});
+  return {maj,min,syn:[],dupes:0,dropped:0}; }
+ let D=mk();
+ function draw(links){
+  g.clearRect(0,0,w,h);
+  const blue=cssv("--blue"), orange=cssv("--orange"), mut=cssv("--muted"), good=cssv("--good");
+  if(links){ g.strokeStyle=orange; g.globalAlpha=.35; g.lineWidth=1;
+   links.forEach(l=>{ g.beginPath(); g.moveTo(l[0].x*w,l[0].y*h); g.lineTo(l[1].x*w,l[1].y*h); g.stroke(); }); g.globalAlpha=1; }
+  D.maj.forEach(p=>{ g.fillStyle=blue; g.globalAlpha=.7; g.beginPath(); g.arc(p.x*w,p.y*h,3.2,0,6.29); g.fill(); g.globalAlpha=1; });
+  D.min.forEach(p=>{ g.fillStyle=orange; g.beginPath(); g.arc(p.x*w,p.y*h,4,0,6.29); g.fill();
+   if(p.dup){ g.strokeStyle=orange; g.beginPath(); g.arc(p.x*w,p.y*h,7,0,6.29); g.stroke(); } });
+  D.syn.forEach(p=>{ g.strokeStyle=good; g.fillStyle="transparent"; g.lineWidth=1.8;
+   g.beginPath(); g.arc(p.x*w,p.y*h,4,0,6.29); g.stroke(); });
+  g.fillStyle=mut; g.font="10.5px 'IBM Plex Mono'";
+  g.fillText("blue = legitimate · orange = fraud · orange ring = duplicated copy · green ring = NEW synthetic fraud",12,h-8);
+  if(D.msg){ g.fillStyle=cssv("--good"); g.font="11px 'IBM Plex Mono'"; g.fillText(D.msg,12,16); }
+  const nMaj=D.maj.length, nMin=D.min.length+D.syn.length;
+  el.querySelector("#m91").textContent=nMaj+" : "+nMin;
+  const acc0=nMaj/(nMaj+nMin);
+  el.querySelector("#m92").textContent=(acc0*100).toFixed(1)+"%";
+  const b2=el.querySelector("#m92b"); b2.style.width=(acc0*100)+"%"; b2.style.background=acc0>.9?cssv("--bad"):cssv("--accent");
+  const rec=Math.min(.93,.15+ (nMin/(nMaj+nMin))*1.9 + (D.syn.length?0.12:0) - (D.dropped>150?0.25:0));
+  el.querySelector("#m93").textContent=(rec*100).toFixed(0)+"%";
+  const b3=el.querySelector("#m93b"); b3.style.width=(rec*100)+"%"; b3.style.background=rec<.3?cssv("--bad"):rec<.6?cssv("--warn"):cssv("--good");
+  el.querySelector("#m94").textContent=D.dropped?D.dropped+" rows":"none";
+ }
+ function note(cls,badge,txt){ const n=el.querySelector("#n9"); n.className="note "+cls; n.style.display="flex";
+  el.querySelector("#n9b").textContent=badge; el.querySelector("#n9t").innerHTML=txt;
+  setDecision("imbalance",badge==="SMOTE"?"SMOTE (train only) ✓":badge==="Too far"?"brutal undersampling ✗":badge==="Modest — OK"?"modest undersampling ✓":"oversampled minority ✓"); }
+ draw();
+ el.querySelector("#b91").onclick=(ev)=>{ ev.target.classList.add("on"); const base=D.min.filter(p=>!p.dup&&!p.syn);
+  for(let k=0;k<3;k++)base.forEach(p=>D.min.push({x:p.x+gauss(r)*.004,y:p.y+gauss(r)*.004,dup:true}));
+  draw(); note("warn","Doctrine-approved","Minority duplicated ×4 — nothing lost, but the ringed points are near-exact copies: the model can overfit to those specific frauds rather than the pattern."); };
+ el.querySelector("#b92").onclick=(ev)=>{ ev.target.classList.add("on"); const drop=Math.floor(D.maj.length*.3); D.maj=D.maj.filter((p,i)=>i%10>2); D.dropped+=drop;
+  draw(); note("warn","Modest — OK","Dropped ~30% of the majority. Ratio improves, training speeds up, and enough legitimate examples remain to learn their pattern. The keyword in the doctrine is <b>modest</b>."); };
+ el.querySelector("#b93").onclick=(ev)=>{ ev.target.classList.add("on"); D.dropped+=D.maj.length-15; D.maj=D.maj.slice(0,15);
+  draw(); note("avoid","Too far","You threw away "+D.dropped+" real examples — the majority class is now barely learnable. Aggressive undersampling starves the model; this is exactly what 'modest' warns against."); };
+ let smoting=false;
+ el.querySelector("#b94").onclick=async(ev)=>{ if(smoting)return; smoting=true; ev.target.classList.add("on");
+  const base=D.min.filter(p=>!p.dup); const links=[];
+  function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+  for(let k=0;k<24;k++){ const a=base[Math.floor(r()*base.length)];
+   let b=base[Math.floor(r()*base.length)]; if(a===b)b=base[(base.indexOf(a)+1)%base.length];
+   const t=.25+r()*.5, jx=gauss(r)*.012, jy=gauss(r)*.012; links.push([a,b]);
+   D.msg="SMOTE step "+(k+1)+"/24: pick two real fraud neighbours → drop a NEW point on the line between them";
+   D.syn.push({x:a.x+(b.x-a.x)*t+jx,y:a.y+(b.y-a.y)*t+jy});
+   draw(links); await sleep(110); }
+  D.msg="done: 12 real frauds + 24 synthetic (green rings) = varied examples, not copies";
+  draw(links); smoting=false;
+  note("best","SMOTE","Synthetic Minority Over-sampling TEchnique: each green ring is a NEW point interpolated between two real fraud neighbours — varied examples, not copies, so less overfitting than duplication. Caveats: borderline synthetics can be implausible, and it runs on <b>training data only</b>."); };
+ el.querySelector("#b95").onclick=()=>{ D=mk(); draw(); el.querySelector("#n9").style.display="none";
+  ["b91","b92","b93","b94"].forEach(id=>el.querySelector("#"+id).classList.remove("on")); };
+}},
+
+/* 10 — split */
+{phase:"Data preparation — treatment · CPMAI III",title:"Split & sampling theatre",eyebrow:"Step 10 · Train / validation / test",
+lede:()=>`Final preparation move before modelling. Your treated dataset${PROJECT.imbalance?" ("+PROJECT.imbalance+")":""} is 100 transactions in time order, ~10% fraud. Split 60/20/20 with each method and check what lands where — the per-set class bars and the leakage check decide whether every evaluation number you report later can be trusted. (Remember: SMOTE runs on the TRAIN split only, after this cut.)`,
+build(el){
+ el.innerHTML=`<div class="doctrine" style="margin:0 0 12px"><b>What the options mean:</b> <b>Random</b> — shuffle all rows, deal 60/20/20 blindly; fine only for big, balanced, order-free data. <b>Stratified</b> — same deal but each set is FORCED to keep the overall fraud share (~10%), so every set can actually measure fraud. <b>Time-series</b> — no shuffle: oldest 60% train, next 20% validate, newest 20% test — exactly how the model will live in production. <b>"Data is temporal"</b> — whether row order carries time meaning (transactions do). When ON, any method that mixes future rows into training lets the model peek at the future, and its test score becomes fiction (temporal leakage). Every click re-deals, so press each button and watch the boxes change.</div>
+  <div class="btnrow">
+   <button class="b" id="sp1" title="Shuffle all 100 rows, cut 60/20/20 blindly — set composition is luck">Random</button>
+   <button class="b" id="sp2" title="Shuffle, but force each set to keep ~10% fraud — no unlucky sets">Stratified</button>
+   <button class="b" id="sp3" title="No shuffle: past→train, future→test — how production actually works">Time-series</button>
+   <button class="b" id="spT" style="margin-left:auto" title="ON = row order is time; training on future rows is leakage">Data is temporal: ON</button></div>
+  <canvas id="cv10"></canvas>
+  <div class="lgnd">
+   <span><i class="sw" style="background:var(--blue)"></i>legitimate transaction</span>
+   <span><i class="sw" style="background:var(--orange)"></i>fraud transaction</span>
+   <span><i class="sw" style="background:var(--okG)"></i>train set</span>
+   <span><i class="sw" style="background:var(--okS)"></i>validation set</span>
+   <span><i class="sw" style="background:var(--okP)"></i>test set</span>
+  </div>
+  <div class="meters">
+   <div class="meter"><b>Train minority %</b><div class="mv" id="ma1">–</div><div class="bar"><i id="ma1b"></i></div></div>
+   <div class="meter"><b>Validation minority %</b><div class="mv" id="ma2">–</div><div class="bar"><i id="ma2b"></i></div></div>
+   <div class="meter"><b>Test minority %</b><div class="mv" id="ma3">–</div><div class="bar"><i id="ma3b"></i></div></div>
+   <div class="meter"><b>Temporal leakage</b><div class="mv" id="ma4" style="font-size:13px">–</div></div>
+  </div>
+  <div class="note" id="n10" style="display:none"><span class="badge" id="n10b"></span><span id="n10t"></span></div>
+  <div class="doctrine"><b>Roles:</b> training = what the model learns from · validation = tunes hyperparameters · test = touched ONCE at the end. Sampling: random for big balanced i.i.d. data · <b>stratified when imbalanced</b> · time-based whenever rows have an order. <b>And it doesn't end here:</b> once the model is live (CPMAI Phase VI), the data keeps changing — <b>data drift</b> (incoming data stops resembling the training data) and <b>model drift</b> (performance decays) are monitored continuously, triggering retraining; today's carefully split dataset is only correct until the world moves.</div>`;
+ const cv=el.querySelector("#cv10"); const [g,w,h]=setup(cv,330);
+ const st10=UI.s10||(UI.s10={temporal:true,mode:null});
+ const r=mulberry(23); let temporal=st10.temporal;
+ el.querySelector("#spT").textContent="Data is temporal: "+(temporal?"ON":"OFF");
+ el.querySelector("#spT").classList.toggle("on",temporal);
+ const rows=Array.from({length:100},(_,i)=>({i,pos: r()< (i>55?0.16:0.05) }));
+ const nPos=rows.filter(x=>x.pos).length;
+ let assign=null, mode=null;
+ el.querySelector("#spT").onclick=(e)=>{temporal=st10.temporal=!temporal;e.target.textContent="Data is temporal: "+(temporal?"ON":"OFF");e.target.classList.toggle("on",temporal);show();};
+ let revealN=100, revTimer=null;
+ function split(m){ mode=m; st10.mode=m; assign=Array(100).fill(0);
+  const rr2=mulberry(97+(st10.n=(st10.n||0)+1)*13);   /* fresh shuffle every click */
+  if(m==="time"){ rows.forEach((x,i)=>assign[i]= i<60?0:i<80?1:2); }
+  else if(m==="rand"){ const idx=[...Array(100).keys()]; for(let i=idx.length-1;i>0;i--){const j=Math.floor(rr2()*(i+1));[idx[i],idx[j]]=[idx[j],idx[i]];}
+   idx.forEach((x,k)=>assign[x]= k<60?0:k<80?1:2); }
+  else { const pos=rows.filter(x=>x.pos).map(x=>x.i), neg=rows.filter(x=>!x.pos).map(x=>x.i);
+   [pos,neg].forEach(arr=>{ for(let i=arr.length-1;i>0;i--){const j=Math.floor(rr2()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}
+    arr.forEach((x,k)=>{ const f=k/arr.length; assign[x]= f<.6?0:f<.8?1:2; }); }); }
+  revealN=0; clearInterval(revTimer);
+  revTimer=setInterval(()=>{ revealN+=7; if(revealN>=100||!el.isConnected){revealN=100;clearInterval(revTimer);} show(); },45);
+  show(); }
+ el.querySelector("#sp1").onclick=e=>{sel(e.target);split("rand");};
+ el.querySelector("#sp2").onclick=e=>{sel(e.target);split("strat");};
+ el.querySelector("#sp3").onclick=e=>{sel(e.target);split("time");};
+ function sel(b){["sp1","sp2","sp3"].forEach(id=>el.querySelector("#"+id).classList.toggle("on",el.querySelector("#"+id)===b));}
+ function show(){
+  g.clearRect(0,0,w,h);
+  const mut=cssv("--muted"), orange=cssv("--orange"), blue=cssv("--blue");
+  const setC=[cssv("--okG"),cssv("--okS"),cssv("--okP")];
+  const cw=(w-24)/50;
+  rows.forEach((x,i)=>{ const cx=12+(i%50)*cw+cw/2, cy=i<50?46:96;
+   if(assign){ g.fillStyle=setC[assign[i]]; g.globalAlpha=.4; g.fillRect(cx-cw/2+.5,cy-16,cw-1,32); g.globalAlpha=1; }
+   g.fillStyle=x.pos?orange:blue; g.beginPath(); g.arc(cx,cy,3.4,0,6.29); g.fill(); });
+  g.fillStyle=mut; g.font="10.5px 'IBM Plex Mono'";
+  g.fillText("→ time order →   orange = positive class (10%)",12,16);
+  if(assign){ g.fillText("band colour: green=train · sky blue=validation · pink=test",12,h-30); }
+  g.fillText(temporal?"rows are time-ordered events":"rows are independent (no time meaning)",12,h-12);
+  if(!assign)return;
+  const stats=[0,1,2].map(s=>{ const set=rows.filter((x,i)=>assign[i]===s);
+   return [set.length, set.filter(x=>x.pos).length]; });
+  const setNames=["TRAIN — model learns from this","VALIDATION — tunes hyperparameters","TEST — touched once, at the end"];
+  const bw2=(w-56)/3;
+  [0,1,2].forEach(s=>{ const bx=16+s*(bw2+12), by=138, bh=h-138-42;
+   g.strokeStyle=setC[s]; g.lineWidth=1.5; g.strokeRect(bx,by,bw2,bh); g.lineWidth=1;
+   g.fillStyle=setC[s]; g.font="9.5px 'IBM Plex Mono'";
+   g.fillText(setNames[s].split(" — ")[0]+" · "+stats[s][0]+" rows · "+stats[s][1]+" fraud",bx+8,by+15);
+   g.fillStyle=mut; g.font="8.5px 'IBM Plex Mono'"; g.fillText(setNames[s].split(" — ")[1],bx+8,by+28);
+   const set=rows.filter((x,i)=>assign[i]===s);
+   const perRow=Math.max(6,Math.floor((bw2-20)/13));
+   set.forEach((x,j)=>{ if(x.i>=revealN)return;
+    const cxx=bx+12+(j%perRow)*13, cyy=by+42+Math.floor(j/perRow)*13;
+    if(cyy<by+bh-8){ g.fillStyle=x.pos?orange:blue; g.beginPath(); g.arc(cxx,cyy,3.4,0,6.29); g.fill(); } });
+  });
+  g.fillStyle=mut; g.font="10px 'IBM Plex Mono'";
+  g.fillText("↓ the same 100 rows dealt into their three sets — watch the orange (fraud) share of each box change per method",16,132);
+  ["ma1","ma2","ma3"].forEach((id,s)=>{ const pct=stats[s][1]/stats[s][0]*100;
+   el.querySelector("#"+id).textContent=pct.toFixed(0)+"% ("+stats[s][1]+"/"+stats[s][0]+")";
+   const b=el.querySelector("#"+id+"b"); b.style.width=Math.min(100,pct*4)+"%";
+   b.style.background=(pct<4||pct>18)?cssv("--bad"):cssv("--accent"); });
+  const leak = temporal&&mode!=="time";
+  el.querySelector("#ma4").textContent= leak?"YES — future in train":"none";
+  setDecision("split",{rand:"random",strat:"stratified",time:"time-series"}[mode]+(leak?" (LEAKING)":" ✓"));
+  const n=el.querySelector("#n10"); n.style.display="flex";
+  const minPct=Math.min(...stats.map(s=>s[1]/s[0]));
+  if(mode==="time"){ n.className="note "+(temporal?"best":"warn");
+   el.querySelector("#n10b").textContent=temporal?"Correct for temporal":"Unneeded here";
+   el.querySelector("#n10t").innerHTML=temporal?"Train on the past, validate and test on the future — exactly how the model will live. No temporal leakage; note the class ratios may still drift between periods (see the bars).":"With no time meaning in the rows, a chronological cut just wastes randomisation. Use random or stratified."; }
+  else if(mode==="strat"){ n.className="note "+(leak?"avoid":"best");
+   el.querySelector("#n10b").textContent=leak?"Stratified BUT leaking":"Correct for imbalance";
+   el.querySelector("#n10t").innerHTML=leak?"Class ratios are perfect — and worthless: the data is temporal, so training rows come from the future of test rows. Fix the time problem first.":"Every split keeps ~10% positives, so validation and test actually measure minority performance. This is the answer for imbalanced, non-temporal data."; }
+  else { n.className="note "+(leak?"avoid":(minPct<.05?"warn":"best"));
+   el.querySelector("#n10b").textContent=leak?"Temporal leakage":(minPct<.05?"Skewed sets":"OK here");
+   el.querySelector("#n10t").innerHTML=leak?"Random splitting time-ordered data trains the model on the FUTURE of the rows it is tested on — evaluation numbers become fiction. Use a time-series split.":(minPct<.05?"Pure chance left a set with almost no positives ("+(minPct*100).toFixed(0)+"%) — its metrics for the minority class are noise. Stratify instead.":"With balanced-enough sets random works — but you got lucky; stratification removes the luck."); }
+ }
+ if(st10.mode){ const btn={rand:"sp1",strat:"sp2",time:"sp3"}[st10.mode]; sel(el.querySelector("#"+btn)); split(st10.mode); }
+ else show();
+}},
+
+/* 11 — cleansing & enhancement (official-course topics: cleansing, imputation, enhancement, feature engineering, augmentation/multiplication) */
+{phase:"Data preparation — treatment · CPMAI III",title:"Data cleansing & enhancement",eyebrow:"Make it usable, then make it valuable",
+lede:()=>`Phase III opens by treating the basics EDA documented${PROJECT.findings?" ("+PROJECT.findings+")":""}. The official course splits this into <b>data cleansing</b> — making data usable (dedupe, fix bad values, handle missing) — and <b>data enhancement</b> — adding value to it (standardizing formats, engineering new features, augmenting scarce data). Below is a raw slice of your joined table with its real problems highlighted. Apply each treatment and watch the table repair itself.`,
+build(el){
+ el.innerHTML=`<div class="btnrow">
+   <button class="b" id="cl1" title="Data enhancement: normalize values & standardize formats so the same fact looks the same everywhere">① Standardize formats</button>
+   <button class="b" id="cl2" title="Data cleansing: remove duplicate records so each real transaction appears once">② Remove duplicates</button>
+  </div>
+  <div class="btnrow"><span class="subttl" style="align-self:center;margin:0">③ Missing income — pick ONE treatment:</span>
+   <button class="b" id="cl3a" title="Fill gaps with the median of known values — keeps all rows, adds mild guesswork">Impute (median)</button>
+   <button class="b" id="cl3b" title="Delete incomplete rows — honest but throws away real transactions">Drop rows</button>
+   <button class="b" id="cl3c" title="Let GenAI fill plausible values from context — allowed only if controlled and vetted">GenAI fill</button>
+  </div>
+  <div class="btnrow">
+   <button class="b" id="cl4" title="Feature engineering: derive a new, more useful column from an existing one">④ Engineer feature: day-of-week</button>
+   <button class="b" id="cl5" title="Data augmentation / multiplication: create additional examples from existing ones when data is scarce">⑤ Augment / multiply data</button>
+  </div>
+  <div style="overflow-x:auto"><table id="tbl11" style="border-collapse:collapse;width:100%;font:13px 'IBM Plex Mono',monospace"></table></div>
+  <div class="meters">
+   <div class="meter"><b>Rows</b><div class="mv" id="q1">6</div></div>
+   <div class="meter"><b>Columns</b><div class="mv" id="q2">4</div></div>
+   <div class="meter"><b>Issues remaining</b><div class="mv" id="q3">6</div><div class="bar"><i id="q3b" style="width:100%;background:var(--bad)"></i></div></div>
+  </div>
+  <div class="note" id="n11" style="display:none"><span class="badge" id="n11b"></span><span id="n11t"></span></div>
+  <div class="doctrine"><b>Course vocabulary:</b> <b>cleansing</b> = dedupe, remove extraneous/bad data, impute or remove missing values. <b>enhancement</b> = normalize values, standardize labels, create derived features. <b>feature engineering</b> = new inputs from existing ones (day-of-week from a timestamp). <b>data augmentation / multiplication</b> = expanding a limited dataset by creating additional examples from what you have — SMOTE (next stages) and vetted synthetic data are members of this family.</div>`;
+ const T={rows:[
+   {id:"TXN-1001",amt:"1,200",inc:"52000",ts:"2026-08-14 09:12"},
+   {id:"TXN-1002",amt:"1200.00",inc:null,ts:"2026-08-14 22:47"},
+   {id:"TXN-1003",amt:"980",inc:"61000",ts:"2026-08-15 02:33"},
+   {id:"TXN-1003",amt:"980",inc:"61000",ts:"2026-08-15 02:33",dup:true},
+   {id:"TXN-1004",amt:"1.5K",inc:null,ts:"2026-08-15 11:05"},
+   {id:"TXN-1005",amt:"310",inc:"47500",ts:"2026-08-16 18:20"}],
+  fmt:false,ded:false,miss:null,feat:false,aug:false};
+ const DOW={14:"Friday",15:"Saturday",16:"Sunday"};
+ function issues(){ let n=0; if(!T.fmt)n+=2; if(!T.ded)n+=1; if(!T.miss)n+=2; if(!T.feat)n+=1; return n; }
+ function render(){
+  const bad="style='background:var(--bad-bg);color:var(--bad)'", fix="style='background:var(--good-bg)'";
+  const th="style='text-align:left;padding:6px 10px;border-bottom:2px solid var(--line);color:var(--muted);font-size:11px'";
+  const td="style='padding:6px 10px;border-bottom:1px solid var(--line)'";
+  let rows=T.rows.filter(r=>!(T.ded&&r.dup));
+  if(T.miss==="drop") rows=rows.filter(r=>r.inc!==null);
+  let html=`<tr><th ${th}>transaction</th><th ${th}>amount (₹)</th><th ${th}>income (₹)</th><th ${th}>timestamp</th>${T.feat?`<th ${th}>day_of_week ✦</th>`:""}</tr>`;
+  rows.forEach(r=>{
+   const rawAmt=!T.fmt&&(r.amt.includes(",")||r.amt.includes("K"));
+   const amt=T.fmt?(r.amt==="1,200"||r.amt==="1200.00"?"1200.00":r.amt==="1.5K"?"1500.00":(+r.amt).toFixed(2)):r.amt;
+   let inc=r.inc, incCell="";
+   if(inc===null){ if(T.miss==="imp"){inc="52000 ᵐ";incCell=fix;} else if(T.miss==="gen"){inc="~54800 ᵍ";incCell=fix;} else {inc="— missing —";incCell=bad;} }
+   html+=`<tr${(!T.ded&&r.dup)?" "+bad:""}><td ${td}>${r.id}${(!T.ded&&r.dup)?" ⚠ duplicate":""}</td><td ${td} ${rawAmt?bad:(T.fmt?fix:"")}>${amt}</td><td ${td} ${incCell}>${inc}</td><td ${td}>${r.ts}</td>${T.feat?`<td ${td} ${fix}>${DOW[+r.ts.slice(8,10)]}</td>`:""}</tr>`;});
+  el.querySelector("#tbl11").innerHTML=html;
+  el.querySelector("#q1").textContent=rows.length+(T.aug?" (+synthetic)":"");
+  el.querySelector("#q2").textContent=T.feat?5:4;
+  const n=issues(); el.querySelector("#q3").textContent=n;
+  const b=el.querySelector("#q3b"); b.style.width=Math.max(4,n/6*100)+"%"; b.style.background=n?cssv("--bad"):cssv("--good");
+  const done=[T.fmt&&"formats ✓",T.ded&&"deduped ✓",T.miss&&({imp:"imputed",drop:"rows dropped",gen:"GenAI-filled"})[T.miss],T.feat&&"day_of_week ✦",T.aug&&"augmentation planned"].filter(Boolean);
+  if(done.length)setDecision("cleanse",done.join(" · "));
+ }
+ function note(cls,badge,txt){ const n=el.querySelector("#n11"); n.className="note "+cls; n.style.display="flex";
+  el.querySelector("#n11b").textContent=badge; el.querySelector("#n11t").innerHTML=txt; }
+ el.querySelector("#cl1").onclick=(e)=>{T.fmt=true;e.target.classList.add("on");render();
+  note("best","Enhancement","\"1,200\", \"1200.00\" and \"1.5K\" were the SAME kind of value in three spellings — a consistency problem from joining sources. Standardized, they can finally be compared and summed.");};
+ el.querySelector("#cl2").onclick=(e)=>{T.ded=true;e.target.classList.add("on");render();
+  note("best","Cleansing","TXN-1003 appeared twice (a retried upload). Left in, it double-counts revenue and lets the model memorise that transaction twice.");};
+ [["cl3a","imp","warn","Imputed","Median income (₹52,000, marked ᵐ) fills the gaps: all rows kept, but two values are now educated guesses — the model treats them as facts. Fine when the field is secondary."],
+  ["cl3b","drop","warn","Dropped","Incomplete rows deleted: nothing is guessed, but you threw away 2 of 6 real transactions — on small data that hurts more than imputing. (Note the guarded-tables instinct: prefer marking over deleting in production stores.)"],
+  ["cl3c","gen","warn","GenAI-filled","GenAI predicted plausible incomes (marked ᵍ) from each row's context. The course allows this — but ONLY controlled, documented and vetted like any synthetic data; unvetted generative fills are invisible fabrication."]]
+  .forEach(([id,mode,cls,badge,txt])=>{ el.querySelector("#"+id).onclick=(e)=>{ T.miss=mode;
+   ["cl3a","cl3b","cl3c"].forEach(x=>el.querySelector("#"+x).classList.toggle("on",x===id)); render(); note(cls,badge,txt); }; });
+ el.querySelector("#cl4").onclick=(e)=>{T.feat=true;e.target.classList.add("on");render();
+  note("best","Feature engineering","A raw timestamp is nearly useless to a model — but day_of_week (✦) derived from it is a strong fraud signal (2 AM Saturday ≠ 9 AM Friday). Creating inputs like this from existing columns is feature engineering.");};
+ el.querySelector("#cl5").onclick=(e)=>{T.aug=true;e.target.classList.add("on");render();
+  note("warn","Augmentation / multiplication","When data is scarce, you can create additional examples from what you have — the course calls this data augmentation, and data multiplication when generating variations (e.g. rotated images). You'll do a targeted version of it next: SMOTE multiplies only the minority class.");};
+ render();
+}},
+
+/* 12 — auto-generated project summary */
+{phase:"Wrap-up",title:"Data-readiness report",eyebrow:"Auto-generated from your decisions",
+lede:"This is the deliverable a real Phase II–III closes with: an executive summary of every decision you made across the eleven stages, with the doctrine verdict on each. It regenerates every time you open this page — go back, change a decision, and return to see it update.",
+build(el){
+ const rows=ORDER.map(k=>{
+  const v=PROJECT[k];
+  const status = !v ? ["—","var(--muted)","not visited yet"] :
+   v.includes("✗")||v.includes("LEAKING")||v.includes("risk")||v.includes("weak")||v.includes("(bad)")||v.includes("leaking") ? ["✗","var(--bad)","needs rework before modelling"] :
+   v.includes("✓") ? ["✓","var(--good)","doctrine-aligned"] : ["•","var(--warn)","recorded — no single right answer"];
+  return {k,v,status};
+ });
+ const blockers=rows.filter(r=>r.status[0]==="✗");
+ const missing=rows.filter(r=>r.status[0]==="—");
+ const verdict = missing.length ? ["warn","Incomplete","Visit the remaining stages ("+missing.map(r=>DLBL[r.k]).join(", ")+") before this report can certify readiness."]
+  : blockers.length ? ["avoid","NOT ready for Phase IV","Fix before modelling: "+blockers.map(r=>DLBL[r.k]+" — "+r.v).join(" · ")]
+  : ["best","READY for Phase IV — Model Development","Every stage has a documented, doctrine-aligned decision. The data is profiled, validated, governed, labelled, sized, explored, cleansed, encoded, balanced and split — with lineage to prove it."];
+ el.innerHTML=`
+  <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:13.5px">
+   <tr><th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">#</th>
+   <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">STAGE</th>
+   <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">YOUR DECISION</th>
+   <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">VERDICT</th></tr>
+   ${rows.map((r,i)=>`<tr>
+    <td style="padding:7px 10px;border-bottom:1px solid var(--line);font-family:'IBM Plex Mono',monospace;color:var(--muted)">${String(i+1).padStart(2,"0")}</td>
+    <td style="padding:7px 10px;border-bottom:1px solid var(--line);font-weight:600">${DLBL[r.k]}</td>
+    <td style="padding:7px 10px;border-bottom:1px solid var(--line)">${r.v?E(r.v):"<span style='color:var(--muted)'>—</span>"}</td>
+    <td style="padding:7px 10px;border-bottom:1px solid var(--line);color:${r.status[1]}"><b>${r.status[0]}</b> ${r.status[2]}</td></tr>`).join("")}
+  </table></div>
+  <div class="note ${verdict[0]}" style="margin-top:16px"><span class="badge">${verdict[1]}</span><span>${verdict[2]}</span></div>
+  <div class="doctrine"><b>What happens to this in a real project:</b> Phase II ends with communication, not just assessment — this table becomes the executive summary and data-readiness presentation to stakeholders (go, no-go, or what must change first), and it feeds the Phase III→IV gate review. From here the project moves to CPMAI Phase IV (model development), and after deployment the data keeps being watched for drift (Phase VI).</div>
+  <div class="btnrow" style="margin-top:14px"><button class="b" onclick="go(0)">↺ Back to stage 1</button></div>`;
+}}
+];
+
+/* ============ SHELL ============ */
+/* Real-world sequence: access+profile → integration decision → collect+validate → lineage → labelling → sizing → EDA → encode → imbalance → split */
+const SEQ=[0,3,1,2,5,4,6,10,7,8,9,11];
+let cur=0;
+function railHTML(){
+ let html="",last="";
+ SEQ.forEach((si,i)=>{ const s=STEPS[si];
+  if(s.phase!==last){html+=`<div class="phase-tag">${s.phase}</div>`;last=s.phase;}
+  html+=`<button class="step-btn ${i===cur?'active':''}" onclick="go(${i})"><span class="num">${String(i+1).padStart(2,"0")}</span><span>${s.title}</span></button>`; });
+ document.getElementById("steplist").innerHTML=`<div class="steps">${html}</div>`;
+}
+function render(){
+ stopAnim();
+ const s=STEPS[SEQ[cur]];
+ const main=document.getElementById("main");
+ const lede = typeof s.lede==="function" ? s.lede() : s.lede;
+ const eyeb = "Stage "+(cur+1)+" · "+s.eyebrow.replace(/^Step \d+ · /,"");
+ main.innerHTML=`<div class="plog"><div class="pt">Project: fraud-detection model · e-commerce payments client · stage ${cur+1}/${SEQ.length}</div><div id="plogd">${logHTML()}</div></div>
+  <div class="eyebrow">${eyeb}</div><h1>${s.title}</h1><p class="lede">${lede}</p>
+  <div class="sim" id="sim"></div>
+  <div class="nav"><button class="b" onclick="go(${cur-1})" ${cur===0?"disabled":""}>← Back</button>
+  <button class="b primary" onclick="go(${cur+1})" ${cur===STEPS.length-1?"disabled":""}>Next stage →</button></div>`;
+ s.build(document.getElementById("sim"));
+ railHTML(); window.scrollTo({top:0});
+}
+function go(i){ if(i<0||i>=STEPS.length)return; cur=i; render(); }
+window.go=go;
+render();
+window.addEventListener("resize",()=>{clearTimeout(window.__rz);window.__rz=setTimeout(render,250);});
+</script>
+
+<script>
+/* ---- embed integration: admin stage-lede overrides + auto-height ----
+   The parent page (/labs/data-pipeline-navigator) posts
+   {type:'dpn-ledes', ledes:{slug:text}} after load; we post
+   {type:'dpn-height', h} whenever our content height changes. */
+(function(){
+ "use strict";
+ var SLUGS=["profiling","integration","validate","lineage","labelling",
+            "sizing","eda","cleansing","encoder","imbalance","split","summary"];
+ var OVR={};
+ var origRender=window.render;
+ window.render=function(){
+   origRender();
+   try{
+     var idx=[].indexOf.call(document.querySelectorAll(".step-btn"),
+                             document.querySelector(".step-btn.active"));
+     var slug=SLUGS[idx>=0?idx:0];
+     if(OVR[slug]){ var el=document.querySelector(".lede"); if(el)el.textContent=OVR[slug]; }
+   }catch(e){}
+   postHeight();
+ };
+ function postHeight(){
+   try{ parent.postMessage({type:"dpn-height",
+     h: document.documentElement.scrollHeight}, "*"); }catch(e){}
+ }
+ window.addEventListener("message",function(ev){
+   var d=ev.data;
+   if(!d || d.type!=="dpn-ledes" || typeof d.ledes!=="object" || d.ledes===null) return;
+   var clean={};
+   for(var k in d.ledes){
+     if(SLUGS.indexOf(k)>=0 && typeof d.ledes[k]==="string" && d.ledes[k].trim())
+       clean[k]=d.ledes[k].trim();
+   }
+   OVR=clean;
+   window.render();
+ });
+ if(window.ResizeObserver){ new ResizeObserver(postHeight).observe(document.body); }
+ window.addEventListener("load",postHeight);
+ postHeight();
+})();
+</script>
+
+</body>
+</html>
