@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -16,6 +17,7 @@ type PipelineCopy = {
   introHtml: string;
   takeawayHtml: string;
   stageLedes: Record<string, string>;
+  enabled: boolean;
 };
 
 async function loadCopy(): Promise<PipelineCopy> {
@@ -32,15 +34,16 @@ async function loadCopy(): Promise<PipelineCopy> {
         }
       }
       return {
+        enabled: d.enabled !== false,
         title: (d.title || DEFAULT_TITLE).slice(0, 80),
         introHtml: d.intro_html ? sanitizeHtml(d.intro_html) : "",
         takeawayHtml: d.takeaway_html ? sanitizeHtml(d.takeaway_html) : "",
         stageLedes: ledes,
       };
     }
-  } catch { /* backend unreachable — defaults below */ }
+  } catch { /* backend unreachable — defaults below (fail open) */ }
   return { title: DEFAULT_TITLE, introHtml: "", takeawayHtml: "",
-           stageLedes: {} };
+           stageLedes: {}, enabled: true };
 }
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -67,6 +70,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function DataPipelineNavigatorPage() {
   const copy = await loadCopy();
+  if (!copy.enabled) redirect("/labs");
   return (
     <>
       <JsonLd data={{

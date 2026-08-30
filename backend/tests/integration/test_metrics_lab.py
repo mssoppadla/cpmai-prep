@@ -24,8 +24,10 @@ def test_lab_config_is_public_with_empty_defaults(client):
     body = r.json()
     # Empty strings signal "use the frontend's built-in default" — the
     # page can never be blanked by a wiped setting.
-    assert set(body.keys()) == {"title", "takeaway_html", "reference_html"}
-    assert body["title"]   # always a display name, even unseeded
+    assert set(body.keys()) == {
+        "enabled", "title", "takeaway_html", "reference_html"}
+    assert body["title"]           # always a display name, even unseeded
+    assert body["enabled"] is True  # labs fail OPEN when unseeded
 
 
 def test_admin_edits_flow_to_public_endpoint(client, admin):

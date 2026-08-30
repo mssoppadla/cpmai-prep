@@ -395,6 +395,16 @@
     "description": "Hourly safety net: for recent unpaid Razorpay orders (30min-7days old), ask the gateway directly whether a captured payment exists; if yes, activate the subscription and send the invoice exactly as a webhook would (captured_via='reconcile'). Catches money lost to disabled webhooks or closed browser tabs. Turn off only while debugging gateway API issues."
   },
   {
+    "key": "labs.metrics_lab_enabled",
+    "value": true,
+    "description": "Show the Classification Metrics Lab. Off → its card disappears from /labs and /labs/metrics-lab redirects to /labs. Takes effect within about a minute (content cache)."
+  },
+  {
+    "key": "labs.pipeline_lab_enabled",
+    "value": true,
+    "description": "Show the Data Pipeline Navigator lab. Off → its card disappears from /labs and /labs/data-pipeline-navigator redirects to /labs. Takes effect within about a minute (content cache)."
+  },
+  {
     "key": "labs.metrics_lab_title",
     "value": "Classification Metrics Lab",
     "description": "Display name of the /labs/metrics-lab page — shown as the page heading, browser title, labs-index card and breadcrumb. Rename the lab here any time; the URL stays /labs/metrics-lab."

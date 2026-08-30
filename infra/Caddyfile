@@ -54,6 +54,21 @@ cpmaiexamprep.com {
         Referrer-Policy           "strict-origin-when-cross-origin"
     }
 
+    # The Data Pipeline Navigator simulator is embedded same-origin in an
+    # <iframe> by /labs/data-pipeline-navigator, and Next.js answers
+    # SAMEORIGIN for this one file. Caddy's DENY above STACKS with it
+    # (header ops on proxied responses append rather than replace), so
+    # browsers received "X-Frame-Options: DENY, SAMEORIGIN" — a
+    # conflicting pair they resolve to deny, blanking the embedded lab
+    # (incident 2026-08-30). `defer` + delete + set guarantees exactly
+    # one SAMEORIGIN for this path; every other path keeps DENY.
+    @pipelineSim path /labs/pipeline-sim.html
+    header @pipelineSim {
+        defer
+        -X-Frame-Options
+        X-Frame-Options "SAMEORIGIN"
+    }
+
     # Caddy's access log → /var/log/caddy/access.log (rotated by Caddy itself)
     log {
         output file /var/log/caddy/cpmaiexamprep-access.log {
