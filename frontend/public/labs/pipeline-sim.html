@@ -1236,9 +1236,23 @@ function render(){
 function go(i){ if(i<0||i>=STEPS.length)return; cur=i; render(); }
 window.go=go;
 render();
-window.addEventListener("resize",()=>{clearTimeout(window.__rz);window.__rz=setTimeout(render,250);});
+/* Re-render only when the WIDTH changes. Height changes are caused by
+   the embedding page resizing the iframe to fit our own reported
+   height — re-rendering on those creates a feedback loop that flickers
+   every canvas. */
+window.__lw=window.innerWidth;
+window.addEventListener("resize",()=>{clearTimeout(window.__rz);
+ window.__rz=setTimeout(()=>{ if(window.innerWidth!==window.__lw){window.__lw=window.innerWidth;render();} },250);});
 </script>
 
+<style>
+/* Embedded-in-iframe overrides: the page scrolls as part of the parent
+   document, so the sidebar must take its NATURAL height. The standalone
+   styling (height:100vh + sticky) couples the sidebar's height to the
+   iframe's height — which the parent sets FROM our reported height —
+   creating a grow/flicker feedback loop. */
+.rail{position:static;height:auto;min-height:0;overflow:visible}
+</style>
 <script>
 /* ---- embed integration: admin stage-lede overrides + auto-height ----
    The parent page (/labs/data-pipeline-navigator) posts
@@ -1260,9 +1274,14 @@ window.addEventListener("resize",()=>{clearTimeout(window.__rz);window.__rz=setT
    }catch(e){}
    postHeight();
  };
+ var lastH=0;
  function postHeight(){
-   try{ parent.postMessage({type:"dpn-height",
-     h: document.documentElement.scrollHeight}, "*"); }catch(e){}
+   try{
+     var h=document.documentElement.scrollHeight;
+     if(Math.abs(h-lastH)<=8) return;   // ignore sub-pixel/oscillation noise
+     lastH=h;
+     parent.postMessage({type:"dpn-height", h:h}, "*");
+   }catch(e){}
  }
  window.addEventListener("message",function(ev){
    var d=ev.data;
