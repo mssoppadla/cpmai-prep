@@ -553,6 +553,12 @@ EDITABLE: dict[str, Callable] = {
     # HTML allowed: b/i/strong/em/u, span with style="color:...", br,
     # p, ul/ol/li, table/thead/tbody/tr/td/th, h3/h4, a href. The lab
     # sanitizes to that allowlist at render. Empty = built-in default.
+    # Every lab gets an individual enable/disable switch: off → its card
+    # disappears from /labs and its page redirects there (bookmarks
+    # degrade gracefully, no 404). Takes effect within the ~60s content
+    # cache. Add one <slug>_enabled key per future lab.
+    "labs.metrics_lab_enabled":          _bool,
+    "labs.pipeline_lab_enabled":         _bool,
     "labs.metrics_lab_title":            _short_str(80),
     "labs.metrics_lab_takeaway_html":    _optional_str(8000),
     "labs.metrics_lab_reference_html":   _optional_str(12000),

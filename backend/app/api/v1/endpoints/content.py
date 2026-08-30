@@ -33,6 +33,8 @@ def metrics_lab_config():
     frontend falls back to its built-in defaults, so a wiped setting can
     never blank the page."""
     return {
+        "enabled": settings_store.get_bool(
+            "labs.metrics_lab_enabled", True),
         "title": settings_store.get_str(
             "labs.metrics_lab_title", "Classification Metrics Lab"),
         "takeaway_html": settings_store.get_str(
@@ -50,6 +52,8 @@ def pipeline_lab_config():
     slug. Empty values → the frontend/simulator built-in defaults."""
     ledes = settings_store.get("labs.pipeline_lab_stage_ledes", {})
     return {
+        "enabled": settings_store.get_bool(
+            "labs.pipeline_lab_enabled", True),
         "title": settings_store.get_str(
             "labs.pipeline_lab_title", "Data Pipeline Navigator"),
         "intro_html": settings_store.get_str(

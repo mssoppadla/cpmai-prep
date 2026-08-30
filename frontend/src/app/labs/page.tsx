@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { fetchJson } from "@/lib/ssr";
 
 export const metadata: Metadata = {
   title: "Interactive Labs — CPMAI Exam Prep",
@@ -11,8 +12,17 @@ export const metadata: Metadata = {
   alternates: { canonical: "/labs" },
 };
 
-/** Index of interactive labs. One lab today; the grid is ready for more. */
-export default function LabsIndexPage() {
+/** Index of interactive labs. Each lab has an individual admin
+ *  enable/disable switch (Settings → labs.<slug>_enabled); a disabled
+ *  lab's card is hidden here and its page redirects back to /labs.
+ *  Backend unreachable → everything shows (fail open). */
+export default async function LabsIndexPage() {
+  const [metrics, pipeline] = await Promise.all([
+    fetchJson<{ enabled?: boolean }>(
+      "/content/labs/metrics-lab", { enabled: true }),
+    fetchJson<{ enabled?: boolean }>(
+      "/content/labs/data-pipeline-navigator", { enabled: true }),
+  ]);
   return (
     <>
       <SiteHeader active="labs" />
@@ -23,6 +33,7 @@ export default function LabsIndexPage() {
           CPMAI exam loves to test at the application level.
         </p>
         <div className="grid sm:grid-cols-2 gap-5">
+          {metrics.enabled !== false && (
           <Link
             href="/labs/metrics-lab"
             className="block bg-white border border-slate-200 rounded-2xl p-6
@@ -48,6 +59,8 @@ export default function LabsIndexPage() {
               Open the lab →
             </span>
           </Link>
+          )}
+          {pipeline.enabled !== false && (
           <Link
             href="/labs/data-pipeline-navigator"
             className="block bg-white border border-slate-200 rounded-2xl p-6
@@ -75,7 +88,13 @@ export default function LabsIndexPage() {
               Open the lab →
             </span>
           </Link>
+          )}
         </div>
+        {metrics.enabled === false && pipeline.enabled === false && (
+          <p className="text-slate-500 text-sm">
+            Labs are temporarily offline — check back soon.
+          </p>
+        )}
       </main>
       <SiteFooter />
     </>

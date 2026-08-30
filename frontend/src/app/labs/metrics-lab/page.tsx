@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -70,7 +71,7 @@ const DEFAULT_REFERENCE_HTML =
 const DEFAULT_TITLE = "Classification Metrics Lab";
 
 async function loadTeachingCopy(): Promise<{
-  title: string; takeaway: string; reference: string;
+  title: string; takeaway: string; reference: string; enabled: boolean;
 }> {
   try {
     const r = await fetch(`${API}/content/labs/metrics-lab`, {
@@ -79,13 +80,15 @@ async function loadTeachingCopy(): Promise<{
     if (r.ok) {
       const d = await r.json();
       return {
+        enabled: d.enabled !== false,
         title: (d.title || DEFAULT_TITLE).slice(0, 80),
         takeaway: sanitizeHtml(d.takeaway_html || DEFAULT_TAKEAWAY_HTML),
         reference: sanitizeHtml(d.reference_html || DEFAULT_REFERENCE_HTML),
       };
     }
-  } catch { /* backend unreachable — defaults below */ }
+  } catch { /* backend unreachable — defaults below (fail open) */ }
   return {
+    enabled: true,
     title: DEFAULT_TITLE,
     takeaway: sanitizeHtml(DEFAULT_TAKEAWAY_HTML),
     reference: sanitizeHtml(DEFAULT_REFERENCE_HTML),
@@ -94,6 +97,7 @@ async function loadTeachingCopy(): Promise<{
 
 export default async function ModelErrorLabPage() {
   const copy = await loadTeachingCopy();
+  if (!copy.enabled) redirect("/labs");
   return (
     <>
       <JsonLd data={{
