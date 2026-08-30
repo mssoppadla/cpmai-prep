@@ -42,6 +42,24 @@ def metrics_lab_config():
     }
 
 
+@router.get("/labs/data-pipeline-navigator")
+def pipeline_lab_config():
+    """Admin-editable copy for the public Data Pipeline Navigator lab
+    (Settings → labs.pipeline_lab_*): page title, intro/takeaway HTML
+    blocks, and optional per-stage description overrides keyed by stage
+    slug. Empty values → the frontend/simulator built-in defaults."""
+    ledes = settings_store.get("labs.pipeline_lab_stage_ledes", {})
+    return {
+        "title": settings_store.get_str(
+            "labs.pipeline_lab_title", "Data Pipeline Navigator"),
+        "intro_html": settings_store.get_str(
+            "labs.pipeline_lab_intro_html", ""),
+        "takeaway_html": settings_store.get_str(
+            "labs.pipeline_lab_takeaway_html", ""),
+        "stage_ledes": ledes if isinstance(ledes, dict) else {},
+    }
+
+
 @router.get("/topics")
 def list_topics(db: Session = Depends(get_db)):
     return [

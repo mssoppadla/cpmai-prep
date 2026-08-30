@@ -410,6 +410,26 @@
     "description": "Reference table (cause · consequence · remedy) on /labs/metrics-lab. Add a row by copying a <tr>...</tr> block. Same HTML allowlist as the takeaway card; bold with <b>, color with <span style=\"color:#b91c1c\">. Empty = built-in default."
   },
   {
+    "key": "labs.pipeline_lab_title",
+    "value": "Data Pipeline Navigator",
+    "description": "Display name of the /labs/data-pipeline-navigator page — shown as the page heading, browser title, labs-index card and breadcrumb. Rename the lab here any time; the URL stays the same."
+  },
+  {
+    "key": "labs.pipeline_lab_intro_html",
+    "value": "",
+    "description": "Optional HTML block shown ABOVE the Data Pipeline Navigator simulator (e.g. a study tip or exam pointer). Same HTML allowlist as the metrics-lab copy: <b> <i> <u> <span style=\"color:#c00\"> <br> <p> <ul><li> <a href>. Empty = show nothing extra."
+  },
+  {
+    "key": "labs.pipeline_lab_takeaway_html",
+    "value": "",
+    "description": "Optional HTML block shown BELOW the Data Pipeline Navigator simulator (e.g. key exam anchors or a recap). Same HTML allowlist as the intro. Empty = show nothing extra."
+  },
+  {
+    "key": "labs.pipeline_lab_stage_ledes",
+    "value": {},
+    "description": "Per-stage description overrides inside the Data Pipeline Navigator. JSON object mapping stage slug to replacement text (plain text, no HTML): profiling, integration, validate, lineage, labelling, sizing, eda, cleansing, encoder, imbalance, split, summary. Example: {\"encoder\": \"Your custom explanation…\"}. Missing/empty keys keep the simulator's built-in text."
+  },
+  {
     "key": "chat.whatsapp_enabled",
     "value": false,
     "description": "Show the green WhatsApp chat bubble beside the AI assistant on every page (works for logged-out visitors too). Clicking opens a WhatsApp chat with chat.whatsapp_number in the visitor's own WhatsApp app/web — you see each sender as a normal WhatsApp contact. Requires chat.whatsapp_number to be set."

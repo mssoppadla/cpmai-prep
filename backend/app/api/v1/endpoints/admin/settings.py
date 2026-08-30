@@ -43,6 +43,21 @@ def _optional_str(max_len: int = 500):
     return lambda v: isinstance(v, str) and len(v) <= max_len
 
 
+def _str_map(*, max_items: int = 30, max_key_len: int = 40,
+             max_val_len: int = 2000):
+    """A dict of string → string (stored as JSON). Empty dict allowed.
+    Used for per-item text overrides, e.g. lab stage descriptions."""
+    def ok(v):
+        if not isinstance(v, dict): return False
+        if len(v) > max_items: return False
+        return all(
+            isinstance(k, str) and 1 <= len(k) <= max_key_len
+            and isinstance(x, str) and len(x) <= max_val_len
+            for k, x in v.items()
+        )
+    return ok
+
+
 def _optional_url(max_len: int = 500):
     """Empty string OR an http(s) URL. Defensive but not strict — a
     bad URL won't crash the page, it'll just look broken in the footer.
@@ -541,6 +556,19 @@ EDITABLE: dict[str, Callable] = {
     "labs.metrics_lab_title":            _short_str(80),
     "labs.metrics_lab_takeaway_html":    _optional_str(8000),
     "labs.metrics_lab_reference_html":   _optional_str(12000),
+    # Data Pipeline Navigator lab (public /labs/data-pipeline-navigator):
+    # admin-editable page TITLE, an intro HTML block shown above the
+    # simulator, a takeaway HTML block shown below it, and optional
+    # per-stage description overrides — a JSON object mapping stage slug
+    # (profiling, integration, validate, lineage, labelling, sizing,
+    # eda, cleansing, encoder, imbalance, split, summary) to the text
+    # shown under that stage's heading inside the simulator. Empty
+    # value/dict = the simulator's built-in text.
+    "labs.pipeline_lab_title":           _short_str(80),
+    "labs.pipeline_lab_intro_html":      _optional_str(8000),
+    "labs.pipeline_lab_takeaway_html":   _optional_str(12000),
+    "labs.pipeline_lab_stage_ledes":     _str_map(
+        max_items=12, max_key_len=20, max_val_len=1500),
     # WhatsApp chat bubble — floats beside the AI assistant on every
     # page, works logged-out. Empty number or enabled=false hides it.
     "chat.whatsapp_enabled":             _bool,
