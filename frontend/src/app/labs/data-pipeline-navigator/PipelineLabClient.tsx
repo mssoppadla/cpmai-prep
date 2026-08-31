@@ -38,7 +38,7 @@ export function PipelineLabClient({
   return (
     <iframe
       ref={frameRef}
-      src="/labs/pipeline-sim.html?v=2"
+      src="/labs/pipeline-sim.html?v=3"
       title="Data Pipeline Navigator simulator"
       onLoad={pushOverrides}
       style={{ height }}

@@ -115,7 +115,9 @@ canvas{width:100%;display:block;border-radius:10px;background:var(--bg);border:1
 .fold{flex:1;min-width:74px;border:2px solid var(--line);border-radius:8px;padding:7px 6px;text-align:center;font-family:"IBM Plex Mono",monospace;font-size:11px;cursor:pointer;background:var(--bg)}
 .fold.enc{border-color:var(--okV);background:var(--bad-bg)}
 .fold.src{border-color:var(--okG);background:var(--good-bg)}
-.exmap{font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin:0 0 12px;overflow-x:auto;white-space:nowrap}
+.exmap{font-family:"IBM Plex Mono",monospace;font-size:12.5px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:0 0 12px;line-height:1.7}
+.exmap .xk{color:var(--accent);font-weight:600;letter-spacing:.04em}
+.b:disabled{opacity:.4;cursor:default}
 .exmap b{color:var(--accent)}
 </style>
 <div class="wrap">
@@ -823,12 +825,15 @@ build(el){
    x.innerHTML=+x.dataset.fold===k?`Fold ${x.dataset.fold}<br>BEING ENCODED`:`Fold ${x.dataset.fold}<br>supplies averages`;});
   el.querySelector("#foldtxt").innerHTML=`To encode a pincode in <b style="color:var(--okV)">fold ${k}</b>, the average fraud rate for that pincode is computed from the <b style="color:var(--okG)">other four folds only</b>. Fold ${k}'s own labels are never used for its own rows — so no row can smuggle its own answer into its feature. Repeat for all five folds and every row is encoded leak-free.`; });
  function exampleFor(K){
-  if(enc==="oh")return `Example — <b>pincode 500001</b> → [0, 0, 0, … <b>1</b> … 0, 0] &nbsp;·&nbsp; a row of ${K.toLocaleString()} numbers, all zero except its own column`;
-  if(enc==="lab")return `Example — <b>pincode 500001</b> → <b>7,214</b> &nbsp;·&nbsp; just its position in a sorted list — the number itself MEANS nothing`;
-  if(enc==="hash")return `Example — <b>pincode 500001</b> → hash("500001") mod 256 → <b>bucket 112</b> &nbsp;·&nbsp; shared with ~${Math.max(1,Math.round(K/256)).toLocaleString()} unrelated pincodes (a collision)`;
-  if(enc==="tgt")return cvOn?`Example — <b>pincode 500001</b> → <b>0.031</b> &nbsp;·&nbsp; the fraud rate among OTHER folds' rows with this pincode — 12,000 values compressed into one meaningful number`
-   :`Example — <b>pincode 500001</b> → <b>0.031</b> computed INCLUDING this row's own label &nbsp;·&nbsp; the answer just leaked into the feature`;
-  return `Example — <b>pincode 500001</b> → <b>812</b> &nbsp;·&nbsp; how many rows share this pincode (its frequency)`; }
+  /* One worked example per encoder, in three lines a first-time reader
+     can follow: what goes IN, what comes OUT, what the number MEANS. */
+  const IN=`<span class="xk">GOES IN:</span> one transaction whose pincode column says <b>"500001"</b>`;
+  if(enc==="oh")return `${IN}<br><span class="xk">COMES OUT:</span> a row of <b>${K.toLocaleString()} columns</b> — every one 0, except a single 1 in the column that belongs to pincode 500001<br><span class="xk">MEANS:</span> "this transaction is from area #500001, and from nowhere else". Honest, but the model must learn each of the ${K.toLocaleString()} columns separately — at high cardinality that starves it.`;
+  if(enc==="lab")return `${IN}<br><span class="xk">COMES OUT:</span> the single number <b>7,214</b><br><span class="xk">MEANS:</span> nothing — 7,214 is only the pincode's POSITION in a sorted list. But the model treats numbers as quantities, so it believes area 7,214 is "more" than area 7,213 — an invented order that pollutes what it learns.`;
+  if(enc==="hash")return `${IN}<br><span class="xk">COMES OUT:</span> <b>bucket 112</b> — computed as hash("500001") mod 256, always the same bucket for the same pincode<br><span class="xk">MEANS:</span> a stable group id with no meaning of its own. ${K>256?`With ${K.toLocaleString()} pincodes squeezed into 256 buckets, about <b>${Math.round(K/256).toLocaleString()} unrelated pincodes share each bucket</b> — the model can't tell them apart (collisions).`:`With only ${K.toLocaleString()} pincodes and 256 buckets, most pincodes get a bucket to themselves — collisions only begin once values outnumber buckets.`}`;
+  if(enc==="tgt")return cvOn?`${IN}<br><span class="xk">COMES OUT:</span> the single number <b>0.031</b><br><span class="xk">MEANS:</span> "3.1% of transactions from this pincode were fraud" — measured only on rows in the OTHER four folds, so this row's own answer is never hidden inside its feature. ${K.toLocaleString()} different pincodes each collapse into one small number that directly says how fraud-prone that area is.`
+   :`${IN}<br><span class="xk">COMES OUT:</span> the single number <b>0.031</b> — but computed from ALL rows, <b>including this row's own fraud label</b><br><span class="xk">MEANS:</span> the feature now secretly contains the very answer the model is supposed to predict. Training looks brilliant, real-world performance collapses — this is target leakage.`;
+  return `${IN}<br><span class="xk">COMES OUT:</span> the single number <b>812</b><br><span class="xk">MEANS:</span> 812 rows in the table share this pincode. It tells the model how COMMON the area is — not how fraudulent — so it's a cheap side-signal, rarely enough alone.`; }
  function draw(){
   const K=card(); el.querySelector("#k8v").textContent=K.toLocaleString();
   el.querySelector("#ex8").innerHTML=exampleFor(K);
@@ -861,7 +866,10 @@ build(el){
     g.fillStyle=blue; g.globalAlpha=.25+v*.75; g.fillRect(80,top+y*rh,120*v,rh-1.5); g.globalAlpha=1;
     g.fillStyle=mut; g.fillText("row"+(y+1),10,top+y*rh+rh*.7);
     g.fillText(Math.floor(v*K).toLocaleString(),210,top+y*rh+rh*.7); }
-   g.fillStyle=bad; g.fillText("⚠ bar length = the fake 'order' your model now believes in",300,top+30);
+   g.fillStyle=bad; g.textAlign="right";
+   g.fillText("⚠ bar length = the fake 'order' the model now believes in",w-12,top+18);
+   g.fillText("(these bars SHOULD all be meaningless labels of equal weight)",w-12,top+34);
+   g.textAlign="left";
    mem=rows1e6/1e6; leak=[0,"none"]; auc="0.77 → 0.69 (nonsense ordering)";
    note=["avoid","Fake ordering","One dense column — but pincode 500001 is not 'more than' 110001. Linear models learn the invented order as signal. Only defensible for genuinely ordinal categories (S < M < L)."];
   } else if(enc==="hash"){
@@ -885,8 +893,10 @@ build(el){
     g.fillStyle=cvOn?foldCols[y%folds]:bad; g.globalAlpha=.8; g.fillRect(80,top+y*rh,160*v,rh-1.5); g.globalAlpha=1;
     g.fillStyle=mut; g.fillText("row"+(y+1),10,top+y*rh+rh*.7);
     g.fillText(v.toFixed(3),250,top+y*rh+rh*.7); }
-   if(cvOn){ g.fillStyle=mut; g.fillText("row's own label NEVER touches its own encoding → leakage blocked",310,top+30); }
-   else { g.fillStyle=bad; g.fillText("each row's encoding contains its own answer → the model just memorises",310,top+30); }
+   g.textAlign="right";
+   if(cvOn){ g.fillStyle=mut; g.fillText("row's own label NEVER touches its own encoding → leakage blocked",w-12,top+30); }
+   else { g.fillStyle=bad; g.fillText("each row's encoding contains its own answer → the model just memorises",w-12,top+30); }
+   g.textAlign="left";
    mem=rows1e6/1e6; leak=cvOn?[8,"low (out-of-fold)"]:[95,"SEVERE"];
    auc=cvOn?"0.83 → 0.82 ✓":"0.99 → 0.61 ✗ (memorised the target)";
    note=cvOn?["best","Doctrine answer",`${K.toLocaleString()} values compressed into ONE dense, information-rich column, with cross-validation explicitly preventing the target from leaking into its own row. This is the answer for high-cardinality features.`]:["avoid","Leakage","Same encoder, no CV: train AUC looks miraculous, test AUC collapses. Naive target encoding is a leak, not a feature. Turn CV back on."];
@@ -1229,7 +1239,7 @@ function render(){
   <div class="eyebrow">${eyeb}</div><h1>${s.title}</h1><p class="lede">${lede}</p>
   <div class="sim" id="sim"></div>
   <div class="nav"><button class="b" onclick="go(${cur-1})" ${cur===0?"disabled":""}>← Back</button>
-  <button class="b primary" onclick="go(${cur+1})" ${cur===STEPS.length-1?"disabled":""}>Next stage →</button></div>`;
+  ${cur===STEPS.length-1?"":`<button class="b primary" onclick="go(${cur+1})">Next stage →</button>`}</div>`;
  s.build(document.getElementById("sim"));
  railHTML(); window.scrollTo({top:0});
 }

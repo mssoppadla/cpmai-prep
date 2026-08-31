@@ -43,9 +43,6 @@ export default async function LabsIndexPage() {
               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
                 D-IV · Model Evaluation
               </span>
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                No login needed
-              </span>
             </div>
             <h2 className="font-semibold text-lg text-slate-900 mb-1">
               Classification Metrics Lab
@@ -69,9 +66,6 @@ export default async function LabsIndexPage() {
             <div className="flex gap-2 mb-3">
               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
                 D-III · Data Understanding &amp; Preparation
-              </span>
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                No login needed
               </span>
             </div>
             <h2 className="font-semibold text-lg text-slate-900 mb-1">
