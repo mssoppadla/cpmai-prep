@@ -96,7 +96,7 @@ export default async function DataPipelineNavigatorPage() {
         provider: { "@type": "Organization", name: "CPMAI Exam Prep" },
       }} />
       <SiteHeader active="labs" />
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-8 sm:py-10">
         <p className="text-xs text-slate-500 mb-2">
           Labs → {copy.title}
         </p>
@@ -118,13 +118,18 @@ export default async function DataPipelineNavigatorPage() {
             D-III · Data Understanding &amp; Preparation
           </span>
           <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full
-                           bg-emerald-50 text-emerald-700">
-            Interactive — no login needed
-          </span>
-          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full
                            bg-amber-50 text-amber-800">
             ~25 min
           </span>
+          <a
+            href="/labs/pipeline-sim.html?v=3"
+            target="_blank"
+            rel="noopener"
+            className="text-xs font-semibold px-2.5 py-0.5 rounded-full
+                       bg-slate-100 text-slate-700 hover:bg-slate-200"
+          >
+            Open full screen ↗
+          </a>
         </div>
         {copy.introHtml ? (
           <div

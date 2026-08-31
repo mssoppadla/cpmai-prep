@@ -140,10 +140,6 @@ export default async function ModelErrorLabPage() {
             D-IV · Model Evaluation
           </span>
           <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full
-                           bg-emerald-50 text-emerald-700">
-            Interactive — no login needed
-          </span>
-          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full
                            bg-amber-50 text-amber-800">
             ~10 min
           </span>
