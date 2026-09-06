@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, and_, or_
@@ -60,6 +60,27 @@ def _user_lead_info(db: Session, users: list[User]) -> dict[int, dict]:
                     and L.email not in info["alt_emails"]):
                 info["alt_emails"].append(L.email)
     return out
+
+
+def _live_sub_filter():
+    """Conditions for a subscription the paywall actually honours:
+    active AND not revoked AND not expired. The bare status=='active'
+    check lied after admin revokes (revoke keeps status untouched and
+    sets revoked_at) — the users table kept badging revoked users as
+    subscribed (prod incident 2026-09-06)."""
+    now = datetime.now(timezone.utc)
+    return and_(
+        Subscription.status == "active",
+        Subscription.revoked_at.is_(None),
+        or_(Subscription.expires_at.is_(None),
+            Subscription.expires_at > now),
+    )
+
+
+def _live_sub(db: Session, user_id: int) -> Subscription | None:
+    return (db.query(Subscription)
+            .filter(Subscription.user_id == user_id, _live_sub_filter())
+            .first())
 
 
 def active_user_ids(db: Session, active_from: datetime | None,
@@ -174,7 +195,7 @@ def list_users(db: Session = Depends(get_db),
     # Single round-trip for active subscriptions instead of N+1.
     subs = {s.user_id: s for s in db.query(Subscription)
             .filter(Subscription.user_id.in_([u.id for u in users]),
-                    Subscription.status == "active").all()}
+                    _live_sub_filter()).all()}
     info = _user_lead_info(db, users)   # LinkedIn + WhatsApp + alternate emails from leads
     return [_to_admin_out(u, subs.get(u.id), info.get(u.id)) for u in users]
 
@@ -184,8 +205,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
     u = db.get(User, user_id)
     if not u:
         raise NotFoundError()
-    sub = (db.query(Subscription)
-           .filter_by(user_id=u.id, status="active").first())
+    sub = _live_sub(db, u.id)
     return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
@@ -202,8 +222,7 @@ def change_role(user_id: int, role: UserRole,
     db.refresh(u)
     audit_log(db, admin.id, "user.role_changed",
               {"target_user_id": user_id, "from": old.value, "to": role.value})
-    sub = (db.query(Subscription)
-           .filter_by(user_id=u.id, status="active").first())
+    sub = _live_sub(db, u.id)
     return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
@@ -233,8 +252,7 @@ def reset_password(user_id: int, payload: _PasswordResetIn,
     db.refresh(u)
     audit_log(db, admin.id, "user.password_reset_by_admin",
               {"target_user_id": user_id, "target_email": u.email})
-    sub = (db.query(Subscription)
-           .filter_by(user_id=u.id, status="active").first())
+    sub = _live_sub(db, u.id)
     return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
@@ -264,8 +282,7 @@ def set_chat_limit_override(user_id: int, payload: _ChatLimitOverrideIn,
     audit_log(db, admin.id, "user.chat_limit_override_set",
               {"target_user_id": user_id, "from": old,
                "to": payload.daily_chat_limit_override})
-    sub = (db.query(Subscription)
-           .filter_by(user_id=u.id, status="active").first())
+    sub = _live_sub(db, u.id)
     return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
@@ -294,8 +311,7 @@ def update_notes(user_id: int, payload: _NotesIn,
     db.refresh(u)
     audit_log(db, admin.id, "user.notes_updated",
               {"target_user_id": user_id})
-    sub = (db.query(Subscription)
-           .filter_by(user_id=u.id, status="active").first())
+    sub = _live_sub(db, u.id)
     return _to_admin_out(u, sub, _user_lead_info(db, [u]).get(u.id))
 
 
@@ -519,3 +535,95 @@ def _page_journey(db: Session, user_id: int, max_pages: int = 50) -> list[dict]:
             if idx is not None and journey[idx]["path"] == ev.path:
                 journey[idx]["seconds"] = round(ev.duration_ms / 1000, 1)
     return journey[-max_pages:]
+
+
+# ---------------------------------------------------------------- effective access
+
+@router.get("/{user_id}/effective-access")
+def effective_access(user_id: int,
+                     db: Session = Depends(get_db),
+                     _admin: User = Depends(get_admin_user)):
+    """Everything this user can open RIGHT NOW, and why — computed
+    server-side from live subscriptions → plan links → enrollments.
+    Turns "user says they can't see X" into a single lookup instead of
+    cross-referencing four screens (prod incident 2026-09-06)."""
+    from app.api.v1.endpoints.lms_public import _enrollment_grants_access
+    from app.models.plan import Plan, PlanCourse, PlanExamSet
+
+    u = db.get(User, user_id)
+    if not u:
+        raise NotFoundError()
+
+    live_subs = (db.query(Subscription)
+                 .filter(Subscription.user_id == user_id, _live_sub_filter())
+                 .order_by(Subscription.id.desc()).all())
+    plan_ids = [s.plan_id for s in live_subs if s.plan_id is not None]
+    plans = ({p.id: p for p in db.query(Plan).filter(Plan.id.in_(plan_ids)).all()}
+             if plan_ids else {})
+
+    # Exam sets — evaluated exactly like the paywall (live plan links).
+    exam_sets: list[dict] = []
+    if plan_ids:
+        links = (db.query(PlanExamSet, ExamSet)
+                 .join(ExamSet, ExamSet.id == PlanExamSet.exam_set_id)
+                 .filter(PlanExamSet.plan_id.in_(plan_ids)).all())
+        seen: set[int] = set()
+        for link, es in links:
+            if es.id in seen:
+                continue
+            seen.add(es.id)
+            plan = plans.get(link.plan_id)
+            exam_sets.append({"id": es.id, "slug": es.slug, "name": es.name,
+                              "via_plan": plan.slug if plan else link.plan_id})
+
+    # Courses — enrollment rows evaluated through the same access gate
+    # the student-facing endpoints use, so this list IS what they see.
+    enrollments = (db.query(Enrollment)
+                   .filter(Enrollment.user_id == user_id,
+                           Enrollment.revoked_at.is_(None))
+                   .all())
+    course_map = ({c.id: c for c in db.query(Course).filter(
+        Course.id.in_({e.course_id for e in enrollments})).all()}
+        if enrollments else {})
+    courses: list[dict] = []
+    for e in enrollments:
+        c = course_map.get(e.course_id)
+        if not c or c.is_deleted:
+            continue
+        courses.append({
+            "course_id": c.id, "title": c.title, "slug": c.slug,
+            "is_published": bool(c.is_published),
+            "source": e.source,
+            "subscription_id": e.subscription_id,
+            "expires_at": e.expires_at,
+            "grants_access_now": _enrollment_grants_access(db, e),
+        })
+    # Bundled courses the user is entitled to but not yet enrolled in
+    # (they'd auto-enroll on next visit) — surfaced so "granted but not
+    # visited yet" is visible instead of mysterious.
+    if plan_ids:
+        enrolled_ids = {c["course_id"] for c in courses}
+        pending = (db.query(PlanCourse, Course)
+                   .join(Course, Course.id == PlanCourse.course_id)
+                   .filter(PlanCourse.plan_id.in_(plan_ids),
+                           Course.is_deleted.is_(False)).all())
+        for link, c in pending:
+            if c.id in enrolled_ids:
+                continue
+            enrolled_ids.add(c.id)
+            courses.append({
+                "course_id": c.id, "title": c.title, "slug": c.slug,
+                "is_published": bool(c.is_published),
+                "source": "pending_auto_enroll",
+                "subscription_id": None, "expires_at": None,
+                "grants_access_now": True,
+            })
+
+    return {
+        "user_id": user_id,
+        "live_subscriptions": [
+            {"id": s.id, "plan": s.plan, "plan_id": s.plan_id,
+             "expires_at": s.expires_at} for s in live_subs],
+        "exam_sets": exam_sets,
+        "courses": courses,
+    }

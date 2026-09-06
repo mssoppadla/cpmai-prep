@@ -356,10 +356,35 @@ function PrivacySection({ email, onAfterDelete }: {
  */
 function MyCoursesSection() {
   const [courses, setCourses] = useState<EnrollmentOut[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    lmsPublic.myEnrollments().then(setCourses).catch(() => setCourses([]));
-  }, []);
+    // A server error must NOT masquerade as "you have no courses" —
+    // during the 2026-09-06 access incident the silent
+    // catch(() => setCourses([])) made a failing endpoint and a missing
+    // entitlement look identical.
+    setFailed(false);
+    lmsPublic.myEnrollments()
+      .then(setCourses)
+      .catch(() => { setCourses([]); setFailed(true); });
+  }, [reloadKey]);
+
+  if (failed) {
+    return (
+      <section className="max-w-5xl mx-auto px-6 pb-8">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 flex items-center justify-between gap-3">
+          <span>Couldn&apos;t load your courses just now.</span>
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="shrink-0 px-3 py-1 rounded-lg bg-white border border-amber-300 font-medium hover:bg-amber-100"
+          >
+            Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   // Resolve quietly; render nothing while loading and nothing if the learner
   // has no enrolled courses (keeps the dashboard uncluttered for exam-only users).

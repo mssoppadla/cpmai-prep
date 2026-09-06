@@ -83,13 +83,20 @@ def anonymous_traffic_summary(
             .all())
 
     # Resolve links only for anon_ids actually present in the window.
+    # Keep the linked USER id too: known-visitor dedup must resolve a
+    # linked browser to the person behind it, otherwise one user who
+    # visits signed-in (u:42) and signed-out (a:<uuid>) — or from two
+    # browsers — counts as two or three "known users" and the widget
+    # can never reconcile with the Users/Insights screens.
     window_anon_ids = {r.anon_id for r in rows if r.anon_id}
     links: dict[str, datetime] = {}
+    link_user: dict[str, int] = {}
     if window_anon_ids:
         for l in (db.query(AnonIdentityLink)
                   .filter(AnonIdentityLink.anon_id.in_(window_anon_ids))
                   .all()):
             links[l.anon_id] = _as_utc(l.linked_at)
+            link_user[l.anon_id] = l.user_id
 
     region_events: dict[tuple, int] = defaultdict(int)
     region_known: dict[tuple, set] = defaultdict(set)
@@ -102,10 +109,16 @@ def anonymous_traffic_summary(
     anon_days: dict[str, set[str]] = defaultdict(set)   # anon_id → days seen
     total_events = 0
 
+    # Day buckets in the site's operating timezone (IST) so "daily
+    # visitors" matches the operator's calendar — UTC buckets shifted
+    # every pre-5:30am visit onto the previous day's bar.
+    from zoneinfo import ZoneInfo
+    _TZ = ZoneInfo("Asia/Kolkata")
+
     for r in rows:
         total_events += 1
         created = _as_utc(r.created_at)
-        day_key = created.date().isoformat()
+        day_key = created.astimezone(_TZ).date().isoformat()
         region_key = (r.country, r.city)
         region_events[region_key] += 1
         day_events[day_key] += 1
@@ -123,8 +136,10 @@ def anonymous_traffic_summary(
             known_key = f"u:{r.user_id}"
         elif linked_at is not None:
             # Previously-signed-up browser revisiting (even signed
-            # out): a known user's visit from the link onward.
-            known_key = f"a:{r.anon_id}"
+            # out): a known user's visit from the link onward —
+            # attributed to the linked USER so the same person never
+            # double-counts across sign-in states or devices.
+            known_key = f"u:{link_user[r.anon_id]}"
         elif r.anon_id:
             anon_key = r.anon_id
         # else: legacy row with no identity — events-only.
@@ -152,8 +167,9 @@ def anonymous_traffic_summary(
     )
 
     # Continuous day series (zero-filled) so the bar chart has no gaps.
-    start_day = since.date()
-    end_day = datetime.now(timezone.utc).date()
+    # Same IST bucketing as the per-event day keys above.
+    start_day = since.astimezone(_TZ).date()
+    end_day = datetime.now(timezone.utc).astimezone(_TZ).date()
     by_day: list[dict] = []
     cursor: date = start_day
     while cursor <= end_day:

@@ -835,10 +835,18 @@ class ExamService:
         return session
 
     def _has_active_subscription(self, user_id: int) -> bool:
-        """Legacy any-active-sub check. Preserved for non-paywall code paths."""
-        return bool(self.db.query(Subscription).filter_by(
-            user_id=user_id, status="active",
-        ).first())
+        """Any-live-sub check. Honours revoked_at + expires_at like the
+        paywall does — the old status-only version reported revoked
+        users as subscribed (2026-09-06)."""
+        now = datetime.now(timezone.utc)
+        return bool(
+            self.db.query(Subscription)
+            .filter(Subscription.user_id == user_id,
+                    Subscription.status == "active",
+                    Subscription.revoked_at.is_(None))
+            .filter((Subscription.expires_at.is_(None))
+                    | (Subscription.expires_at > now))
+            .first())
 
     def _can_access_exam_set(self, user_id: int, exam_set_id: int) -> bool:
         """Paywall check: does the user have access to this premium set?

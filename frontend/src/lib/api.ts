@@ -21,7 +21,7 @@ import type {
   ChapterOut, ChapterCreateIn, ChapterUpdateIn,
   LessonOut, LessonCreateIn, LessonUpdateIn,
   LessonFileOut, LessonFileCreateIn,
-  EnrollmentOut, EnrollmentGrantIn,
+  EnrollmentAdminOut, EnrollmentOut, EnrollmentGrantIn,
   LessonProgressOut, LessonProgressUpdateIn,
   CourseCategoryOut, CourseCategoryCreateIn, CourseCategoryUpdateIn,
   DiskUsageOut,
@@ -1332,7 +1332,7 @@ export const admin = {
     // ------------- Enrollments
     async listEnrollments(courseId: number, includeRevoked = false) {
       const qs = includeRevoked ? "?include_revoked=true" : "";
-      const { data } = await request<EnrollmentOut[]>(
+      const { data } = await request<EnrollmentAdminOut[]>(
         `/admin/courses/${courseId}/enrollments${qs}`, { authed: true });
       return data;
     },
@@ -2603,6 +2603,13 @@ export interface SubscriptionAdminOut {
   revoke_reason: string | null;
   is_active_now: boolean;
   created_at: string;
+  /** Grant response only: what the plan unlocked (immediate course
+   *  enrollments included) so the operator gets feedback at grant time. */
+  unlocks?: {
+    exam_sets: number;
+    courses: { course_id: number; title: string; is_published: boolean;
+               action: "created" | "refreshed" | "already" }[];
+  } | null;
 }
 
 export interface RagDocumentOut {

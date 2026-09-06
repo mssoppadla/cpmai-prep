@@ -90,7 +90,7 @@ export function UserSubscriptionsPanel({
       return;
     }
     try {
-      await admin.subscriptions.grant(userId, {
+      const granted = await admin.subscriptions.grant(userId, {
         ...grant,
         record_payment: recordPayment,
         send_invoice: recordPayment && sendInvoice,
@@ -105,6 +105,24 @@ export function UserSubscriptionsPanel({
       setGrant((g) => ({ ...g, reason: "" }));
       setRecordPayment(false); setSendInvoice(false); setAmountMajor("");
       setGatewayRef("");
+      // Tell the operator what the grant actually unlocked — a plan
+      // that bundles no courses is now visible at grant time instead
+      // of surfacing days later as "user can't see the video"
+      // (2026-09-06 incident).
+      const u = granted.unlocks;
+      if (u) {
+        const courseList = u.courses.length
+          ? u.courses.map((c) =>
+              `• ${c.title}${c.is_published ? "" : " (draft)"} — ${c.action}`,
+            ).join("\n")
+          : "• NO courses — this plan bundles none. If a course was " +
+            "expected, link it on the plan first.";
+        window.alert(
+          `Granted. This plan unlocks:\n` +
+          `${u.exam_sets} exam set${u.exam_sets === 1 ? "" : "s"}\n` +
+          `Courses (enrolled immediately, no login needed):\n${courseList}`,
+        );
+      }
       await reload();
     } catch (e) {
       console.error("[UserSubscriptionsPanel] grant", e);
@@ -361,6 +379,12 @@ export function UserSubscriptionsPanel({
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-slate-900">
                     #{s.id} · {s.plan}
+                    {s.plan_id != null && (
+                      <span className="ml-1 font-normal text-xs text-slate-400"
+                            title="Plan id — grants only unlock content linked to THIS plan">
+                        (plan #{s.plan_id})
+                      </span>
+                    )}
                   </span>
                   <SourceBadge source={s.source} />
                   <StatusBadge sub={s} />

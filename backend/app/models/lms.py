@@ -224,6 +224,15 @@ class Enrollment(Base):
     last_accessed_at = Column(DateTime(timezone=True))
     granted_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     grant_reason  = Column(Text)
+    # The subscription that auto-created this enrollment (source =
+    # 'subscription'). Lets a subscription revoke cascade to exactly the
+    # enrollments it granted, and lets access checks revalidate against
+    # the backing sub without parsing grant_reason. NULL for admin
+    # grants / self-enrollments and for legacy rows (those are covered
+    # by the read-time revalidation fallback instead).
+    subscription_id = Column(Integer,
+                             ForeignKey("subscriptions.id", ondelete="SET NULL"),
+                             index=True)
     payment_id    = Column(Integer, ForeignKey("payments.id",     ondelete="SET NULL"))
     offer_code_id = Column(Integer, ForeignKey("offer_codes.id",  ondelete="SET NULL"))
 

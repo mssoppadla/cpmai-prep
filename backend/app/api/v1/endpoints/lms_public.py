@@ -119,9 +119,56 @@ def _has_active_subscription_bundle(
     ).order_by(Subscription.id.desc()).first()
 
 
+def _enrollment_grants_access(db: Session, e: Enrollment) -> bool:
+    """Does this enrollment row open content RIGHT NOW?
+
+    An enrollment is a cache of an entitlement, not the entitlement
+    itself (prod incident 2026-09-06: revoked/lapsed subscriptions kept
+    granting course access through stale enrollment rows). Three gates:
+
+      1. not revoked;
+      2. not past its own ``expires_at`` (admin grants included —
+         previously this column was written everywhere and read nowhere);
+      3. for subscription-derived rows, a LIVE subscription must still
+         back it: prefer the ``subscription_id`` FK; legacy rows without
+         one fall back to "any active sub whose plan bundles the course".
+    """
+    if e.revoked_at is not None:
+        return False
+    if e.source == "subscription":
+        # Subscription-derived rows are re-validated end-to-end on every
+        # read: ANY live sub whose plan CURRENTLY bundles the course
+        # keeps them alive (covers renewals and plan upgrades); a
+        # revoked/lapsed sub or an unticked plan link kills them.
+        # (This deliberately reverses the old "removing a course from a
+        # plan never revokes existing access" behaviour — the operator
+        # expects untick to mean untick; per-student exceptions are what
+        # admin_grant enrollments are for.) The subscription_id FK is
+        # kept for cascade + audit, not consulted for access.
+        return _has_active_subscription_bundle(
+            db, e.user_id, e.course_id) is not None
+    now = datetime.now(timezone.utc)
+    if e.expires_at is not None and _as_aware(e.expires_at) <= now:
+        return False
+    return True
+
+
+def _as_aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _refresh_from_sub(db: Session, e: Enrollment, sub: Subscription) -> None:
+    """Re-anchor a subscription-derived enrollment on a (new) live sub —
+    covers renewals and re-grants after the original sub lapsed."""
+    e.subscription_id = sub.id
+    e.expires_at = sub.expires_at
+    db.commit()
+
+
 def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enrollment | None:
-    """Return the user's active enrollment for the course, creating one
-    implicitly if they have a subscription whose plan bundles the course.
+    """Return the user's enrollment for the course IF it currently grants
+    access, creating one implicitly if a live subscription bundle covers
+    the course.
 
     "Implicit" enrollment = an Enrollment row with source='subscription',
     linked to their Subscription. This lets all the normal LMS flows
@@ -137,20 +184,29 @@ def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enroll
         Enrollment.tenant_id == get_current_tenant_id(),
     ).first()
     if enrollment is not None:
-        return enrollment
+        if _enrollment_grants_access(db, enrollment):
+            # Keep subscription rows anchored on whichever live sub backs
+            # them now (renewal may have replaced the original).
+            if enrollment.source == "subscription":
+                sub = _has_active_subscription_bundle(db, user.id, course_id)
+                if sub is not None and (enrollment.subscription_id != sub.id
+                                        or enrollment.expires_at != sub.expires_at):
+                    _refresh_from_sub(db, enrollment, sub)
+            return enrollment
+        return None  # stale cache: revoked/lapsed entitlement behind it
 
-    # No explicit enrollment — check if a subscription bundle covers this course
+    # No enrollment row — check if a subscription bundle covers this course
     sub = _has_active_subscription_bundle(db, user.id, course_id)
     if sub is None:
         return None
 
-    # Implicit enrollment auto-create. Expires at the subscription's expiry
-    # so it disappears cleanly when the sub lapses.
+    # Implicit enrollment auto-create, anchored on the backing sub.
     enrollment = Enrollment(
         tenant_id=get_current_tenant_id(),
         user_id=user.id,
         course_id=course_id,
         source="subscription",
+        subscription_id=sub.id,
         expires_at=sub.expires_at,
         granted_by_id=None,
         grant_reason=f"Auto-enrolled via subscription #{sub.id} (plan {sub.plan_id})",
@@ -452,6 +508,7 @@ def list_my_enrollments(
                 user_id=user.id,
                 course_id=link.course_id,
                 source="subscription",
+                subscription_id=sub.id,
                 expires_at=sub.expires_at,
                 grant_reason=f"Auto-enrolled via subscription #{sub.id} "
                              f"(plan {sub.plan_id})",
@@ -465,6 +522,10 @@ def list_my_enrollments(
               .order_by(Enrollment.last_accessed_at.desc().nullslast(),
                         Enrollment.enrolled_at.desc())
               .all())
+    # Access-lifecycle gate: only rows whose entitlement is still live
+    # reach the dashboard — a revoked/lapsed subscription's implicit
+    # enrollments (and any past-expiry admin grant) drop out here.
+    enrollments = [e for e in enrollments if _enrollment_grants_access(db, e)]
 
     # Course title/slug for the dashboard cards — one query, no N+1.
     course_ids = {e.course_id for e in enrollments}
@@ -543,7 +604,8 @@ def update_progress(
 ):
     """Idempotent upsert of per-lesson progress for the calling user."""
     e = db.get(Enrollment, enrollment_id)
-    if not e or e.user_id != user.id or e.revoked_at is not None:
+    if (not e or e.user_id != user.id
+            or not _enrollment_grants_access(db, e)):
         raise NotFoundError("Enrollment not found")
 
     lsn = db.get(Lesson, lesson_id)
@@ -598,7 +660,8 @@ def update_podcast_pointer(
     devices.
     """
     e = db.get(Enrollment, enrollment_id)
-    if not e or e.user_id != user.id or e.revoked_at is not None:
+    if (not e or e.user_id != user.id
+            or not _enrollment_grants_access(db, e)):
         raise NotFoundError("Enrollment not found")
     if payload.lesson_id is not None:
         e.podcast_lesson_id = payload.lesson_id
@@ -700,7 +763,8 @@ def upsert_course_review(
     db: Session = Depends(get_db),
 ):
     e = db.get(Enrollment, enrollment_id)
-    if not e or e.user_id != user.id or e.revoked_at is not None:
+    if (not e or e.user_id != user.id
+            or not _enrollment_grants_access(db, e)):
         raise NotFoundError("Enrollment not found")
     r = db.query(CourseReview).filter(CourseReview.enrollment_id == e.id).first()
     if r is None:

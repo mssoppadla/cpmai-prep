@@ -47,7 +47,7 @@ from app.schemas.lms import (
     CourseAnnouncementCreateIn, CourseAnnouncementOut,
     CourseCategoryCreateIn, CourseCategoryOut, CourseCategoryUpdateIn,
     CourseCreateIn, CourseOut, CourseUpdateIn,
-    EnrollmentGrantIn, EnrollmentOut,
+    EnrollmentAdminOut, EnrollmentGrantIn, EnrollmentOut,
     LessonCreateIn, LessonFileCreateIn, LessonFileOut, LessonOut,
     LessonUpdateIn,
     QuizConfigUpsertIn, QuizOptionCreateIn, QuizOptionOut,
@@ -540,12 +540,17 @@ def delete_lesson_file(
 
 # ============================================================ ENROLLMENTS
 
-@router.get("/courses/{course_id}/enrollments", response_model=list[EnrollmentOut])
+@router.get("/courses/{course_id}/enrollments",
+            response_model=list[EnrollmentAdminOut])
 def list_course_enrollments(
     course_id: int,
     db: Session = Depends(get_db),
     include_revoked: bool = Query(False),
 ):
+    """Course enrollments with the context an operator needs: who the
+    student IS (email/name), how the enrollment came to exist, whether
+    its backing subscription is still live, and whether the row grants
+    access right now."""
     c = _course_scope(db).filter(Course.id == course_id).first()
     if not c:
         raise NotFoundError("Course not found")
@@ -555,7 +560,43 @@ def list_course_enrollments(
     )
     if not include_revoked:
         q = q.filter(Enrollment.revoked_at.is_(None))
-    return q.order_by(Enrollment.enrolled_at.desc()).all()
+    rows = q.order_by(Enrollment.enrolled_at.desc()).all()
+
+    # Bulk lookups — students, granting admins, backing subscriptions.
+    from app.api.v1.endpoints.lms_public import _enrollment_grants_access
+    from app.models.subscription import Subscription
+    user_ids = ({e.user_id for e in rows}
+                | {e.granted_by_id for e in rows if e.granted_by_id})
+    users = ({u.id: u for u in db.query(User)
+              .filter(User.id.in_(user_ids)).all()} if user_ids else {})
+    sub_ids = {e.subscription_id for e in rows if e.subscription_id}
+    subs = ({s.id: s for s in db.query(Subscription)
+             .filter(Subscription.id.in_(sub_ids)).all()} if sub_ids else {})
+
+    now = datetime.now(timezone.utc)
+    out: list[EnrollmentAdminOut] = []
+    for e in rows:
+        item = EnrollmentAdminOut.model_validate(e)
+        u = users.get(e.user_id)
+        item.user_email = u.email if u else None
+        item.user_name = u.name if u else None
+        g = users.get(e.granted_by_id) if e.granted_by_id else None
+        item.granted_by_email = g.email if g else None
+        if e.source == "subscription":
+            s = subs.get(e.subscription_id) if e.subscription_id else None
+            if s is None:
+                item.backing_subscription_status = "missing"
+            elif s.revoked_at is not None:
+                item.backing_subscription_status = "revoked"
+            elif s.expires_at is not None and (
+                    s.expires_at if s.expires_at.tzinfo
+                    else s.expires_at.replace(tzinfo=timezone.utc)) <= now:
+                item.backing_subscription_status = "expired"
+            else:
+                item.backing_subscription_status = "live"
+        item.grants_access_now = _enrollment_grants_access(db, e)
+        out.append(item)
+    return out
 
 
 @router.post("/courses/{course_id}/enrollments", response_model=EnrollmentOut, status_code=201)
