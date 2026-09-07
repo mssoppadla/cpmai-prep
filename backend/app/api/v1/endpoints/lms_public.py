@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_log
@@ -501,6 +502,12 @@ def list_my_enrollments(
         # Pick the latest-expiring sub per course for the implicit enrollment.
         plan_to_sub = {s.plan_id: s for s in subs}
         for link in bundled:
+            # Prod incident 2026-09-07: two ACTIVE plans bundling the SAME
+            # course produced two inserts in one flush → the partial-unique
+            # index (user, course) WHERE revoked_at IS NULL 409'd the whole
+            # request, so the dashboard showed "Couldn't load your courses"
+            # on every load. Adding each created course to already_enrolled
+            # dedupes within the request.
             if link.course_id in already_enrolled:
                 continue
             sub = plan_to_sub.get(link.plan_id)
@@ -520,7 +527,13 @@ def list_my_enrollments(
                 grant_reason=f"Auto-enrolled via subscription #{sub.id} "
                              f"(plan {sub.plan_id})",
             ))
-        db.commit()
+            already_enrolled.add(link.course_id)
+        try:
+            db.commit()
+        except IntegrityError:
+            # A concurrent request (dashboard + course page racing) already
+            # created the row — losing that race must not fail the READ.
+            db.rollback()
 
     enrollments = (db.query(Enrollment)
               .filter(Enrollment.user_id == user.id,
