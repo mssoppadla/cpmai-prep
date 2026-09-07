@@ -597,11 +597,14 @@ def test_admin_list_quiz_options_unknown_question(client, db, admin, default_ten
 # tree, leaving external URLs (Vimeo / S3 / YouTube) untouched.
 
 def test_lesson_file_delete_unlinks_local_file(client, db, admin, lesson, tmp_path, monkeypatch):
-    # Point the unlink helper at a sandbox dir so we don't have to
-    # write into /app/uploads on the test runner. The endpoint resolves
-    # the path against module-level _UPLOAD_ROOT, which we monkey-patch.
+    # Since the storage-lifecycle change (2026-09), deleting a lesson
+    # file moves the backing file to RESTORABLE TRASH instead of
+    # unlinking it — disk is only freed by /admin/storage/empty-trash.
+    # This pin asserts the file leaves its path but survives in .trash/.
     from app.api.v1.endpoints.admin import lms as admin_lms
+    from app.api.v1.endpoints.admin import storage as storage_ep
     monkeypatch.setattr(admin_lms, "_UPLOAD_ROOT", tmp_path)
+    monkeypatch.setattr(storage_ep, "UPLOAD_ROOT", tmp_path)
 
     # Plant a fake uploaded file at the path the file_url will point to.
     rel = "1/2026/05/abc-test.pdf"
@@ -619,11 +622,16 @@ def test_lesson_file_delete_unlinks_local_file(client, db, admin, lesson, tmp_pa
     assert add.status_code == 201, add.text
     file_id = add.json()["id"]
 
-    # Delete the row → both DB row AND disk file should be gone.
+    # Delete the row → DB row gone, file MOVED to trash (not deleted).
     r = client.delete(f"{ADM}/lesson-files/{file_id}",
                       headers=auth_header(client, admin.email))
     assert r.status_code == 204
-    assert not abs_path.exists(), "physical file should have been unlinked"
+    assert not abs_path.exists(), "file should have left its original path"
+    trashed = list((tmp_path / ".trash").glob("*-abc-test.pdf"))
+    assert trashed, "file should be recoverable from .trash/"
+    from app.models.media import MediaTrash
+    row = db.query(MediaTrash).filter_by(original_path=f"/uploads/{rel}").one()
+    assert row.restored_at is None
 
 
 def test_lesson_file_delete_preserves_external_url(client, db, admin, lesson, tmp_path, monkeypatch):
