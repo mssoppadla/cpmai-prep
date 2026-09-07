@@ -277,3 +277,33 @@ def test_contacts_known_visitors_dedupe_across_signin_states(client, db, admin, 
     # counted separately.
     assert totals["known_users"] == 2, totals
     assert totals["anonymous"] == 1, totals
+
+
+def test_two_plans_bundling_same_course_dont_409_dashboard(client, db, admin, user, course):
+    """Prod incident 2026-09-07 (Ketan): two ACTIVE plans bundling the
+    SAME course made /lms/me/enrollments insert two implicit enrollments
+    in one flush → partial-unique violation → 409 → the dashboard showed
+    "Couldn't load your courses" on every load, while direct course URLs
+    worked fine. The listing must dedupe per course and return 200."""
+    plan_a = _mk_plan(client, admin, [course.id], "lc-twin-a")
+    plan_b = _mk_plan(client, admin, [course.id], "lc-twin-b")
+    _grant(client, admin, user.id, plan_a)
+    _grant(client, admin, user.id, plan_b)
+
+    r = client.get(MY_ENROLLMENTS, headers=auth_header(client, user.email))
+    assert r.status_code == 200, r.text
+    ids = [e["course_id"] for e in r.json()]
+    assert ids.count(course.id) == 1
+
+    # The killer shape: the enrollment rows get revoked (admin cleanup)
+    # while BOTH subs stay active. The next dashboard load re-creates the
+    # implicit enrollment — once per bundling plan, in one flush — and
+    # the partial-unique index (user, course) WHERE revoked_at IS NULL
+    # blows up → 409 on EVERY load until the data is untangled.
+    db.query(Enrollment).filter_by(user_id=user.id, course_id=course.id)       .update({"revoked_at": datetime.now(timezone.utc)})
+    db.commit()
+
+    r = client.get(MY_ENROLLMENTS, headers=auth_header(client, user.email))
+    assert r.status_code == 200, r.text
+    ids = [e["course_id"] for e in r.json()]
+    assert ids.count(course.id) == 1
