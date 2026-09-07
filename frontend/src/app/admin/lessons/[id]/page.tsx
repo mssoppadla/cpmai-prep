@@ -362,14 +362,27 @@ function VideoUploadField({
         Upload video file (stored on server)
       </label>
       {isR2 && videoUrl && (
-        <div className="mb-2 bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between text-sm">
-          <span className="text-emerald-900">
-            ✓ Uploaded: <code className="font-mono text-xs">{videoUrl.split("/").pop()}</code>
+        <div className="mb-2 bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between gap-2 text-sm">
+          <span className="text-emerald-900 min-w-0 truncate">
+            ✓ Uploaded:{" "}
+            <code className="font-mono text-xs">
+              {(videoUrl.split("/").pop() ?? "").split("?")[0]}
+            </code>
           </span>
-          <button onClick={onClear}
-                  className="text-rose-600 hover:underline text-xs">
-            Remove
-          </button>
+          <span className="shrink-0 flex items-center gap-3">
+            <a
+              href={absoluteUploadUrl(videoUrl)}
+              download
+              className="text-indigo-600 hover:underline text-xs"
+              title="Download the stored video as a local backup — the link is signed and refreshes each time this page loads"
+            >
+              Download
+            </a>
+            <button onClick={onClear}
+                    className="text-rose-600 hover:underline text-xs">
+              Remove
+            </button>
+          </span>
         </div>
       )}
       <label
