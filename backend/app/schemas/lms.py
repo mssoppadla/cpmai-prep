@@ -190,6 +190,8 @@ class LessonOut(BaseModel):
     quiz_pass_threshold_percent: int
     quiz_attempts_allowed: Optional[int]
     is_free_preview: bool
+    free_preview_seconds: Optional[int] = None
+    preview_video_url: Optional[str] = None
     is_published: bool
     is_deleted: bool
     created_at: datetime
@@ -214,6 +216,9 @@ class LessonPublicOut(BaseModel):
     discussion_url: Optional[str]
     instructor_id: Optional[int]
     is_free_preview: bool
+    # Preview clip length shown on the upsell overlay ("Watch the first
+    # 90 seconds free"). NULL = untimed preview (legacy full video).
+    free_preview_seconds: Optional[int] = None
     # Conditional fields — endpoint sets these to None for non-enrolled users
     video_url: Optional[str] = None
     body_blocks: list[dict[str, Any]] = Field(default_factory=list)
@@ -238,6 +243,8 @@ class LessonCreateIn(BaseModel):
     quiz_pass_threshold_percent: int = Field(default=70, ge=0, le=100)
     quiz_attempts_allowed: Optional[int] = Field(default=None, ge=1)
     is_free_preview: bool = False
+    free_preview_seconds: Optional[int] = Field(default=None, ge=5, le=3600)
+    preview_video_url: Optional[str] = None
     is_published: bool = True
 
 
@@ -260,6 +267,8 @@ class LessonUpdateIn(BaseModel):
     quiz_pass_threshold_percent: Optional[int] = Field(default=None, ge=0, le=100)
     quiz_attempts_allowed: Optional[int] = Field(default=None, ge=1)
     is_free_preview: Optional[bool] = None
+    free_preview_seconds: Optional[int] = Field(default=None, ge=5, le=3600)
+    preview_video_url: Optional[str] = None
     is_published: Optional[bool] = None
 
 

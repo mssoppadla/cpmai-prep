@@ -11,6 +11,7 @@ import type {
   FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
   TestimonialOut, TestimonialAdminOut, TestimonialIn,
   ThresholdExplorerConfig,
+  StorageOverviewOut, StorageFileOut, MediaTrashOut, StorageTrashResult,
   ContentPageOut, ContentPageCreateIn, ContentPageUpdateIn,
   ContentPagePublicOut, ContentPageNavItemOut,
   CmsGeneratePageIn, CmsGeneratePageOut,
@@ -1468,6 +1469,73 @@ export const admin = {
         throw new ApiError(r.status, body.error ?? { code: "upload_failed", message: "Upload failed" });
       }
       return r.json();
+    },
+  },
+  storage: {
+    /** /admin/storage — every uploaded file with where it's used.
+     *  Linkage is re-verified server-side at trash time; this listing
+     *  is advisory. */
+    async overview() {
+      const { data } = await request<StorageOverviewOut>(
+        `/admin/storage/overview`, { authed: true });
+      return data;
+    },
+    async files(p?: { status?: string; q?: string }) {
+      const { data } = await request<StorageFileOut[]>(
+        `/admin/storage/files${qs(p)}`, { authed: true });
+      return data;
+    },
+    async file(path: string) {
+      const { data } = await request<StorageFileOut>(
+        `/admin/storage/file${qs({ path })}`, { authed: true });
+      return data;
+    },
+    /** Server re-verifies every path; linked/held/system come back in
+     *  `skipped` with the reason (and proof links) — never deleted. */
+    async trash(paths: string[]) {
+      const { data } = await request<StorageTrashResult>(
+        `/admin/storage/trash`,
+        { method: "POST", json: { paths }, authed: true });
+      return data;
+    },
+    async trashItems() {
+      const { data } = await request<MediaTrashOut[]>(
+        `/admin/storage/trash-items`, { authed: true });
+      return data;
+    },
+    async restore(trashId: number, revertLesson = false) {
+      const { data } = await request<{
+        restored_path: string; reverted_lesson: boolean;
+        notice: string | null;
+      }>(`/admin/storage/restore`,
+        { method: "POST", authed: true,
+          json: { trash_id: trashId, revert_lesson: revertLesson } });
+      return data;
+    },
+    /** Refused with 409 unless confirmBytes equals the server's current
+     *  trash total — a changed trash must be re-confirmed. */
+    async emptyTrash(confirmBytes: number) {
+      const { data } = await request<{ deleted: number; freed_bytes: number }>(
+        `/admin/storage/empty-trash`,
+        { method: "POST", json: { confirm_bytes: confirmBytes }, authed: true });
+      return data;
+    },
+    async createCandidate(p: {
+      parent_path: string; candidate_path: string; lesson_id?: number | null;
+    }) {
+      const { data } = await request<{ id: number }>(
+        `/admin/storage/candidates`,
+        { method: "POST", json: p, authed: true });
+      return data;
+    },
+    /** keep → lesson switches to the compressed file, original goes to
+     *  restorable trash. discard → candidate file deleted. */
+    async decideCandidate(id: number, action: "keep" | "discard") {
+      const { data } = await request<{
+        status: string; lesson_id?: number; original_trash_id?: number | null;
+      }>(`/admin/storage/candidates/${id}/decide`,
+        { method: "POST", json: { action }, authed: true });
+      return data;
     },
   },
   zoom: {

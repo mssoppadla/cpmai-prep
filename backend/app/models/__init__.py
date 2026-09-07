@@ -39,3 +39,4 @@ from app.models.email_template import EmailTemplate                  # noqa
 from app.models.testimonial import Testimonial                       # noqa
 from app.models.email_automation import EmailAutomation, EmailOutbox  # noqa
 from app.models.error_log import ErrorLog                             # noqa
+from app.models.media import MediaTrash, MediaCandidate               # noqa

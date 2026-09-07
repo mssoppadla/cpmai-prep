@@ -127,6 +127,7 @@ const GROUPS: NavGroupDef[] = [
       { href: "/admin/payment-providers", label: "Payment Providers" },
       { href: "/admin/geoip",             label: "GeoIP" },
       { href: "/admin/observability",     label: "Observability", badge: "NEW" },
+      { href: "/admin/storage",           label: "Storage", badge: "NEW" },
       { href: "/admin/error-logs",        label: "Error Logs", badge: "NEW" },
     ],
   },

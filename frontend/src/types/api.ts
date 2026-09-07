@@ -642,6 +642,8 @@ export interface LessonOut {
   quiz_pass_threshold_percent: number;
   quiz_attempts_allowed: number | null;
   is_free_preview: boolean;
+  free_preview_seconds: number | null;
+  preview_video_url: string | null;
   is_published: boolean;
   is_deleted: boolean;
   created_at: string;
@@ -666,6 +668,8 @@ export interface LessonCreateIn {
   quiz_pass_threshold_percent?: number;
   quiz_attempts_allowed?: number | null;
   is_free_preview?: boolean;
+  free_preview_seconds?: number | null;
+  preview_video_url?: string | null;
   is_published?: boolean;
 }
 export type LessonUpdateIn = Partial<LessonCreateIn>;
@@ -909,6 +913,7 @@ export interface LessonPublicOut {
   discussion_url: string | null;
   instructor_id: number | null;
   is_free_preview: boolean;
+  free_preview_seconds: number | null;
   video_url: string | null;
   body_blocks: BlockNoteBlock[];
 }
@@ -1911,4 +1916,78 @@ export interface WorkflowMetaOut {
   label: string;
   description: string;
   config_schema: Record<string, unknown>;
+}
+
+// ============================================================ Storage
+// (/admin/storage — trash-not-delete lifecycle, PR feat/storage-dashboard)
+
+export interface StorageLinkRef {
+  kind: "lesson_video" | "lesson_preview" | "lesson_body" | "lesson_file"
+    | "course_cover" | "exam_set_cover" | "testimonial_photo"
+    | "content_page" | "zoom_file" | "announcement"
+    | "candidate" | "candidate_parent";
+  entity_id: number;
+  label: string;
+  course_title: string | null;
+  section_title: string | null;
+  admin_href: string;
+}
+
+export interface StorageCandidateInfo {
+  id: number;
+  parent_path: string;
+  parent_links: StorageLinkRef[];
+  lesson_id: number | null;
+  savings_pct: number;
+  parent_download_url: string;
+  parent_size_bytes: number;
+}
+
+export interface StorageFileOut {
+  path: string;
+  name: string;
+  size_bytes: number;
+  mime: string | null;
+  uploaded_at: string;
+  status: "linked" | "unlinked" | "held" | "candidate" | "system";
+  links: StorageLinkRef[];
+  candidate: StorageCandidateInfo | null;
+  download_url: string;
+}
+
+export interface StorageOverviewOut {
+  disk_used_bytes: number;
+  linked_bytes: number;
+  unlinked_bytes: number;
+  held_bytes: number;
+  candidate_bytes: number;
+  system_bytes: number;
+  trash_bytes: number;
+  counts: {
+    linked: number; unlinked: number; held: number;
+    candidates: number; system: number; trash: number;
+  };
+}
+
+export interface MediaTrashOut {
+  id: number;
+  name: string;
+  original_path: string;
+  size_bytes: number;
+  mime: string | null;
+  was_links: StorageLinkRef[];
+  trashed_at: string | null;
+  trashed_by_email: string | null;
+  is_kept_candidate_original: boolean;
+  revert_lesson_id: number | null;
+  download_url: string;
+}
+
+export interface StorageTrashResult {
+  trashed: string[];
+  skipped: Array<{
+    path: string;
+    reason: "linked" | "held" | "system" | "missing";
+    links?: StorageLinkRef[];
+  }>;
 }

@@ -17,6 +17,7 @@ import dynamic from "next/dynamic";
 import { admin, errMsg, absoluteUploadUrl } from "@/lib/api";
 import VideoCompressDialog from "@/components/lms/VideoCompressDialog";
 import type {
+  MediaTrashOut,
   LessonOut, LessonUpdateIn, LessonFileOut, LessonFileCreateIn,
   QuizOut, QuizQuestionOut, QuizOptionOut, QuizQuestionType,
   VideoProvider, FileCategory,
@@ -64,6 +65,8 @@ export default function LessonEditorPage({
           lesson_type: l.lesson_type,
           is_mandatory: l.is_mandatory,
           is_free_preview: l.is_free_preview,
+          free_preview_seconds: l.free_preview_seconds,
+          preview_video_url: l.preview_video_url,
           is_published: l.is_published,
           video_url: l.video_url,
           video_provider: l.video_provider,
@@ -210,6 +213,7 @@ export default function LessonEditorPage({
             <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <h2 className="font-semibold text-slate-900">Video</h2>
               <VideoUploadField
+                lessonId={lessonId}
                 videoUrl={meta.video_url ?? null}
                 videoProvider={meta.video_provider ?? null}
                 onUploaded={(url) => onMeta({ video_url: url, video_provider: "r2" })}
@@ -301,11 +305,22 @@ export default function LessonEditorPage({
                    onChange={(e) => onMeta({ is_mandatory: e.target.checked })} />
             <span className="text-sm">Mandatory</span>
           </label>
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={meta.is_free_preview ?? false}
-                   onChange={(e) => onMeta({ is_free_preview: e.target.checked })} />
-            <span className="text-sm">Free preview (visible without enrollment)</span>
-          </label>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={meta.is_free_preview ?? false}
+                     onChange={(e) => onMeta({ is_free_preview: e.target.checked })} />
+              <span className="text-sm">Free preview (visible without enrollment)</span>
+            </label>
+            {meta.is_free_preview && lesson.lesson_type === "video" && (
+              <FreePreviewClipPanel
+                videoUrl={meta.video_url ?? null}
+                previewUrl={meta.preview_video_url ?? null}
+                seconds={meta.free_preview_seconds ?? null}
+                lessonTitle={meta.title ?? lesson.title}
+                onChange={(patch) => onMeta(patch)}
+              />
+            )}
+          </div>
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={meta.is_published ?? true}
                    onChange={(e) => onMeta({ is_published: e.target.checked })} />
@@ -318,11 +333,165 @@ export default function LessonEditorPage({
 }
 
 
+// ============================================================ Free-preview clip panel
+
+/**
+ * Option 3 (timed free preview): the admin sets how many seconds
+ * visitors may sample and generates a REAL clip with the in-browser
+ * encoder. Non-enrolled viewers are served only the clip — the full
+ * video URL never reaches them. "Preview as learner" shows exactly
+ * what a visitor vs an enrolled student gets.
+ */
+function FreePreviewClipPanel({
+  videoUrl, previewUrl, seconds, lessonTitle, onChange,
+}: {
+  videoUrl: string | null;
+  previewUrl: string | null;
+  seconds: number | null;
+  lessonTitle: string;
+  onChange: (patch: LessonUpdateIn) => void;
+}) {
+  const [clipFile, setClipFile] = useState<File | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [uploadingClip, setUploadingClip] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState<false | "visitor" | "enrolled">(false);
+  const secs = seconds ?? 60;
+  const isUploaded = videoUrl?.startsWith("/uploads/");
+
+  async function startGenerate() {
+    if (!videoUrl || !isUploaded) return;
+    setErr(null); setFetching(true);
+    try {
+      // Pull the stored video back through the signed same-origin URL so
+      // the encoder can canvas-capture it (no CORS taint).
+      const r = await fetch(absoluteUploadUrl(videoUrl));
+      if (!r.ok) throw new Error(`Could not fetch the stored video (HTTP ${r.status})`);
+      const blob = await r.blob();
+      const name = (videoUrl.split("/").pop() ?? "video").split("?")[0];
+      setClipFile(new File([blob], name, { type: blob.type || "video/mp4" }));
+    } catch (e) { setErr(errMsg(e)); }
+    finally { setFetching(false); }
+  }
+
+  async function uploadClip(f: File) {
+    setClipFile(null); setUploadingClip(true); setErr(null);
+    try {
+      const uploaded = await admin.uploads.file(f);
+      onChange({ preview_video_url: uploaded.url, free_preview_seconds: secs });
+    } catch (e) { setErr(errMsg(e)); }
+    finally { setUploadingClip(false); }
+  }
+
+  return (
+    <div className="ml-6 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-medium text-slate-700">Preview length</label>
+        <input type="number" min={5} max={3600} value={secs}
+               onChange={(e) => onChange({ free_preview_seconds: e.target.value ? Number(e.target.value) : null })}
+               className="w-20 px-2 py-1 border border-slate-300 rounded text-sm tabular-nums" />
+        <span className="text-xs text-slate-500">seconds</span>
+      </div>
+      {previewUrl ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
+          <span className="text-emerald-900 truncate">
+            ✓ Clip ready: <code className="font-mono">{(previewUrl.split("/").pop() ?? "").split("?")[0]}</code>
+          </span>
+          <span className="shrink-0 flex gap-2">
+            <button onClick={() => setPreviewOpen("visitor")}
+                    className="text-indigo-600 hover:underline">Preview as learner</button>
+            <button onClick={() => onChange({ preview_video_url: null })}
+                    className="text-rose-600 hover:underline">Remove clip</button>
+          </span>
+        </div>
+      ) : (
+        <div className="text-xs text-slate-500">
+          No clip yet — visitors currently get the <b>full video</b> on this
+          free-preview lesson (legacy behavior). Generate a clip to limit them
+          to the first {secs} seconds.
+        </div>
+      )}
+      <div className="flex gap-2">
+        <button onClick={() => void startGenerate()}
+                disabled={!isUploaded || fetching || uploadingClip}
+                title={isUploaded ? "" : "Clips can only be generated from videos uploaded to this server"}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-slate-300">
+          {fetching ? "Loading video…" : uploadingClip ? "Uploading clip…"
+            : previewUrl ? "Regenerate clip" : "Generate preview clip"}
+        </button>
+        {!previewUrl && videoUrl && (
+          <button onClick={() => setPreviewOpen("visitor")}
+                  className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white hover:bg-slate-50">
+            Preview as learner
+          </button>
+        )}
+      </div>
+      {err && <p className="text-xs text-rose-600">{err}</p>}
+      {clipFile && (
+        <VideoCompressDialog
+          file={clipFile}
+          clipSeconds={secs}
+          onUseCompressed={(f) => void uploadClip(f)}
+          onUseOriginal={() => setClipFile(null)}
+          onCancel={() => setClipFile(null)}
+        />
+      )}
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-slate-900/60" onClick={() => setPreviewOpen(false)} />
+          <div className="relative w-full max-w-2xl rounded-xl bg-white p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">Preview: {lessonTitle}</h3>
+              <button onClick={() => setPreviewOpen(false)}
+                      className="px-3 py-1 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">Close</button>
+            </div>
+            <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-sm w-fit">
+              {(["visitor", "enrolled"] as const).map((mode) => (
+                <button key={mode} onClick={() => setPreviewOpen(mode)}
+                        className={`px-3 py-1 rounded-md ${previewOpen === mode
+                          ? "bg-white shadow font-medium text-slate-900" : "text-slate-500"}`}>
+                  {mode === "visitor" ? "As visitor" : "As enrolled student"}
+                </button>
+              ))}
+            </div>
+            {previewOpen === "visitor" ? (
+              <div className="space-y-2">
+                {previewUrl ? (
+                  <>
+                    <video controls className="w-full rounded-lg bg-slate-900"
+                           src={absoluteUploadUrl(previewUrl)} />
+                    <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-slate-700">
+                      After the {secs}-second clip ends, visitors see:
+                      <b> “You’ve watched the free preview — enroll to continue this lesson.”</b>
+                    </div>
+                  </>
+                ) : videoUrl ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    No clip generated yet, so a visitor currently gets the FULL
+                    video. Generate a clip to limit them to {secs} seconds.
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              videoUrl && (
+                <video controls className="w-full rounded-lg bg-slate-900"
+                       src={absoluteUploadUrl(videoUrl)} />
+              )
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ============================================================ Video upload field
 
 function VideoUploadField({
-  videoUrl, videoProvider, onUploaded, onClear,
+  lessonId, videoUrl, videoProvider, onUploaded, onClear,
 }: {
+  lessonId: number;
   videoUrl: string | null;
   videoProvider: string | null;
   onUploaded: (url: string) => void;
@@ -335,6 +504,7 @@ function VideoUploadField({
   // straight to upload-original. Either way, the resulting File goes
   // through the same admin.uploads.file path.
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
   const isR2 = videoProvider === "r2" && videoUrl?.startsWith("/uploads/");
 
   async function actuallyUpload(file: File) {
@@ -378,6 +548,15 @@ function VideoUploadField({
             >
               Download
             </a>
+            <button
+              onClick={() => window.open(
+                `/admin/compress-job?lesson_id=${lessonId}&path=${encodeURIComponent(videoUrl)}`,
+                "_blank", "width=880,height=940")}
+              className="text-indigo-600 hover:underline text-xs"
+              title="Re-compress this stored video in a separate window (you can keep working here). The result becomes a CANDIDATE — nothing switches until you compare and decide."
+            >
+              Compress…
+            </button>
             <button onClick={onClear}
                     className="text-rose-600 hover:underline text-xs">
               Remove
@@ -412,6 +591,18 @@ function VideoUploadField({
           )}
         </div>
       </label>
+      <div className="mt-1 text-right">
+        <button onClick={() => setTrashOpen(true)}
+                className="text-xs text-slate-500 hover:text-indigo-600 hover:underline">
+          Reuse a file from trash…
+        </button>
+      </div>
+      {trashOpen && (
+        <TrashReusePicker
+          onPick={(restoredPath) => { setTrashOpen(false); onUploaded(restoredPath); }}
+          onClose={() => setTrashOpen(false)}
+        />
+      )}
       {err && <p className="text-xs text-rose-600 mt-2">{err}</p>}
       {pendingFile && (
         <VideoCompressDialog
@@ -421,6 +612,76 @@ function VideoUploadField({
           onCancel={() => setPendingFile(null)}
         />
       )}
+    </div>
+  );
+}
+
+
+// ============================================================ Trash reuse picker
+
+/**
+ * "Reuse from trash" — lists trashed uploads; picking one RESTORES it
+ * (file returns to its original path on disk) and hands the caller the
+ * restored URL to attach. Nothing is copied; restore + attach is atomic
+ * from the admin's point of view.
+ */
+function TrashReusePicker({
+  onPick, onClose,
+}: { onPick: (restoredPath: string) => void; onClose: () => void }) {
+  const [items, setItems] = useState<MediaTrashOut[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  useEffect(() => {
+    admin.storage.trashItems().then(setItems).catch((e) => setErr(errMsg(e)));
+  }, []);
+
+  async function restoreAndUse(t: MediaTrashOut) {
+    setBusyId(t.id); setErr(null);
+    try {
+      const res = await admin.storage.restore(t.id, false);
+      onPick(res.restored_path);
+    } catch (e) { setErr(errMsg(e)); setBusyId(null); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-slate-900/60" onClick={onClose} />
+      <div className="relative w-full max-w-xl rounded-xl bg-white p-5 space-y-3 max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-slate-900">Reuse a file from trash</h3>
+          <button onClick={onClose}
+                  className="px-3 py-1 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">Close</button>
+        </div>
+        <p className="text-xs text-slate-500">
+          Picking a file restores it from trash (back to its original server
+          path) and attaches it here.
+        </p>
+        {err && <p className="text-sm text-rose-600">{err}</p>}
+        {items === null ? (
+          <p className="text-sm text-slate-400">Loading trash…</p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-slate-400">Trash is empty.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {items.map((t) => (
+              <li key={t.id} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-slate-900">{t.name}</div>
+                  <div className="text-xs text-slate-400 tabular-nums">
+                    {(t.size_bytes / 1024 ** 2).toFixed(1)} MB
+                    {t.trashed_at ? ` · trashed ${new Date(t.trashed_at).toLocaleDateString()}` : ""}
+                  </div>
+                </div>
+                <button onClick={() => void restoreAndUse(t)} disabled={busyId !== null}
+                        className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+                  {busyId === t.id ? "Restoring…" : "Restore & use"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

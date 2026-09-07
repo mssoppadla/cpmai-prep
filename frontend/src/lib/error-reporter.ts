@@ -38,6 +38,12 @@ export function reportClientError(err: ClientErrorReport): void {
     if (process.env.NODE_ENV === "test") return;
     // Never report failures of the report call itself — loop guard.
     if (err.path?.includes("/errors/report")) return;
+    // Offline-aware: while the browser KNOWS it's offline, a network
+    // error is expected, not a site failure — and the report itself
+    // couldn't leave anyway (the 7-day triage showed these blips were
+    // the bulk of the noise). It queues nothing: real outages still get
+    // reported by the requests that fail once we're back online.
+    if (err.source === "network" && navigator.onLine === false) return;
     if (sentCount >= MAX_PER_PAGE) return;
     const key = `${err.error_type}:${err.path ?? ""}`;
     const now = Date.now();

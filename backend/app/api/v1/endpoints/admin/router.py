@@ -26,6 +26,7 @@ from app.api.v1.endpoints.admin import (
     labs as labs_admin,
     error_logs,
     checkout_funnel,
+    storage as storage_admin,
 )
 
 admin_router = APIRouter(dependencies=[Depends(get_admin_user)])
@@ -41,6 +42,7 @@ admin_router.include_router(content_pages.router, prefix="/content-pages", tags=
 admin_router.include_router(cms_ai.router,        prefix="/cms-ai",        tags=["admin"])
 admin_router.include_router(lms_admin.router,     prefix="",                tags=["admin", "lms"])
 admin_router.include_router(uploads.router,       prefix="/uploads",       tags=["admin", "uploads"])
+admin_router.include_router(storage_admin.router, prefix="/storage",       tags=["admin", "storage"])
 admin_router.include_router(observability.router, prefix="/observability", tags=["admin", "observability"])
 admin_router.include_router(error_logs.router,   prefix="/error-logs",    tags=["admin", "observability"])
 admin_router.include_router(checkout_funnel.router, prefix="/checkout-funnel", tags=["admin", "payments"])

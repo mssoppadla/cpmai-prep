@@ -269,6 +269,13 @@ def _redact_lesson(
     if not show_body:
         out.video_url = None
         out.body_blocks = []
+    elif not is_enrolled and lsn.is_free_preview and lsn.preview_video_url:
+        # Timed free preview (Option 3): visitors get ONLY the generated
+        # clip — the full video URL never leaves the server for them.
+        # free_preview_seconds rides along so the player can caption the
+        # upsell overlay ("You watched the N-second free preview").
+        out.video_url = protected_media_url(lsn.preview_video_url, viewer_id)
+        out.body_blocks = _sign_block_media(out.body_blocks, viewer_id)
     else:
         out.video_url = protected_media_url(out.video_url, viewer_id)
         out.body_blocks = _sign_block_media(out.body_blocks, viewer_id)
