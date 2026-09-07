@@ -142,7 +142,8 @@ def _classify(f: dict, links: list, now: datetime) -> str:
     return "unlinked"
 
 
-def _candidate_info(db: Session, path: str, scan) -> dict | None:
+def _candidate_info(db: Session, path: str, scan,
+                    admin_id: int = 0) -> dict | None:
     mc = (db.query(MediaCandidate)
           .filter(MediaCandidate.tenant_id == get_current_tenant_id(),
                   MediaCandidate.candidate_path == path,
@@ -159,6 +160,9 @@ def _candidate_info(db: Session, path: str, scan) -> dict | None:
         "id": mc.id, "parent_path": mc.parent_path,
         "parent_links": parent_links, "lesson_id": mc.lesson_id,
         "savings_pct": savings,
+        # For the side-by-side compare player.
+        "parent_download_url": _signed_url(mc.parent_path, admin_id),
+        "parent_size_bytes": mc.parent_size_bytes,
     }
 
 
@@ -166,7 +170,7 @@ def _file_out(db: Session, f: dict, scan, admin_id: int,
               now: datetime) -> dict:
     links = [r for r in scan.links_for(f["path"])
              if r.kind not in ("candidate", "candidate_parent")]
-    cand = _candidate_info(db, f["path"], scan)
+    cand = _candidate_info(db, f["path"], scan, admin_id)
     status = "candidate" if cand else _classify(f, links, now)
     return {
         "path": f["path"], "name": _display_name(f["name"]),

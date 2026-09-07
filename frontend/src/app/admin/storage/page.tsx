@@ -476,6 +476,18 @@ export default function AdminStoragePage() {
                     Original: <span className="font-mono">{detail.candidate.parent_path.split("/").pop()}</span>
                   </div>
                   <div className="mt-1"><LinkChips links={detail.candidate.parent_links} /></div>
+                  <div className="mt-2 grid grid-cols-1 gap-2">
+                    <div>
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Original · {fmtBytes(detail.candidate.parent_size_bytes)}</div>
+                      <video controls preload="metadata" className="mt-1 w-full rounded-lg bg-slate-900"
+                        src={absoluteUploadUrl(detail.candidate.parent_download_url)} />
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Compressed · {fmtBytes(detail.size_bytes)}</div>
+                      <video controls preload="metadata" className="mt-1 w-full rounded-lg bg-slate-900"
+                        src={absoluteUploadUrl(detail.download_url)} />
+                    </div>
+                  </div>
                   <div className="mt-2 flex gap-2">
                     <button onClick={() => void decide(detail.candidate!.id, "keep")} disabled={busy}
                       className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50">

@@ -178,6 +178,12 @@ export interface VideoCompressDialogProps {
   onUseOriginal: (orig: File) => void;
   /** Close without uploading (e.g. user picks "Cancel"). */
   onCancel: () => void;
+  /** Clip mode: encode only the FIRST N seconds (free-preview clip
+   *  generation). Hides "use original" (a clip must be encoded) and
+   *  retitles the dialog. */
+  clipSeconds?: number;
+  /** Optional heading override (e.g. "Re-compress existing video"). */
+  titleOverride?: string;
 }
 
 
@@ -191,7 +197,8 @@ type Phase =
 
 
 export default function VideoCompressDialog(props: VideoCompressDialogProps) {
-  const { file, onUseCompressed, onUseOriginal, onCancel } = props;
+  const { file, onUseCompressed, onUseOriginal, onCancel,
+          clipSeconds, titleOverride } = props;
   const [phase, setPhase] = useState<Phase>("probing");
   const [err, setErr] = useState<string | null>(null);
   const [durationSec, setDurationSec] = useState<number>(0);
@@ -408,6 +415,8 @@ export default function VideoCompressDialog(props: VideoCompressDialogProps) {
     let cancelled = false;
     try {
       const blob = await encode(preset, {
+        // Clip mode: only the first clipSeconds get encoded.
+        ...(clipSeconds ? { startAt: 0, maxSeconds: clipSeconds } : {}),
         onProgress: setProgress,
         registerCancel: (fn) => {
           cancelCompressionRef.current = () => { cancelled = true; fn(); };
@@ -434,7 +443,8 @@ export default function VideoCompressDialog(props: VideoCompressDialogProps) {
     if (!compressedBlob) return;
     // Re-name with .webm extension since the codec is WebM.
     const base = file.name.replace(/\.[^.]+$/, "");
-    const f = new File([compressedBlob], `${base}-compressed.webm`,
+    const suffix = clipSeconds ? `preview-${clipSeconds}s` : "compressed";
+    const f = new File([compressedBlob], `${base}-${suffix}.webm`,
                        { type: compressedBlob.type, lastModified: Date.now() });
     onUseCompressed(f);
   }
@@ -464,10 +474,15 @@ export default function VideoCompressDialog(props: VideoCompressDialogProps) {
     <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-start justify-center p-4 overflow-y-auto">
       <div className="bg-white rounded-xl border border-slate-200 max-w-5xl w-full my-8 max-h-[90vh] overflow-y-auto">
         <header className="p-5 border-b border-slate-200">
-          <h2 className="font-semibold text-slate-900">Compress before upload?</h2>
+          <h2 className="font-semibold text-slate-900">
+            {titleOverride ?? (clipSeconds
+              ? `Generate a ${clipSeconds}-second preview clip`
+              : "Compress before upload?")}
+          </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Smaller files upload faster and use less of your storage budget.
-            Compression runs entirely in your browser; nothing leaves until you confirm.
+            {clipSeconds
+              ? `Encodes only the first ${clipSeconds} seconds — visitors will get this clip instead of the full video. Runs entirely in your browser.`
+              : "Smaller files upload faster and use less of your storage budget. Compression runs entirely in your browser; nothing leaves until you confirm."}
           </p>
         </header>
 
@@ -704,15 +719,17 @@ export default function VideoCompressDialog(props: VideoCompressDialogProps) {
                   className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
             Cancel
           </button>
-          <button onClick={() => onUseOriginal(file)}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
-            Upload original ({fmtBytes(file.size)})
-          </button>
+          {!clipSeconds && (
+            <button onClick={() => onUseOriginal(file)}
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
+              Upload original ({fmtBytes(file.size)})
+            </button>
+          )}
           {phase === "ready" && (
             <button onClick={runCompression}
                     disabled={!presetId}
                     className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-slate-300">
-              Start compression
+              {clipSeconds ? "Generate clip" : "Start compression"}
             </button>
           )}
           {phase === "compressing" && (
@@ -729,7 +746,7 @@ export default function VideoCompressDialog(props: VideoCompressDialogProps) {
               </button>
               <button onClick={handleUseCompressed}
                       className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700">
-                Upload compressed ({fmtBytes(compressedBlob.size)})
+                {clipSeconds ? "Use this clip" : "Upload compressed"} ({fmtBytes(compressedBlob.size)})
               </button>
             </>
           )}

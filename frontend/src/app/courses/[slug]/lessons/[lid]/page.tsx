@@ -465,6 +465,12 @@ function VideoLesson({
   onComplete: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Timed free preview: visitors (no enrollment) on a clip-limited
+  // lesson get an upsell overlay when the clip ends. The server already
+  // served only the clip — this is presentation, not the gate.
+  const isPreviewClip = enrollmentId === null
+    && lesson.is_free_preview && (lesson.free_preview_seconds ?? 0) > 0;
+  const [showUpsell, setShowUpsell] = useState(false);
   // Last saved position — comes from the server on load, so resume works
   // across refreshes AND across devices (it's not a local-only cache).
   const resumeAt = progress?.last_position_seconds ?? 0;
@@ -478,12 +484,18 @@ function VideoLesson({
     if (!enrollmentId || !Number.isFinite(seconds) || seconds <= 0) return;
     lmsPublic.updateProgress(enrollmentId, lesson.id, {
       last_position_seconds: Math.floor(seconds),
-    }).then(onProgressUpdate).catch((err) => {
-      // Background write — failing silently would hide a broken
-      // /lms/progress endpoint (the learner thinks resume is saved but
-      // it isn't). console.error gives devtools + log collectors a hook
-      // without nagging mid-video.
-      console.error("[lesson player] progress save", err);
+    }).then(onProgressUpdate).catch(() => {
+      // Background write over a flaky connection (the 7-day error-log
+      // triage showed these fail in same-second connectivity blips).
+      // One delayed retry rides out the blip; only a second failure is
+      // worth logging.
+      setTimeout(() => {
+        lmsPublic.updateProgress(enrollmentId, lesson.id, {
+          last_position_seconds: Math.floor(seconds),
+        }).then(onProgressUpdate).catch((err2) => {
+          console.error("[lesson player] progress save (after retry)", err2);
+        });
+      }, 2000);
     });
   }, [enrollmentId, lesson.id, onProgressUpdate]);
 
@@ -525,6 +537,7 @@ function VideoLesson({
     );
   }
   return (
+    <div className="relative">
     <video
       ref={videoRef}
       src={lesson.video_url}
@@ -547,10 +560,40 @@ function VideoLesson({
       }}
       onPause={(e) => savePosition(e.currentTarget.currentTime)}
       onEnded={() => {
+        if (isPreviewClip) { setShowUpsell(true); return; }
         // Auto-mark the lesson complete when the video finishes.
         onComplete();
       }}
     />
+    {isPreviewClip && !showUpsell && (
+      <div className="absolute left-2 top-2 rounded-md bg-black/60 px-2 py-1 text-xs text-white">
+        Free {lesson.free_preview_seconds}s preview
+      </div>
+    )}
+    {showUpsell && (
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-slate-900/85 p-6 text-center">
+        <p className="text-lg font-semibold text-white">
+          You’ve watched the {lesson.free_preview_seconds}-second free preview
+        </p>
+        <p className="text-sm text-slate-300">
+          Enroll to continue this lesson and unlock the full course.
+        </p>
+        <div className="flex gap-2">
+          <Link href="/pricing"
+                className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+            View plans & enroll
+          </Link>
+          <button onClick={() => {
+              setShowUpsell(false);
+              if (videoRef.current) { videoRef.current.currentTime = 0; void videoRef.current.play(); }
+            }}
+            className="rounded-lg border border-slate-500 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800">
+            Replay preview
+          </button>
+        </div>
+      </div>
+    )}
+    </div>
   );
 }
 

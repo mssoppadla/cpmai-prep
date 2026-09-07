@@ -642,6 +642,8 @@ export interface LessonOut {
   quiz_pass_threshold_percent: number;
   quiz_attempts_allowed: number | null;
   is_free_preview: boolean;
+  free_preview_seconds: number | null;
+  preview_video_url: string | null;
   is_published: boolean;
   is_deleted: boolean;
   created_at: string;
@@ -666,6 +668,8 @@ export interface LessonCreateIn {
   quiz_pass_threshold_percent?: number;
   quiz_attempts_allowed?: number | null;
   is_free_preview?: boolean;
+  free_preview_seconds?: number | null;
+  preview_video_url?: string | null;
   is_published?: boolean;
 }
 export type LessonUpdateIn = Partial<LessonCreateIn>;
@@ -909,6 +913,7 @@ export interface LessonPublicOut {
   discussion_url: string | null;
   instructor_id: number | null;
   is_free_preview: boolean;
+  free_preview_seconds: number | null;
   video_url: string | null;
   body_blocks: BlockNoteBlock[];
 }
@@ -1934,6 +1939,8 @@ export interface StorageCandidateInfo {
   parent_links: StorageLinkRef[];
   lesson_id: number | null;
   savings_pct: number;
+  parent_download_url: string;
+  parent_size_bytes: number;
 }
 
 export interface StorageFileOut {
