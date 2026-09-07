@@ -700,9 +700,12 @@ function AnonymousTrafficSection() {
       <CollapsibleHeader
         title="Visitors"
         subtitle="Known users vs anonymous visitors across the whole
-                  site. Anonymous visitors move to the known side from
-                  the moment they sign up — even when they later return
-                  signed out."
+                  site. A known visitor is any tracked visit attributable
+                  to an account — including signed-out returns from a
+                  browser that once logged in — deduped so one person
+                  counts once across devices and sign-in states. Expect
+                  this to read HIGHER than User Insights, which counts
+                  signed-in account activity only. Days are IST."
         open={open}
         onToggle={() => setOpen(o => !o)}
         controls={

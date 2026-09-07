@@ -726,6 +726,17 @@ export interface EnrollmentOut {
   podcast_lesson_id?: number | null;
   podcast_position_seconds?: number | null;
 }
+/** Admin course-enrollments row: identity + entitlement context so the
+ *  operator can see WHO each student is and whether the row still
+ *  grants access (2026-09-06 incident follow-up). */
+export interface EnrollmentAdminOut extends EnrollmentOut {
+  user_email: string | null;
+  user_name: string | null;
+  granted_by_email: string | null;
+  subscription_id: number | null;
+  backing_subscription_status: "live" | "revoked" | "expired" | "missing" | null;
+  grants_access_now: boolean;
+}
 export interface EnrollmentGrantIn {
   user_id: number;
   expires_at?: string | null;

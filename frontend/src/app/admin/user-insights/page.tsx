@@ -92,7 +92,12 @@ export default function AdminUserInsightsPage() {
           <ActivityWindowFilter from={win.from} to={win.to}
                                 onChange={(from, to) => setWin({ from, to })} />
           <p className="mt-1 text-xs text-slate-400">
-            Narrows the list to users who logged in or performed an activity in the window.
+            Narrows the list to users who logged in or performed a
+            signed-in activity in the window. Shows the first 20 matches
+            — refine the search to find a specific user. This counts
+            registered accounts only, so it will read LOWER than the
+            Contacts page&apos;s &ldquo;known visitors&rdquo;, which also
+            includes signed-out visits from browsers that once logged in.
           </p>
         </div>
         <div className="mt-2 max-h-56 overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-lg">

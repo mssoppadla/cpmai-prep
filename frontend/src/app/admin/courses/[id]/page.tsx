@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { admin, errMsg, absoluteUploadUrl } from "@/lib/api";
 import type {
   ChapterOut, CourseOut, CourseUpdateIn, LessonOut, LessonType,
-  EnrollmentOut, CourseAnnouncementOut, CourseCategoryOut,
+  EnrollmentAdminOut, CourseAnnouncementOut, CourseCategoryOut,
 } from "@/types/api";
 
 
@@ -38,7 +38,7 @@ export default function CourseEditorPage({
   const [course, setCourse] = useState<CourseOut | null>(null);
   const [chapters, setChapters] = useState<ChapterOut[] | null>(null);
   const [lessonsByCh, setLessonsByCh] = useState<Record<number, LessonOut[]>>({});
-  const [enrollments, setEnrollments] = useState<EnrollmentOut[] | null>(null);
+  const [enrollments, setEnrollments] = useState<EnrollmentAdminOut[] | null>(null);
   const [announcements, setAnnouncements] = useState<CourseAnnouncementOut[] | null>(null);
   const [allCategories, setAllCategories] = useState<CourseCategoryOut[]>([]);
   const [linkedCategoryIds, setLinkedCategoryIds] = useState<Set<number>>(new Set());
@@ -184,6 +184,17 @@ export default function CourseEditorPage({
   }, [course]);
 
   useEffect(() => { void reloadSidebar(); }, [reloadSidebar]);
+
+  async function revokeEnrollmentRow(id: number, who: string) {
+    if (!window.confirm(
+      `Revoke ${who}'s enrollment? They lose access to this course ` +
+      `immediately (their progress is kept and returns on re-enrollment).`,
+    )) return;
+    try {
+      await admin.lms.revokeEnrollment(id);
+      await reloadSidebar();
+    } catch (e) { setErr(errMsg(e)); }
+  }
 
   // Categories — load the global list once + this course's current
   // links, so the chip selector can render the toggled state.
@@ -567,10 +578,40 @@ export default function CourseEditorPage({
             {enrollments && enrollments.length === 0 && (
               <p className="text-xs text-slate-500">No enrolled students yet.</p>
             )}
-            {enrollments && enrollments.slice(0, 8).map((e) => (
-              <div key={e.id} className="flex items-center justify-between py-1 text-xs">
-                <span>User #{e.user_id}</span>
-                <span className="text-slate-500">{e.source}</span>
+            {enrollments && enrollments.slice(0, 20).map((e) => (
+              <div key={e.id} className="py-1.5 text-xs border-t border-slate-100 first:border-t-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-slate-900 truncate">
+                    {e.user_email ?? `User #${e.user_id}`}
+                  </span>
+                  <button
+                    onClick={() => revokeEnrollmentRow(e.id, e.user_email ?? `#${e.user_id}`)}
+                    className="shrink-0 text-rose-600 hover:text-rose-800"
+                    title="Revoke this enrollment — removes the student's access to this course (their progress is kept)"
+                  >
+                    Revoke
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 text-slate-500">
+                  <span>{e.source === "subscription" ? "via plan" : e.source}</span>
+                  {e.source === "subscription" && e.backing_subscription_status && (
+                    <span className={
+                      e.backing_subscription_status === "live"
+                        ? "text-emerald-600"
+                        : "text-rose-600"
+                    }>
+                      sub {e.backing_subscription_status}
+                    </span>
+                  )}
+                  {!e.grants_access_now && (
+                    <span className="px-1.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
+                      no access now
+                    </span>
+                  )}
+                  {e.expires_at && (
+                    <span>until {new Date(e.expires_at).toLocaleDateString()}</span>
+                  )}
+                </div>
               </div>
             ))}
           </section>

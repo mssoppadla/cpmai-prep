@@ -334,6 +334,19 @@ class PodcastPointerIn(BaseModel):
     position_seconds: Optional[int] = Field(default=None, ge=0)
 
 
+class EnrollmentAdminOut(EnrollmentOut):
+    """Admin course-enrollments row: EnrollmentOut plus the identity and
+    entitlement context the operator needs (previously the panel showed
+    only 'User #21' — unusable during the 2026-09-06 access incident)."""
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    granted_by_email: Optional[str] = None
+    subscription_id: Optional[int] = None
+    # 'live' | 'revoked' | 'expired' | 'missing' | None (non-subscription rows)
+    backing_subscription_status: Optional[str] = None
+    grants_access_now: bool = True
+
+
 class EnrollmentGrantIn(BaseModel):
     """Admin grants a free enrollment to a specific user."""
     user_id: int

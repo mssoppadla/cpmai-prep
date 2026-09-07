@@ -36,7 +36,16 @@ def _set_exam_sets(db: Session, plan: Plan, ids: list[int],
 def _set_courses(db: Session, plan: Plan, ids: list[int],
                  added_by_id: int) -> None:
     """Replace the plan's course links with the given list. Validates
-    every id resolves to a non-deleted course."""
+    every id resolves to a non-deleted course.
+
+    For courses NEWLY added to the plan, immediately materialize
+    enrollments for every current active subscriber — so the admin's
+    save takes effect for existing students right away, instead of each
+    student needing to log in first (prod incident 2026-09-06: access
+    silently depended on per-student login timing). Removal is handled
+    by the read-time revalidation: unlinked courses stop resolving for
+    subscription-derived enrollments on their next access.
+    """
     if ids:
         rows = db.query(Course).filter(
             Course.id.in_(ids),
@@ -46,11 +55,35 @@ def _set_courses(db: Session, plan: Plan, ids: list[int],
         missing = [i for i in ids if i not in found_ids]
         if missing:
             raise ValidationError(f"Unknown course_ids: {missing}")
+    previous = {pc.course_id for pc in
+                db.query(PlanCourse).filter_by(plan_id=plan.id).all()}
     db.query(PlanCourse).filter_by(plan_id=plan.id).delete()
     for cid in ids:
         db.add(PlanCourse(plan_id=plan.id, course_id=cid,
                           added_by=added_by_id))
     db.flush()
+
+    added = set(ids) - previous
+    if added:
+        from datetime import datetime, timezone
+        from app.api.v1.endpoints.admin.subscriptions import (
+            materialize_bundle_enrollments,
+        )
+        from app.models.subscription import Subscription
+        now = datetime.now(timezone.utc)
+        subs = (db.query(Subscription)
+                .filter(Subscription.plan_id == plan.id,
+                        Subscription.status == "active",
+                        Subscription.revoked_at.is_(None))
+                .all())
+        for sub in subs:
+            exp = sub.expires_at
+            if exp is not None:
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if exp <= now:
+                    continue
+            materialize_bundle_enrollments(db, sub, only_course_ids=added)
 
 
 @router.get("", response_model=list[PlanAdminOut])

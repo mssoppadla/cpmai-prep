@@ -36,7 +36,9 @@ from sqlalchemy.orm import Session
 from app.core.audit import audit_log
 from app.core.deps import get_admin_user, get_db
 from app.core.exceptions import AppError, NotFoundError, ValidationError
-from app.models.plan import Plan
+from app.core.tenant import get_current_tenant_id
+from app.models.lms import Course, Enrollment
+from app.models.plan import Plan, PlanCourse
 from app.models.subscription import Subscription
 from app.models.user import User
 
@@ -70,6 +72,12 @@ class SubscriptionAdminOut(BaseModel):
     # Derived: matches the paywall's view of this row right now
     is_active_now: bool
     created_at: datetime
+    # Grant response only: what this plan unlocks, so the operator sees
+    # at grant time whether the plan actually bundles the content they
+    # meant to hand out (prod incident 2026-09-06: a plan granted three
+    # times unlocked zero courses because the plan↔course link was
+    # missing, with no feedback anywhere).
+    unlocks: dict | None = None
 
     class Config:
         from_attributes = True
@@ -177,6 +185,62 @@ def _emails_for(db: Session, user_ids: set[int]) -> dict[int, str]:
         return {}
     rows = db.query(User.id, User.email).filter(User.id.in_(user_ids)).all()
     return {uid: email for uid, email in rows}
+
+
+def materialize_bundle_enrollments(
+        db: Session, sub: Subscription,
+        only_course_ids: set[int] | None = None) -> list[dict]:
+    """Create (or re-anchor) enrollment rows for every course the sub's
+    plan bundles. Called at grant time and by the plan-save backfill so
+    course access appears the moment the operator acts, instead of
+    waiting for each student's next login (prod incident 2026-09-06).
+
+    Returns [{course_id, title, is_published, action}] for operator
+    feedback; action ∈ created / refreshed / already.
+    """
+    if sub.plan_id is None:
+        return []
+    links = db.query(PlanCourse).filter(
+        PlanCourse.plan_id == sub.plan_id,
+        PlanCourse.tenant_id == get_current_tenant_id(),
+    ).all()
+    out: list[dict] = []
+    for link in links:
+        if only_course_ids is not None and link.course_id not in only_course_ids:
+            continue
+        course = db.get(Course, link.course_id)
+        if not course or course.is_deleted:
+            continue
+        row = {"course_id": course.id, "title": course.title,
+               "is_published": bool(course.is_published)}
+        existing = db.query(Enrollment).filter(
+            Enrollment.user_id == sub.user_id,
+            Enrollment.course_id == course.id,
+            Enrollment.revoked_at.is_(None),
+            Enrollment.tenant_id == get_current_tenant_id(),
+        ).first()
+        if existing is not None:
+            if existing.source == "subscription":
+                # Re-anchor on this (newer) sub so expiry/cascade follow it.
+                existing.subscription_id = sub.id
+                existing.expires_at = sub.expires_at
+                row["action"] = "refreshed"
+            else:
+                row["action"] = "already"
+        else:
+            db.add(Enrollment(
+                tenant_id=get_current_tenant_id(),
+                user_id=sub.user_id, course_id=course.id,
+                source="subscription",
+                subscription_id=sub.id,
+                expires_at=sub.expires_at,
+                grant_reason=f"Auto-enrolled via subscription #{sub.id} "
+                             f"(plan {sub.plan_id})",
+            ))
+            row["action"] = "created"
+        out.append(row)
+    db.commit()
+    return out
 
 
 # ---------------------------------------------------------------- endpoints
@@ -301,8 +365,17 @@ def grant_subscription(user_id: int, payload: SubscriptionGrantIn,
                                and payload.send_invoice),
     })
 
+    # Materialize bundled-course access NOW (and report what unlocked),
+    # instead of waiting for the student's next login.
+    courses = materialize_bundle_enrollments(db, sub)
+    from app.models.plan import PlanExamSet
+    exam_set_count = (db.query(PlanExamSet)
+                      .filter(PlanExamSet.plan_id == plan.id).count())
+
     emails = _emails_for(db, {admin.id})
-    return _to_admin_out(sub, emails)
+    out = _to_admin_out(sub, emails)
+    out.unlocks = {"exam_sets": exam_set_count, "courses": courses}
+    return out
 
 
 @router.post("/subscriptions/{subscription_id}/extend",
@@ -333,6 +406,11 @@ def extend_subscription(subscription_id: int, payload: SubscriptionExtendIn,
     old_expiry = sub.expires_at
     sub.expires_at = new_expiry
     sub.current_period_end = new_expiry
+    # Derived course access follows the subscription's new expiry.
+    db.query(Enrollment).filter(
+        Enrollment.subscription_id == sub.id,
+        Enrollment.revoked_at.is_(None),
+    ).update({Enrollment.expires_at: new_expiry}, synchronize_session=False)
     db.commit()
     db.refresh(sub)
 
@@ -371,9 +449,18 @@ def revoke_subscription(subscription_id: int, payload: SubscriptionRevokeIn,
             actor_ids.add(sub.revoked_by)
         return _to_admin_out(sub, _emails_for(db, actor_ids))
 
-    sub.revoked_at = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    sub.revoked_at = now
     sub.revoked_by = admin.id
     sub.revoke_reason = payload.reason
+    # Cascade: the course access this subscription created dies with it.
+    # (Learning data — progress, notes, quiz attempts — is kept; a later
+    # re-grant restores access with history intact.)
+    cascaded = (db.query(Enrollment)
+                .filter(Enrollment.subscription_id == sub.id,
+                        Enrollment.revoked_at.is_(None))
+                .update({Enrollment.revoked_at: now},
+                        synchronize_session=False))
     db.commit()
     db.refresh(sub)
 
@@ -382,6 +469,7 @@ def revoke_subscription(subscription_id: int, payload: SubscriptionRevokeIn,
         "target_user_id": sub.user_id,
         "previous_expires_at": (sub.expires_at.isoformat()
                                 if sub.expires_at else None),
+        "enrollments_revoked": cascaded,
         "reason": payload.reason,
     })
 
