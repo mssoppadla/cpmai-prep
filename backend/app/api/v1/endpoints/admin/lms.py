@@ -530,11 +530,18 @@ def delete_lesson_file(
     ).first()
     if not f:
         raise NotFoundError("File not found")
-    # Capture the URL BEFORE the row is gone — the unlink helper needs
-    # it to resolve the on-disk path.
-    file_url = f.file_url
-    db.delete(f); db.commit()
-    _unlink_local_upload(file_url)
+    # Capture context BEFORE the row is gone. The backing file is moved
+    # to restorable trash (visible/recoverable at /admin/storage) rather
+    # than unlinked outright — disk is only freed by empty-trash.
+    file_url, filename, lesson_id = f.file_url, f.filename, f.lesson_id
+    db.delete(f)
+    from app.api.v1.endpoints.admin.storage import move_url_to_trash
+    move_url_to_trash(db, file_url, admin.id, link_summary=[{
+        "kind": "lesson_file", "entity_id": lesson_id,
+        "label": f"Lesson file · {filename}",
+        "admin_href": f"/admin/lessons/{lesson_id}",
+    }])
+    db.commit()
     audit_log(db, admin.id, "lesson_file.deleted", {"id": file_id, "url": file_url})
 
 
