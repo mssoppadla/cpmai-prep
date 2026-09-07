@@ -95,12 +95,16 @@ def test_every_reference_location_counts_as_linked(client, db, admin,
                                                    upload_root, course_tree):
     """Body-block JSON, lesson files, course cover, announcement text —
     each keeps its file out of the unlinked pool."""
+    from app.models.exam_set import ExamSet
     from app.models.lms import CourseAnnouncement
+    from app.models.testimonial import Testimonial
     c, ch, lsn = course_tree
     body = _mk_file(upload_root, "1/2026/08/bbb-diagram.png")
     attach = _mk_file(upload_root, "1/2026/08/ccc-notes.pdf")
     cover = _mk_file(upload_root, "1/2026/08/ddd-cover.jpg")
     ann = _mk_file(upload_root, "1/2026/08/eee-handout.pdf")
+    es_cover = _mk_file(upload_root, "1/2026/08/es-cover.jpg")
+    photo = _mk_file(upload_root, "1/2026/08/tm-photo.png")
 
     lsn.body_blocks = [{"type": "image", "props": {"url": body}}]
     c.cover_image_url = cover
@@ -108,11 +112,16 @@ def test_every_reference_location_counts_as_linked(client, db, admin,
                       file_url=attach))
     db.add(CourseAnnouncement(tenant_id=1, course_id=c.id, title="Handout",
                               body=f"Download: {ann} today"))
+    db.add(ExamSet(name="Storage ES", slug="storage-es",
+                   cover_image_url=es_cover))
+    db.add(Testimonial(name="Asha", quote="Great!", photo_url=photo))
     db.commit()
 
     rows = _rows(client, admin)
     for url, kind in [(body, "lesson_body"), (attach, "lesson_file"),
-                      (cover, "course_cover"), (ann, "announcement")]:
+                      (cover, "course_cover"), (ann, "announcement"),
+                      (es_cover, "exam_set_cover"),
+                      (photo, "testimonial_photo")]:
         assert rows[url]["status"] == "linked", url
         assert any(r["kind"] == kind for r in rows[url]["links"]), url
 

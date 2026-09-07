@@ -177,7 +177,7 @@ def scan_links(db: Session) -> LinkScan:
 
     for es in db.query(ExamSet):   # ExamSet has no tenant column
         scan.add(es.cover_image_url, LinkRef(
-            "exam_set_cover", es.id, f"Exam-set cover · {es.title}",
+            "exam_set_cover", es.id, f"Exam-set cover · {es.name}",
             admin_href=f"/admin/exam-sets/{es.id}"))
 
     for t in db.query(Testimonial):
