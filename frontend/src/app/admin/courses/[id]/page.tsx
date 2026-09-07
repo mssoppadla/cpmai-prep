@@ -185,6 +185,47 @@ export default function CourseEditorPage({
 
   useEffect(() => { void reloadSidebar(); }, [reloadSidebar]);
 
+  // Direct enrollment from the course page — the deterministic lever
+  // when one specific user needs access NOW, without touching plans.
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [enrollQuery, setEnrollQuery] = useState("");
+  const [enrollMatches, setEnrollMatches] =
+    useState<{ id: number; email: string; name: string | null }[]>([]);
+  const [enrollBusy, setEnrollBusy] = useState(false);
+
+  useEffect(() => {
+    if (!enrollOpen || enrollQuery.trim().length < 2) {
+      setEnrollMatches([]);
+      return;
+    }
+    let cancel = false;
+    const t = setTimeout(async () => {
+      try {
+        const users = await admin.users.list({ q: enrollQuery.trim(), limit: 6 });
+        if (!cancel) {
+          setEnrollMatches(users.map((u) => ({
+            id: u.id, email: u.email, name: u.name ?? null })));
+        }
+      } catch { /* search is best-effort */ }
+    }, 300);
+    return () => { cancel = true; clearTimeout(t); };
+  }, [enrollOpen, enrollQuery]);
+
+  async function directEnroll(userId: number, email: string) {
+    if (!course || enrollBusy) return;
+    setEnrollBusy(true);
+    try {
+      await admin.lms.grantEnrollment(course.id, {
+        user_id: userId,
+        grant_reason: `Direct admin enrollment from course page (${email})`,
+      });
+      setEnrollOpen(false);
+      setEnrollQuery("");
+      await reloadSidebar();
+    } catch (e) { setErr(errMsg(e)); }
+    finally { setEnrollBusy(false); }
+  }
+
   async function revokeEnrollmentRow(id: number, who: string) {
     if (!window.confirm(
       `Revoke ${who}'s enrollment? They lose access to this course ` +
@@ -571,10 +612,59 @@ export default function CourseEditorPage({
         {/* ============ Right: enrollments + announcements ============ */}
         <aside className="space-y-6">
           <section className="bg-white border border-slate-200 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-1">
               <h2 className="font-semibold text-slate-900">Enrollments</h2>
-              <span className="text-xs text-slate-500">{enrollments?.length ?? 0} students</span>
+              <button
+                onClick={() => setEnrollOpen((o) => !o)}
+                className="text-xs px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                {enrollOpen ? "Cancel" : "+ Enroll user"}
+              </button>
             </div>
+            {enrollments && (
+              <p className="text-xs text-slate-500 mb-3">
+                {enrollments.length} student{enrollments.length === 1 ? "" : "s"}
+                {enrollments.length > 0 && (
+                  <>
+                    {" · "}
+                    {enrollments.filter((e) => e.source === "subscription").length} via plan
+                    {" · "}
+                    {enrollments.filter((e) => e.source !== "subscription").length} direct
+                  </>
+                )}
+              </p>
+            )}
+            {enrollOpen && (
+              <div className="mb-3 border border-indigo-200 bg-indigo-50 rounded-lg p-2">
+                <input
+                  autoFocus
+                  value={enrollQuery}
+                  onChange={(e) => setEnrollQuery(e.target.value)}
+                  placeholder="Search user by email or name…"
+                  className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded
+                             focus:ring-1 focus:ring-indigo-500 outline-none"
+                />
+                {enrollMatches.length > 0 && (
+                  <div className="mt-1 divide-y divide-slate-100 bg-white border border-slate-200 rounded">
+                    {enrollMatches.map((u) => (
+                      <button
+                        key={u.id}
+                        disabled={enrollBusy}
+                        onClick={() => directEnroll(u.id, u.email)}
+                        className="block w-full text-left px-2 py-1.5 text-xs hover:bg-indigo-50 disabled:opacity-50"
+                      >
+                        <span className="font-medium text-slate-900">{u.email}</span>
+                        {u.name && <span className="text-slate-500"> · {u.name}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Direct enrollments are independent of plans — they survive
+                  plan changes and only end via Revoke here.
+                </p>
+              </div>
+            )}
             {enrollments && enrollments.length === 0 && (
               <p className="text-xs text-slate-500">No enrolled students yet.</p>
             )}
@@ -593,7 +683,8 @@ export default function CourseEditorPage({
                   </button>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 text-slate-500">
-                  <span>{e.source === "subscription" ? "via plan" : e.source}</span>
+                  <span>{e.source === "subscription" ? "via plan"
+                         : e.source === "admin_grant" ? "direct" : e.source}</span>
                   {e.source === "subscription" && e.backing_subscription_status && (
                     <span className={
                       e.backing_subscription_status === "live"
