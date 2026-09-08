@@ -295,3 +295,96 @@ def test_bulk_endpoints_require_admin(client, user):
     assert r1.status_code in (401, 403)
     r2 = _post_upload(client, h, _xlsx_bytes_from_rows([_ok_single()]))
     assert r2.status_code in (401, 403)
+
+
+# ============================================== rich-text round-trip
+def _mk_rich_question(db, admin, topic_id):
+    from app.models.question import QuestionOption
+    q = Question(
+        stem="Rich round-trip question?", topic_id=topic_id,
+        difficulty="easy",
+        explanation=('Look at this: '
+                     '<img src="/uploads/1/2026/09/rt-pic.png" alt=""> '
+                     'and <b>remember</b>.'),
+        is_active=True, created_by=admin.id,
+    )
+    q.options = [
+        QuestionOption(option_letter="A", text="yes", is_correct=True,
+                       reasoning='<i>because</i> of Phase 2'),
+        QuestionOption(option_letter="B", text="no", is_correct=False),
+    ]
+    db.add(q); db.commit(); db.refresh(q)
+    return q
+
+
+def _export_rows(client, headers):
+    r = client.get("/api/v1/admin/questions/export", headers=headers)
+    assert r.status_code == 200, r.text
+    ws = load_workbook(io.BytesIO(r.content)).active
+    head = [c.value for c in ws[1]]
+    return [dict(zip(head, [c.value for c in row]))
+            for row in ws.iter_rows(min_row=2) if any(c.value for c in row)]
+
+
+def test_export_projects_rich_fields_with_image_tokens(client, admin, db):
+    from app.models.topic import Topic
+    topic = db.query(Topic).first()
+    q = _mk_rich_question(db, admin, topic.id)
+    row = next(r for r in _export_rows(client, auth_header(client, admin.email))
+               if r["id"] == q.id)
+    assert row["explanation"] == ("Look at this: "
+                                  "[image: /uploads/1/2026/09/rt-pic.png] "
+                                  "and **remember**.")
+    assert row["option_a_reasoning"] == "*because* of Phase 2"
+
+
+def test_reupload_of_untouched_export_is_a_noop(client, admin, db, tmp_path,
+                                                monkeypatch):
+    """The user's exact scenario: add an image post-deploy, export, upload
+    the same sheet back — the stored rich value must be byte-for-byte
+    unchanged and the upload must report no warnings for the row."""
+    monkeypatch.setattr(questions_ep, "UPLOAD_ROOT", tmp_path)
+    from app.models.topic import Topic
+    topic = db.query(Topic).first()
+    q = _mk_rich_question(db, admin, topic.id)
+    before = q.explanation
+    headers = auth_header(client, admin.email)
+    row = next(r for r in _export_rows(client, headers) if r["id"] == q.id)
+
+    blob = _xlsx_bytes_from_rows([{k: ("" if v is None else v)
+                                   for k, v in row.items()}])
+    r = client.post("/api/v1/admin/questions/bulk-upload", headers=headers,
+                    files={"file": ("u.xlsx", blob,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["errors"] == [] and body["warnings"] == []
+    db.refresh(q)
+    assert q.explanation == before
+    assert q.options[0].reasoning == '<i>because</i> of Phase 2'
+
+
+def test_reupload_without_token_keeps_image_and_warns(client, admin, db,
+                                                      tmp_path, monkeypatch):
+    """Old-export shape: the cell was edited and carries NO image token —
+    the text updates, the image survives, and the row is warned."""
+    monkeypatch.setattr(questions_ep, "UPLOAD_ROOT", tmp_path)
+    from app.models.topic import Topic
+    topic = db.query(Topic).first()
+    q = _mk_rich_question(db, admin, topic.id)
+    headers = auth_header(client, admin.email)
+    row = next(r for r in _export_rows(client, headers) if r["id"] == q.id)
+    row["explanation"] = "edited text with the token deleted"
+
+    blob = _xlsx_bytes_from_rows([{k: ("" if v is None else v)
+                                   for k, v in row.items()}])
+    r = client.post("/api/v1/admin/questions/bulk-upload", headers=headers,
+                    files={"file": ("u.xlsx", blob,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert any(w["field"] == "explanation" and "kept 1 image" in w["message"]
+               for w in body["warnings"]), body
+    db.refresh(q)
+    assert '<img src="/uploads/1/2026/09/rt-pic.png"' in q.explanation
+    assert "edited text with the token deleted" in q.explanation

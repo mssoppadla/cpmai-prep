@@ -39,6 +39,8 @@ Hard caps (enforced at the endpoint, not here):
     file size  ≤ 5 MB
     row count  ≤ 500 questions per upload
 """
+import html as html_lib
+import re
 from io import BytesIO
 from dataclasses import dataclass
 
@@ -114,6 +116,185 @@ def _cell_str(v) -> str:
     if v is None:
         return ""
     return str(v).strip()
+
+
+# ================================================= rich text round-trip
+# Explanations / option reasonings can be rich HTML (bold, lists, images
+# — authored in the admin editor, 2026-09). Excel is a plain-text medium,
+# so export projects rich values into a readable, ROUND-TRIPPABLE form:
+#
+#   <b>x</b>            →  **x**          <i>x</i>  →  *x*    <u>x</u> → __x__
+#   <br> / </p></div>   →  real newline
+#   <ul><li>a</li></ul> →  "- a" lines   (<ol> → "1. a" numbered lines)
+#   <img src="U">       →  [image: U]    (token sits exactly where the
+#                                          image sits — mid-sentence stays
+#                                          mid-sentence; the file itself
+#                                          never leaves the server)
+#
+# Import (merge_cell_rich) obeys three rules, in order:
+#   1. cell text == projection of stored value → field left UNTOUCHED
+#      (byte-for-byte; the common bulk-edit-other-columns case)
+#   2. cell edited → rebuilt from the mini-markup; [image:] tokens become
+#      <img> at their exact position; a cell with no markup at all stays
+#      a plain string (legacy rows never get silently HTML-ified)
+#   3. images are NEVER silently lost: if the stored value had images and
+#      the edited cell carries no tokens (old export, accidental delete),
+#      the images are re-attached at the end and the row is WARNED.
+#      A token pointing at a file missing on the server is skipped + warned.
+
+_MARKUP_RE = re.compile(
+    r"<(b|i|strong|em|u|br|p|span|div|ul|ol|li|img|a|h3|h4)\b[^>]*/?>", re.I)
+_TAG_SPLIT_RE = re.compile(r"(<[^>]+>)")
+_IMG_TOKEN_RE = re.compile(r"\[image:\s*([^\]\s]+)\s*\]")
+_IMG_SRC_RE = re.compile(r"<img\b[^>]*?src\s*=\s*[\"']([^\"']+)[\"']", re.I)
+
+
+def html_to_cell_text(value: str | None) -> str:
+    """Project a stored explanation/reasoning into its Excel-cell text.
+    Legacy plain strings pass through unchanged."""
+    if not value:
+        return ""
+    if not _MARKUP_RE.search(value):
+        return value
+    out: list[str] = []
+    list_stack: list[str] = []
+    counters: list[int] = []
+    for tok in _TAG_SPLIT_RE.split(value):
+        if not tok:
+            continue
+        if tok.startswith("<") and tok.endswith(">"):
+            inner = tok[1:-1].strip()
+            closing = inner.startswith("/")
+            m = re.match(r"/?\s*([a-zA-Z0-9]+)", inner)
+            name = m.group(1).lower() if m else ""
+            if name == "br":
+                out.append("\n")
+            elif name in ("p", "div", "h3", "h4") and closing:
+                out.append("\n")
+            elif name == "ul" and not closing:
+                list_stack.append("ul")
+            elif name == "ol" and not closing:
+                list_stack.append("ol"); counters.append(0)
+            elif name in ("ul", "ol") and closing:
+                if list_stack and list_stack.pop() == "ol" and counters:
+                    counters.pop()
+                out.append("\n")
+            elif name == "li" and not closing:
+                if list_stack and list_stack[-1] == "ol" and counters:
+                    counters[-1] += 1
+                    out.append(f"\n{counters[-1]}. ")
+                else:
+                    out.append("\n- ")
+            elif name in ("b", "strong"):
+                out.append("**")
+            elif name in ("i", "em"):
+                out.append("*")
+            elif name == "u":
+                out.append("__")
+            elif name == "img" and not closing:
+                sm = _IMG_SRC_RE.match(tok) or re.search(
+                    r"src\s*=\s*[\"']([^\"']+)[\"']", tok)
+                if sm:
+                    out.append(f"[image: {sm.group(1)}]")
+            # every other tag is presentation we don't project (dropped;
+            # its inner text still flows through)
+        else:
+            out.append(html_lib.unescape(tok))
+    text = re.sub(r"\n{3,}", "\n\n", "".join(out))
+    return text.strip("\n").strip()
+
+
+def _escape(t: str) -> str:
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _inline_markup(t: str) -> str:
+    """Escaped text + **/*/__ markers + [image:] tokens → inline HTML."""
+    t = _IMG_TOKEN_RE.sub(lambda m: f'<img src="{m.group(1)}" alt="">', t)
+    t = re.sub(r"\*\*([^*\n][^*]*?)\*\*", r"<b>\1</b>", t)
+    t = re.sub(r"__([^_\n][^_]*?)__", r"<u>\1</u>", t)
+    t = re.sub(r"(?<!\*)\*([^*\n]+?)\*(?!\*)", r"<i>\1</i>", t)
+    return t
+
+
+def cell_text_to_html(text: str) -> str:
+    """Rebuild rich HTML from an edited cell (called only when the cell
+    carries markup markers or image tokens)."""
+    lines = _escape(text.replace("\r\n", "\n").replace("\r", "\n")).split("\n")
+    html_parts: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        ul = re.match(r"^\s*-\s+(.*)$", line)
+        ol = re.match(r"^\s*\d+\.\s+(.*)$", line)
+        if ul or ol:
+            tag = "ul" if ul else "ol"
+            items: list[str] = []
+            pat = r"^\s*-\s+(.*)$" if ul else r"^\s*\d+\.\s+(.*)$"
+            while i < len(lines):
+                m = re.match(pat, lines[i])
+                if not m:
+                    break
+                items.append(f"<li>{_inline_markup(m.group(1))}</li>")
+                i += 1
+            html_parts.append(f"<{tag}>{''.join(items)}</{tag}>")
+        else:
+            html_parts.append(_inline_markup(line))
+            i += 1
+    return "<br>".join(html_parts)
+
+
+def merge_cell_rich(
+    new_cell: str | None, existing: str | None,
+    upload_root=None,
+) -> tuple[str | None, str | None]:
+    """Decide what to store for an explanation/reasoning field.
+    Returns (stored_value, warning_message_or_None). ``upload_root`` (a
+    Path) enables the dead-link check for /uploads/ image tokens."""
+    cell = (new_cell or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    existing = existing or ""
+
+    # Rule 1 — untouched cell: keep the stored value byte-for-byte.
+    if html_to_cell_text(existing).strip() == cell:
+        return (existing or None), None
+
+    warnings: list[str] = []
+
+    # Validate image tokens; drop the ones pointing nowhere.
+    def _check(m: re.Match) -> str:
+        url = m.group(1)
+        ok = url.startswith("/uploads/") or re.match(r"^https?://", url)
+        if ok and url.startswith("/uploads/") and upload_root is not None:
+            rel = url[len("/uploads/"):].split("?", 1)[0]
+            ok = (upload_root / rel).is_file()
+        if not ok:
+            warnings.append(f"image link not found on server, skipped: {url}")
+            return ""
+        return m.group(0)
+    cell = _IMG_TOKEN_RE.sub(_check, cell)
+
+    has_tokens = bool(_IMG_TOKEN_RE.search(cell))
+    has_markers = bool(re.search(r"\*\*|__|^\s*(-|\d+\.)\s", cell, re.M))
+    existing_imgs = _IMG_SRC_RE.findall(existing)
+
+    # Rule 3 — never silently lose images.
+    if existing_imgs and not has_tokens:
+        kept = "".join(f'<img src="{u}" alt="">' for u in existing_imgs)
+        base = cell_text_to_html(cell) if (has_markers or "\n" in cell) \
+            else _escape(cell)
+        stored = f"{base}<br>{kept}" if base else kept
+        warnings.append(
+            f"kept {len(existing_imgs)} image(s) the cell no longer "
+            f"referenced — remove them in the question editor if that was "
+            f"intended")
+        return stored, "; ".join(warnings)
+
+    # Rule 2 — rebuild rich only when the author used markup; a plain
+    # cell stays a plain string (legacy compatibility).
+    if has_tokens or has_markers:
+        return (cell_text_to_html(cell) or None), \
+            ("; ".join(warnings) or None)
+    return (cell or None), ("; ".join(warnings) or None)
 
 
 # =========================================================== template
@@ -274,7 +455,9 @@ def question_to_row(q, topic_code: str, set_slugs: list[str]) -> dict:
         "task": q.task or "",
         "enablers": ", ".join(q.enablers or []),
         "remarks": q.remarks or "",
-        "explanation": q.explanation or "",
+        # Rich values project to readable text with [image:] tokens; the
+        # untouched-cell rule on re-import makes this loss-free.
+        "explanation": html_to_cell_text(q.explanation),
         "is_active": "true" if q.is_active else "false",
         "exam_sets": ", ".join(set_slugs),
     }
@@ -282,7 +465,7 @@ def question_to_row(q, topic_code: str, set_slugs: list[str]) -> dict:
         L = opt.option_letter.lower()
         row[f"option_{L}_text"] = opt.text
         row[f"option_{L}_is_correct"] = "true" if opt.is_correct else "false"
-        row[f"option_{L}_reasoning"] = opt.reasoning or ""
+        row[f"option_{L}_reasoning"] = html_to_cell_text(opt.reasoning)
     return row
 
 

@@ -1,4 +1,7 @@
 """Admin question CRUD with strict validation + bulk Excel upload."""
+import os
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Query, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy import select, func
@@ -15,6 +18,10 @@ from app.schemas.question import (
     QuestionAdminIn, QuestionAdminOut, QuestionBulkDeleteIn,
 )
 from app.services import question_excel
+
+# For the dead-image-link check on bulk upload (kept in sync with
+# admin/uploads.py + storage.py).
+UPLOAD_ROOT = Path(os.environ.get("UPLOAD_ROOT", "/app/uploads"))
 from app.services.assistant.rag.ingest import reindex_quietly
 
 router = APIRouter()
@@ -245,6 +252,8 @@ async def bulk_upload(file: UploadFile = File(...),
     created_ids: list[int] = []
     updated_ids: list[int] = []
     errors: list[dict] = list(parsed.errors)
+    # Non-fatal rich-text notices (kept images, skipped dead image links).
+    warnings: list[dict] = []
 
     for pr in parsed.valid:
         topic_id = topics_by_code.get(pr.topic_code.upper())
@@ -277,6 +286,29 @@ async def bulk_upload(file: UploadFile = File(...),
             q = (db.get(Question, pr.question_id)
                  if pr.question_id is not None else None)
             if q is not None:
+                # Rich-text merge (explanation + option reasonings): an
+                # untouched cell keeps the stored value byte-for-byte,
+                # an edited one is rebuilt from the cell's mini-markup,
+                # and images are never silently dropped (see
+                # question_excel.merge_cell_rich).
+                merged, w = question_excel.merge_cell_rich(
+                    payload.explanation, q.explanation, UPLOAD_ROOT)
+                payload.explanation = merged
+                if w:
+                    warnings.append({"row": pr.row_num,
+                                     "field": "explanation", "message": w})
+                prior_reasoning = {o.option_letter: o.reasoning
+                                   for o in q.options}
+                for o in payload.options:
+                    merged, w = question_excel.merge_cell_rich(
+                        o.reasoning, prior_reasoning.get(o.option_letter),
+                        UPLOAD_ROOT)
+                    o.reasoning = merged
+                    if w:
+                        warnings.append({
+                            "row": pr.row_num,
+                            "field": f"option_{o.option_letter.lower()}_reasoning",
+                            "message": w})
                 # Update scalar fields, then replace options wholesale
                 # (clear + flush before re-insert to dodge the unique
                 # (question_id, option_letter) constraint mid-flush).
@@ -290,6 +322,23 @@ async def bulk_upload(file: UploadFile = File(...),
                 db.flush()
                 updated_ids.append(q.id)
             else:
+                # New rows: same conversion path (tokens/markers → rich,
+                # plain stays plain, dead image links skipped + warned).
+                merged, w = question_excel.merge_cell_rich(
+                    payload.explanation, None, UPLOAD_ROOT)
+                payload.explanation = merged
+                if w:
+                    warnings.append({"row": pr.row_num,
+                                     "field": "explanation", "message": w})
+                for o in payload.options:
+                    merged, w = question_excel.merge_cell_rich(
+                        o.reasoning, None, UPLOAD_ROOT)
+                    o.reasoning = merged
+                    if w:
+                        warnings.append({
+                            "row": pr.row_num,
+                            "field": f"option_{o.option_letter.lower()}_reasoning",
+                            "message": w})
                 q = Question(
                     stem=payload.stem, topic_id=payload.topic_id,
                     domain=payload.domain, task=payload.task,
@@ -334,6 +383,7 @@ async def bulk_upload(file: UploadFile = File(...),
         "updated": len(updated_ids),
         "updated_ids": updated_ids,
         "errors": errors,
+        "warnings": warnings,
     }
 
 

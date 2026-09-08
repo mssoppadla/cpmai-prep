@@ -1032,6 +1032,7 @@ export const admin = {
       updated: number;
       updated_ids: number[];
       errors: Array<{ row: number; field: string; message: string }>;
+      warnings?: Array<{ row: number; field: string; message: string }>;
     }> {
       const token = typeof window !== "undefined"
         ? window.localStorage.getItem("cpmai.access") : null;
