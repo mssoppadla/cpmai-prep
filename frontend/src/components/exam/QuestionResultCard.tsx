@@ -1,5 +1,6 @@
 "use client";
 import type { QuestionResultView } from "@/types/api";
+import { RichTextView } from "@/components/RichText";
 
 export function QuestionResultCard({
   result, index,
@@ -98,7 +99,7 @@ export function QuestionResultCard({
                     }`}>
                       <strong>{isCorrect ? "Why this is correct: "
                                           : "Why this is wrong: "}</strong>
-                      {opt.reasoning}
+                      <RichTextView value={opt.reasoning} />
                     </div>
                   )}
                 </div>
@@ -112,7 +113,7 @@ export function QuestionResultCard({
       {result.explanation && (
         <div className="border-t border-slate-200 pt-4 text-sm text-slate-700 leading-relaxed">
           <strong className="text-slate-900">Explanation:</strong>{" "}
-          {result.explanation}
+          <RichTextView value={result.explanation} />
         </div>
       )}
 
