@@ -19,6 +19,9 @@
 const ALLOWED = new Set([
   "b", "i", "strong", "em", "u", "br", "p", "span", "div", "ul", "ol",
   "li", "table", "thead", "tbody", "tr", "td", "th", "h3", "h4", "a",
+  // img: question explanations support pasted/uploaded images. src is
+  // restricted to http(s) or same-origin /uploads/ paths (cleanHref).
+  "img",
 ]);
 
 const STYLE_PROPS = new Set([
@@ -80,6 +83,16 @@ export function sanitizeHtml(input: string): string {
         if (href) {
           attrs += ` href="${href}" target="_blank" rel="noopener noreferrer"`;
         }
+      }
+      if (tag === "img") {
+        const srcMatch = /src\s*=\s*("([^"]*)"|'([^']*)')/i.exec(rawAttrs);
+        const src = srcMatch ? cleanHref(srcMatch[2] ?? srcMatch[3] ?? "") : null;
+        if (!src) return "";                      // an img without a safe src is nothing
+        attrs += ` src="${src}" loading="lazy"`;
+        const altMatch = /alt\s*=\s*("([^"]*)"|'([^']*)')/i.exec(rawAttrs);
+        const alt = (altMatch ? (altMatch[2] ?? altMatch[3] ?? "") : "")
+          .replace(/["<>]/g, "");
+        attrs += ` alt="${alt}"`;
       }
       if (tag === "td" || tag === "th") {
         for (const name of ["colspan", "rowspan"]) {

@@ -24,6 +24,9 @@ interface UploadResult {
   updated: number;
   updated_ids: number[];
   errors: Array<{ row: number; field: string; message: string }>;
+  /** Non-fatal rich-text notices — e.g. "kept 2 image(s)" when a cell
+   *  came back without its [image:] tokens, or a dead image link. */
+  warnings?: Array<{ row: number; field: string; message: string }>;
 }
 
 export default function BulkUploadQuestionsPage() {
@@ -227,6 +230,26 @@ export default function BulkUploadQuestionsPage() {
                       <td className="px-3 py-2 font-mono text-slate-900">{e.row}</td>
                       <td className="px-3 py-2 text-slate-600">{e.field}</td>
                       <td className="px-3 py-2 text-slate-700">{e.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {(result.warnings?.length ?? 0) > 0 && (
+            <div className="mt-3 border border-sky-200 rounded-lg overflow-x-auto">
+              <div className="bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                Applied with notices — nothing was lost, but review these
+                rows (images are kept even when their [image:] token is
+                missing from the sheet):
+              </div>
+              <table className="w-full text-sm">
+                <tbody>
+                  {result.warnings!.map((w, i) => (
+                    <tr key={i} className="border-t border-sky-100">
+                      <td className="px-3 py-2 font-mono text-slate-900 w-14">{w.row}</td>
+                      <td className="px-3 py-2 text-slate-600 w-48">{w.field}</td>
+                      <td className="px-3 py-2 text-slate-700">{w.message}</td>
                     </tr>
                   ))}
                 </tbody>

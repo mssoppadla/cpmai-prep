@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { admin, content as contentApi, ApiError, errMsg } from "@/lib/api";
+import { RichTextEditor } from "@/components/RichText";
 import type {
   Difficulty, DomainOut, QuestionAdminIn, QuestionOptionIn, QuestionType,
 } from "@/types/api";
@@ -283,9 +284,9 @@ export default function QuestionEditorPage() {
           <label className="block text-sm font-medium text-slate-700 mb-1">
             General explanation (shown after submit)
           </label>
-          <textarea value={form.explanation ?? ""} rows={3}
-                    onChange={(e) => setForm({ ...form, explanation: e.target.value })}
-                    className={input} />
+          <RichTextEditor value={form.explanation ?? ""} minRows={3}
+                          placeholder="Explain the concept — formatting, emoji and pasted images supported."
+                          onChange={(html) => setForm({ ...form, explanation: html })} />
         </div>
 
         {/* Options */}
@@ -348,12 +349,11 @@ export default function QuestionEditorPage() {
                        onChange={(e) => setOption(i, { text: e.target.value })}
                        placeholder="Option text"
                        className={input + " mb-2"} />
-                <textarea value={opt.reasoning ?? ""} rows={2}
-                          onChange={(e) => setOption(i, { reasoning: e.target.value })}
-                          placeholder={opt.is_correct
-                            ? "Why this option is correct…"
-                            : "Why this option is wrong…"}
-                          className={input + " text-sm"} />
+                <RichTextEditor value={opt.reasoning ?? ""} minRows={2}
+                                placeholder={opt.is_correct
+                                  ? "Why this option is correct…"
+                                  : "Why this option is wrong…"}
+                                onChange={(html) => setOption(i, { reasoning: html })} />
               </div>
             ))}
           </div>
