@@ -17,11 +17,13 @@ export const metadata: Metadata = {
  *  lab's card is hidden here and its page redirects back to /labs.
  *  Backend unreachable → everything shows (fail open). */
 export default async function LabsIndexPage() {
-  const [metrics, pipeline] = await Promise.all([
+  const [metrics, pipeline, dpn2] = await Promise.all([
     fetchJson<{ enabled?: boolean }>(
       "/content/labs/metrics-lab", { enabled: true }),
     fetchJson<{ enabled?: boolean }>(
       "/content/labs/data-pipeline-navigator", { enabled: true }),
+    fetchJson<{ enabled?: boolean }>(
+      "/content/labs/data-pipeline-navigator-2", { enabled: true }),
   ]);
   return (
     <>
@@ -77,6 +79,35 @@ export default async function LabsIndexPage() {
               govern lineage, label, size, explore, cleanse, encode,
               balance and split. Twelve live simulations; every decision
               carries forward into a generated readiness report.
+            </p>
+            <span className="inline-block mt-4 text-sm font-medium text-indigo-600">
+              Open the lab →
+            </span>
+          </Link>
+          )}
+          {dpn2.enabled !== false && (
+          <Link
+            href="/labs/data-pipeline-navigator-2"
+            className="block bg-white border border-slate-200 rounded-2xl p-6
+                       hover:border-indigo-300 hover:shadow-md transition"
+          >
+            <div className="flex gap-2 mb-3">
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                D-III · Data Understanding &amp; Preparation
+              </span>
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                Logged-in learners
+              </span>
+            </div>
+            <h2 className="font-semibold text-lg text-slate-900 mb-1">
+              Data Pipeline Navigator 2
+            </h2>
+            <p className="text-sm text-slate-600">
+              The full Phase II &amp; III activity journey the way a real
+              enterprise AI program runs it: 22 stations, role chips, a
+              continuous clinic-chatbot example, two go/no-go gates, the
+              Phase III master sequence, and 300+ tap-to-explain terms.
+              The twelve playgrounds plug in where they belong.
             </p>
             <span className="inline-block mt-4 text-sm font-medium text-indigo-600">
               Open the lab →

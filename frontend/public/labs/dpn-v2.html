@@ -1,0 +1,1067 @@
+<title>Data Pipeline Navigator v2</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  :root{
+    --bg:#f7f8fb; --panel:#fff; --line:#e3e6ee; --ink:#182033; --ink2:#5a6478; --ink3:#93a;
+    --p2:#2456d6; --p2soft:#e9effc; --p3:#c66a00; --p3soft:#fdf2e4;
+    --cross:#7a3bdb; --crosssoft:#f3edfd;
+    --gate:#b91c1c; --gatesoft:#fdecec; --ok:#207868; --oksoft:#e6f4ef;
+    --play:#0e7490; --playsoft:#e6f7fb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.55 "Nunito Sans",system-ui,sans-serif;padding-bottom:80px}
+  .mocknote{background:#fff8e1;border-bottom:1px solid #f2e2a0;color:#8a6d1a;padding:8px 20px;font-size:12.5px}
+  header.hero{padding:26px 24px 18px;max-width:1180px;margin:0 auto}
+  h1{font-family:Sora,sans-serif;font-size:26px;margin:0}
+  .lede{color:var(--ink2);max-width:88ch;margin-top:6px}
+  .scenario{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--p2);border-radius:10px;padding:10px 16px;font-size:13.5px}
+  .scenario b{color:var(--p2)}
+  .layout{display:grid;grid-template-columns:290px 1fr;gap:18px;max-width:1180px;margin:14px auto 0;padding:0 24px}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  /* rail */
+  .rail{position:sticky;top:12px;align-self:start;max-height:92vh;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}
+  .rail .ph{font-family:Sora,sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin:10px 6px 6px;display:flex;align-items:center;gap:6px}
+  .rail .ph.p2{color:var(--p2)} .rail .ph.p3{color:var(--p3)} .rail .ph.cx{color:var(--cross)}
+  .rail a{display:flex;gap:8px;align-items:baseline;padding:6px 8px;border-radius:8px;color:var(--ink2);text-decoration:none;font-size:13px}
+  .rail a:hover{background:var(--bg);color:var(--ink)}
+  .rail a .n{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink3);width:20px;flex:none}
+  .rail a.gate{color:var(--gate);font-weight:700}
+  .rail a.active{background:var(--p2soft);color:var(--p2);font-weight:700}
+  .rail a.active .n{color:var(--p2)}
+  .rail .cxpin{background:var(--crosssoft);border:1px dashed #d5c3f5;border-radius:10px;padding:8px 10px;margin:8px 4px;font-size:12px;color:var(--cross)}
+
+  /* stage cards */
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:16px;margin-bottom:22px;overflow:hidden;scroll-margin-top:14px}
+  .stage>header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line)}
+  .stage>header .num{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:13px;color:#fff;border-radius:8px;padding:3px 9px}
+  .stage.p2>header .num{background:var(--p2)} .stage.p3>header .num{background:var(--p3)}
+  .stage.gatecard>header .num{background:var(--gate)}
+  .stage>header h2{font-family:Sora,sans-serif;font-size:17px;margin:0;flex:1}
+  .phasechip{font-size:10.5px;font-weight:700;letter-spacing:.06em;border-radius:6px;padding:2px 8px;text-transform:uppercase}
+  .p2 .phasechip{background:var(--p2soft);color:var(--p2)} .p3 .phasechip{background:var(--p3soft);color:var(--p3)}
+  .gatecard{border:2px solid #f3caca}
+  .gatecard .phasechip{background:var(--gatesoft);color:var(--gate)}
+  .stage .body{padding:14px 20px 18px}
+  .obj{color:var(--ink2);font-size:13.5px;margin:0 0 12px}
+
+  /* task rows */
+  details.task{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:#fcfcfe}
+  details.task>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:10px 14px;font-weight:700;font-size:13.5px}
+  details.task>summary .stx{flex:1;min-width:0}
+  details.task>summary::before{content:"▸";color:var(--ink3);transition:transform .15s}
+  details.task[open]>summary::before{transform:rotate(90deg)}
+  details.task .d{padding:2px 16px 12px 32px;font-size:13px;color:var(--ink2)}
+  details.task .d ul{margin:4px 0;padding-left:16px}
+  details.task .d li{margin:3px 0}
+  details.task .d b{color:var(--ink)}
+  .egtag{font-size:10px;font-weight:700;background:var(--p2soft);color:var(--p2);border-radius:5px;padding:1px 6px;letter-spacing:.05em}
+  .p3 .egtag{background:var(--p3soft);color:var(--p3)}
+
+  /* role chips */
+  .roles{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+  .rc{font-size:10.5px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap}
+  .rc.pri{background:#1d2f7c;color:#fff}
+  .rc.sup{background:#e7ebf8;color:#1d2f7c}
+  .legend{font-size:11.5px;color:var(--ink2);margin:0 0 10px}
+  .legend .rc{font-size:10px}
+
+  /* playground slot */
+  .play{display:flex;align-items:center;gap:10px;background:var(--playsoft);border:1px dashed #9cd3e2;border-radius:10px;padding:8px 14px;margin:10px 0;font-size:12.5px;color:var(--play)}
+  .play b{font-weight:700}
+  .play .btn{margin-left:auto;background:var(--play);color:#fff;border-radius:7px;padding:4px 12px;font-size:11.5px;font-weight:700;text-decoration:none}
+
+  /* decision table */
+  .dtable{overflow-x:auto;margin-top:8px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th{background:var(--bg);text-align:left;padding:8px 10px;border:1px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2)}
+  td{border:1px solid var(--line);padding:8px 10px;vertical-align:top}
+  td b{color:var(--ink)}
+  tr.pick td{background:var(--oksoft)}
+
+  /* cross-cutting band */
+  .crossband{border:2px dashed #d5c3f5;background:var(--crosssoft)}
+  .crossband>header{border-bottom:1px dashed #d5c3f5}
+  .crossband>header .num{background:var(--cross)}
+  .crossband .phasechip{background:#fff;color:var(--cross)}
+
+  /* gate verdict */
+  .verdict{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .verdict .v{flex:1;min-width:150px;border-radius:10px;padding:10px 14px;font-size:12.5px;border:1.5px solid}
+  .v.go{background:var(--oksoft);border-color:#9fd4bd;color:var(--ok)}
+  .v.fix{background:#fff8e1;border-color:#eeda90;color:#8a6d1a}
+  .v.nogo{background:var(--gatesoft);border-color:#f3caca;color:var(--gate)}
+  .v b{display:block;font-family:Sora,sans-serif;margin-bottom:2px}
+
+  .kept{max-width:1180px;margin:6px auto 0;padding:0 24px}
+  .kept .inner{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 20px;font-size:12.5px;color:var(--ink2)}
+  .kept b{color:var(--play)}
+
+  /* metro journey map */
+  .metrowrap{max-width:1180px;margin:14px auto 0;padding:0 24px}
+  .metro{background:linear-gradient(180deg,#101a33,#1b2a52);border-radius:16px;padding:18px 10px 8px;overflow-x:auto}
+  .metro svg{display:block;min-width:1050px;margin:0 auto}
+  .mst{cursor:pointer}
+  .mst circle.node{fill:#fff;stroke-width:3;transition:r .15s}
+  .mst:hover circle.node{r:11}
+  .mst text{fill:#c8d2ee;font-size:9.5px;text-anchor:middle;font-family:"Nunito Sans",sans-serif}
+  .mst text.big{fill:#fff;font-weight:700;font-size:10px}
+  .trainflow{stroke-dasharray:10 14;animation:flow 1.6s linear infinite}
+  @keyframes flow{to{stroke-dashoffset:-24}}
+  @media (prefers-reduced-motion: reduce){.trainflow{animation:none}}
+  /* scroll reveal */
+  .stage{opacity:0;transform:translateY(18px);transition:opacity .5s ease,transform .5s ease}
+  .stage.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion: reduce){.stage{opacity:1;transform:none;transition:none}}
+  /* glossary terms */
+  .term{border-bottom:2px dotted #7a3bdb;cursor:help;color:inherit;font-weight:600}
+  #gloss{position:fixed;z-index:60;max-width:340px;background:#182033;color:#eef1fa;border-radius:12px;
+         padding:12px 16px;font-size:13px;line-height:1.5;box-shadow:0 14px 40px rgba(10,15,35,.4);display:none}
+  #gloss b{color:#b9a5ef;display:block;margin-bottom:3px;font-family:Sora,sans-serif}
+  #gloss .x{position:absolute;top:6px;right:10px;cursor:pointer;color:#8a94b8}
+  /* gate scorecard */
+  .score{margin:4px 0 14px;border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:#fff}
+  .score h4{margin:0 0 10px;font-family:Sora,sans-serif;font-size:13px;color:var(--ink)}
+  .srow{display:grid;grid-template-columns:230px 1fr 64px;gap:10px;align-items:center;font-size:12.5px;margin:7px 0}
+  .srow .lbl{color:var(--ink2)}
+  .bar{height:10px;border-radius:5px;background:#eef0f6;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;border-radius:5px;transition:width 1.1s cubic-bezier(.2,.7,.2,1)}
+  .in .bar i{width:var(--w)}
+  .bar i.g{background:#2f9e6e}.bar i.a{background:#e5a53d}.bar i.r{background:#d9534f}
+  .srow .val{font-family:"JetBrains Mono",monospace;font-size:11.5px;text-align:right}
+  .srow .val.g{color:#207868}.srow .val.a{color:#a06a00}.srow .val.r{color:#b91c1c}
+
+</style>
+
+
+<header class="hero">
+  <h1>Data Pipeline Navigator <span style="color:var(--p2)">v2</span></h1>
+  <p class="lede">Run Phases II &amp; III the way a real enterprise AI program runs them — every activity, who owns it, a worked example, the decisions, and the two gates. Phase III follows the master sequence: Govern → Extract → Load → Cleanse → Filter → Label → SPLIT → Balance → Features → Gate → Operate. The interactive playgrounds you already know are stops along this journey.</p>
+  <div class="scenario"><b>Running scenario:</b> a clinic's multilingual patient chatbot. Business objectives: 1) “Reduce chatbot response time by 20%”, 2) “Improve intent classification accuracy to 90%”. Intents (four, each its own use case): <b>OTP Query · FAQ · Fraud Reporting · Scheduling Appointment</b>. Along the way you will examine two kinds of charts: the bell curve (normal distribution) for continuous numbers, and class-distribution plots for the categorical intents.</div>
+</header>
+
+
+<div class="metrowrap"><div class="metro">
+<svg viewBox="0 0 1101 104" height="104">
+  <line x1="36" y1="60" x2="477" y2="60" stroke="#5b8bf0" stroke-width="5" opacity=".45"/>
+  <line x1="477" y1="60" x2="1065" y2="60" stroke="#e8963f" stroke-width="5" opacity=".45"/>
+  <line class="trainflow" x1="36" y1="60" x2="1065" y2="60" stroke="#ffffff" stroke-width="2.5" opacity=".85"/>
+  <g class="mst" data-go="s1"><circle class="node" cx="36" cy="60" r="8" stroke="#5b8bf0"/><text class="big" x="36" y="38">01</text><text x="36" y="88">SMEs</text></g><g class="mst" data-go="s2"><circle class="node" cx="85" cy="60" r="8" stroke="#5b8bf0"/><text class="big" x="85" y="38">02</text><text x="85" y="88">Define data</text></g><g class="mst" data-go="s3"><circle class="node" cx="134" cy="60" r="8" stroke="#5b8bf0"/><text class="big" x="134" y="38">03</text><text x="134" y="88">Sources</text></g><g class="mst" data-go="cx"><circle class="node" cx="183" cy="60" r="8" stroke="#7a3bdb"/><text class="big" x="183" y="38">🛡</text><text x="183" y="88">Privacy</text></g><g class="mst" data-go="s4"><circle class="node" cx="232" cy="60" r="8" stroke="#5b8bf0"/><text class="big" x="232" y="38">04</text><text x="232" y="88">Infra</text></g><g class="mst" data-go="s5"><circle class="node" cx="281" cy="60" r="8" stroke="#5b8bf0"/><text class="big" x="281" y="38">05</text><text x="281" y="88">Integration</text></g><g class="mst" data-go="s6"><circle class="node" cx="330" cy="60" r="8" stroke="#5b8bf0"/><text class="big" x="330" y="38">06</text><text x="330" y="88">Gather</text></g><g class="mst" data-go="s7"><circle class="node" cx="379" cy="60" r="8" stroke="#5b8bf0"/><text class="big" x="379" y="38">07</text><text x="379" y="88">EDA</text></g><g class="mst" data-go="s8"><rect x="419" y="51" width="18" height="18" rx="4" transform="rotate(45 428 60)" fill="#fff" stroke="#d9534f" stroke-width="3"/><text class="big" x="428" y="38">⛔</text><text x="428" y="88">GATE 1</text></g><g class="mst" data-go="s9"><circle class="node" cx="477" cy="60" r="8" stroke="#5b8bf0"/><text class="big" x="477" y="38">09</text><text x="477" y="88">Leaders</text></g><g class="mst" data-go="s10"><circle class="node" cx="526" cy="60" r="8" stroke="#e8963f"/><text class="big" x="526" y="38">10</text><text x="526" y="88">Govern</text></g><g class="mst" data-go="s11"><circle class="node" cx="575" cy="60" r="8" stroke="#e8963f"/><text class="big" x="575" y="38">11</text><text x="575" y="88">Extract</text></g><g class="mst" data-go="s12"><circle class="node" cx="624" cy="60" r="8" stroke="#e8963f"/><text class="big" x="624" y="38">12</text><text x="624" y="88">Load</text></g><g class="mst" data-go="s13"><circle class="node" cx="673" cy="60" r="8" stroke="#e8963f"/><text class="big" x="673" y="38">13</text><text x="673" y="88">Cleanse</text></g><g class="mst" data-go="s14"><circle class="node" cx="722" cy="60" r="8" stroke="#e8963f"/><text class="big" x="722" y="38">14</text><text x="722" y="88">Filter</text></g><g class="mst" data-go="s15"><circle class="node" cx="771" cy="60" r="8" stroke="#e8963f"/><text class="big" x="771" y="38">15</text><text x="771" y="88">Label</text></g><g class="mst" data-go="s16"><circle class="node" cx="820" cy="60" r="8" stroke="#e8963f"/><text class="big" x="820" y="38">16</text><text x="820" y="88">Split</text></g><g class="mst" data-go="s17"><circle class="node" cx="869" cy="60" r="8" stroke="#e8963f"/><text class="big" x="869" y="38">17</text><text x="869" y="88">Balance</text></g><g class="mst" data-go="s18"><circle class="node" cx="918" cy="60" r="8" stroke="#e8963f"/><text class="big" x="918" y="38">18</text><text x="918" y="88">Features</text></g><g class="mst" data-go="s19"><circle class="node" cx="967" cy="60" r="8" stroke="#7a3bdb"/><text class="big" x="967" y="38">⚠</text><text x="967" y="88">Traps</text></g><g class="mst" data-go="s20"><rect x="1007" y="51" width="18" height="18" rx="4" transform="rotate(45 1016 60)" fill="#fff" stroke="#d9534f" stroke-width="3"/><text class="big" x="1016" y="38">⛔</text><text x="1016" y="88">GATE 2</text></g><g class="mst" data-go="s21"><circle class="node" cx="1065" cy="60" r="8" stroke="#e8963f"/><text class="big" x="1065" y="38">21</text><text x="1065" y="88">Operate</text></g>
+</svg>
+</div></div>
+
+<div class="layout">
+  <nav class="rail">
+    <div class="ph p2">◆ Phase II · Data Understanding</div>
+    <a href="#s1"><span class="n">01</span>Identify data SMEs</a>
+    <a href="#s2"><span class="n">02</span>Define required data</a>
+    <a href="#s3"><span class="n">03</span>Identify data sources &amp; locations</a>
+    <a href="#s4"><span class="n">04</span>Coordinate AI workspace &amp; infrastructure</a>
+    <a href="#s5"><span class="n">05</span>Choose the data integration framework</a>
+    <a href="#s6"><span class="n">06</span>Gather required data &amp; reconcile</a>
+    <a href="#s7"><span class="n">07</span>Oversee data evaluation + EDA</a>
+    <a href="#s8" class="gate"><span class="n">⛔</span>GATE 1 · Does data meet solution needs?</a>
+    <a href="#s9"><span class="n">09</span>Convey data understanding to leadership</a>
+    <div class="cxpin">🛡️ <b>Cross-cutting, every step &amp; phase:</b> privacy, compliance &amp; access <a href="#cx" style="display:inline;padding:0;color:var(--cross);text-decoration:underline">details</a></div>
+    <div class="ph p3">◆ Phase III · Data Preparation</div>
+    <a href="#s10"><span class="n">10</span>Govern &amp; design (decided in Phase II)</a>
+    <a href="#s11"><span class="n">11</span>Extract — run Phase II's decisions</a>
+    <a href="#s12"><span class="n">12</span>Load — land &amp; snapshot</a>
+    <a href="#s13"><span class="n">13</span>Cleanse (stateless)</a>
+    <a href="#s14"><span class="n">14</span>Filter — select &amp; prune</a>
+    <a href="#s15"><span class="n">15</span>Label</a>
+    <a href="#s16"><span class="n">16</span>SPLIT FIRST</a>
+    <a href="#s17"><span class="n">17</span>Balance &amp; enlarge (train only)</a>
+    <a href="#s18"><span class="n">18</span>Feature engineering (fit on train)</a>
+    <a href="#s19"><span class="n">⚠</span>Five name clashes</a>
+    <a href="#s20" class="gate"><span class="n">⛔</span>GATE 2 · Validate &amp; gate</a>
+    <a href="#s21"><span class="n">21</span>Operate — inference &amp; retraining</a>
+  </nav>
+
+  <main>
+
+  <!-- ================= 01 SMEs ================= -->
+  <section class="stage p2" id="s1">
+    <header><span class="num">01</span><h2>Identify data SMEs</h2><span class="phasechip">Phase II</span></header>
+    <div class="body">
+      <p class="obj">Before touching data, find the people who actually understand it — and open a channel to them.</p>
+      <p class="legend">Chips show ownership from your RACI: <span class="rc pri">PRIMARY</span> <span class="rc sup">Supporting</span></p>
+      <details class="task"><summary>Locate domain experts with knowledge of data sources <span class="roles"><span class="rc pri">Data SME</span><span class="rc pri">Chief Data Officer</span><span class="rc sup">External Consultant</span></span></summary>
+        <div class="d">The people who know where the data lives and what it really means.</div></details>
+      <details class="task"><summary>Engage business users who understand data context <span class="roles"><span class="rc pri">Data Scientist</span><span class="rc pri">Citizen Developer</span><span class="rc sup">Data Analyst</span><span class="rc sup">Project Professional</span></span></summary>
+        <div class="d">Front-line users explain why a field is filled the way it is.</div></details>
+      <details class="task"><summary>Connect with data stewards and governance teams <span class="roles"><span class="rc pri">Data Steward</span><span class="rc pri">Data Custodian</span><span class="rc sup">Chief Data Officer</span></span></summary>
+        <div class="d">Stewards own definitions and quality rules; custodians run the systems.</div></details>
+      <details class="task"><summary>Identify technical experts on data systems <span class="roles"><span class="rc pri">Data Engineer</span><span class="rc pri">Data SME</span><span class="rc sup">Data Custodian</span></span></summary>
+        <div class="d">Schema owners, pipeline builders, database administrators.</div></details>
+      <details class="task"><summary>Establish communication channels with SMEs <span class="roles"><span class="rc pri">Project Professional</span><span class="rc sup">Chief Data Officer</span><span class="rc sup">External Consultant</span></span></summary>
+        <div class="d">Standing meetings, a shared channel, and a clear escalation path.</div></details>
+    </div>
+  </section>
+
+  <!-- ================= 02 Define required data ================= -->
+  <section class="stage p2" id="s2">
+    <header><span class="num">02</span><h2>Define required data</h2><span class="phasechip">Phase II</span></header>
+    <div class="body">
+      <p class="obj">Map data requirements to the business objectives and use cases — per intent, not in general. <span class="egtag">EXAMPLES: OTP · FAQ · Scheduling</span></p>
+      <div class="dtable"><table>
+        <tr><th>Requirement</th><th>OTP related queries</th><th>FAQ (split across multiple sections — related appointment, past history, …)</th><th>Scheduling appointment</th></tr>
+        <tr><td><b><span class="term" data-t="Data types vs formats">Data types &amp; formats</span> for training</b></td><td>Text logs of OTP requests; JSON metadata (channel, timestamp, user ID); UTF-8 encoding</td><td>FAQ text pairs (question + answer); UTF-8 text; JSON metadata for category</td><td>Booking logs + confirmation texts; JSON metadata</td></tr>
+        <tr><td><b>Volume &amp; <span class="term" data-t="sampling strategy">sampling strategy</span></b></td><td>≥20k OTP queries; stratified by channel (SMS, app, web)</td><td>≥50k queries; stratified sampling across top 100 FAQs; ≥500 samples per category</td><td>Stratified across appointment types</td></tr>
+        <tr><td><b><span class="term" data-t="Temporal coverage">Temporal</span> &amp; <span class="term" data-t="Freshness">freshness</span></b></td><td>Daily queries from last 6 months</td><td>Daily logs; freshness within 7 days to reflect updated FAQs</td><td>Rolling 6-month window</td></tr>
+        <tr><td><b><span class="term" data-t="Granularity">Granularity</span></b></td><td>Message-level detail (each OTP request)</td><td>Message-level queries for training; session-level aggregates for evaluation</td><td>Session-level bookings</td></tr>
+        <tr><td><b><span class="term" data-t="Quality standards">Quality standards</span> &amp; <span class="term" data-t="acceptance criteria">acceptance criteria</span></b></td><td>Completeness ≥98%; Accuracy ≥95%; Consistency across channels; Timeliness; Relevance; Trustworthiness</td><td>Balanced coverage across categories; Completeness ≥98%; Consistency across channels</td><td><b>Scenario coverage per intent: (30+30) positive, (30+30) negative</b></td></tr>
+      </table></div>
+      <div class="play">▶ <b>Try it live:</b> Data profiling — the 4&nbsp;V's (existing playground, stays as-is) <a class="btn" href="/labs/data-pipeline-navigator" target="_blank" rel="noopener">Open ↗</a></div>
+    </div>
+  </section>
+
+  <!-- ================= 03 Sources ================= -->
+  <section class="stage p2" id="s3">
+    <header><span class="num">03</span><h2>Identify data sources &amp; locations</h2><span class="phasechip">Phase II</span></header>
+    <div class="body">
+      <p class="obj">Inventory everything that could feed the model — and who controls it.</p>
+      <details class="task"><summary>Map internal databases and warehouses <span class="egtag">EXAMPLE</span></summary>
+        <div class="d">Registration database · Billing database · Lab-test DB · Historical — 3 years old.</div></details>
+      <details class="task"><summary>Explore external sources and third-party providers</summary>
+        <div class="d">Lab partners (test scheduling, results) · WhatsApp/Meta API for patient communication · Government health portals (ABDM/NDHM integration).</div></details>
+      <details class="task"><summary>Assess cloud storage and distributed repositories</summary>
+        <div class="d">Clinic's cloud EMR/EHR system · multilingual chatbot training data · secure cloud buckets for logs and transcripts.</div></details>
+      <details class="task"><summary>Inventory legacy systems and archives</summary>
+        <div class="d">Old appointment books digitized · archived billing records · historical patient communication logs (SMS, WhatsApp messages) · legacy EMR systems not yet migrated.</div></details>
+      <details class="task"><summary>Document ownership and access permissions</summary>
+        <div class="d"><ul>
+          <li><b>Appointment DB</b> → owned by clinic admin; access by front desk + chatbot</li>
+          <li><b>Billing DB</b> → owned by finance team; restricted access</li>
+          <li><b>Prescription DB</b> → owned by doctors; read-only for chatbot</li>
+          <li><b>External APIs</b> → governed by third-party contracts</li></ul></div></details>
+      <div class="play">▶ <b>Try it live:</b> Validate at the source · Lineage &amp; pipeline reuse (existing playgrounds) <a class="btn" href="/labs/data-pipeline-navigator" target="_blank" rel="noopener">Open ↗</a></div>
+    </div>
+  </section>
+
+  <!-- ================= CROSS-CUTTING ================= -->
+  <section class="stage crossband" id="cx">
+    <header><span class="num">🛡️</span><h2>Privacy, compliance &amp; access — applicable at every step and phase</h2><span class="phasechip">Cross-cutting</span></header>
+    <div class="body">
+      <details class="task"><summary>Verify usage rights and licensing</summary>
+        <div class="d"><ul>
+ <li>Review contracts with third-party providers (labs, insurers) &amp; WhatsApp access</li>
+ <li><b>Consent forms</b> → verify patients gave explicit consent for secondary use (training, analytics)</li>
+ <li><b>Legal review</b> → clinic's compliance/legal team signs off before data enters AI pipelines</li></ul></div></details>
+      <details class="task"><summary>Comply with data-protection regulations</summary>
+        <div class="d">Align with <b>India's Data Protection Bill (2025)</b> and <b>ABDM/NDHM</b> standards · ensure consent is captured for patient-data usage.</div></details>
+      <details class="task"><summary>Implement access controls and permissions</summary>
+        <div class="d">Raise request to gather data · role-based access: doctors vs admin vs chatbot · encryption keys and audit logs to prevent unauthorized access.</div></details>
+      <details class="task"><summary>Conduct privacy impact assessments</summary>
+        <div class="d">Evaluate risks of data misuse (e.g., appointment logs revealing sensitive info) · document mitigation steps (anonymization, minimization).</div></details>
+      <details class="task"><summary>Document lineage and usage for audits</summary>
+        <div class="d"><b>Audit trail</b> → automated logs showing who accessed, when, and for what purpose. <b>Lineage:</b><ul>
+          <li><b>Source tagging</b> → each dataset labeled with origin (appointment DB, billing DB, lab API)</li>
+          <li><b>Schema-mapping logs</b> → whenever a field is changed on its way into the AI environment, write the change down as a rule: source field → transformation rule → destination field. Examples: “DOB → age_bucket, using 10-year bins” · “Doctor name → anonymized ID, via a protected lookup table”. With these logs, an auditor can trace any model input back to the exact raw field it came from.</li>
+          <li><b>ETL metadata</b> → store extraction/transfer logs in a metadata repository</li>
+          <li><b>Usage registry</b> → record where data is consumed (training, validation, chatbot responses)</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 04 Infrastructure ================= -->
+  <section class="stage p2" id="s4">
+    <header><span class="num">04</span><h2>Coordinate AI workspace &amp; infrastructure</h2><span class="phasechip">Phase II</span></header>
+    <div class="body">
+      <p class="obj">Stand up the environment the data will live in — before the data arrives.</p>
+      <details class="task"><summary>Provision computing resources <span class="egtag">MODEL SHORTLIST</span></summary>
+        <div class="d">Training compute (depends on data <b>and</b> algorithm) → GPUs/TPUs for deep learning, CPUs for preprocessing. <b>Ours: CPU for RAG · GPU for fine-tuning / transfer learning.</b><ul>
+          <li>Shortlist: <b>Microsoft Azure OpenAI GPT-4 Healthcare variant</b> — multilingual, compliance &amp; reasoning, chosen over <b>MedPalm2</b> (Google) · <b>BioBERT</b> (Korea University, open source) · <b>Mistral-Med</b> (cost-effective)</li>
+          <li>Scalability → cloud auto-scaling (Azure ML, AWS SageMaker, GCP Vertex AI)</li>
+          <li>Cost control → spot instances, hybrid cloud/on-prem balance</li></ul></div></details>
+      <details class="task"><summary>Establish secure development environments</summary>
+        <div class="d"><ul>
+ <li><b>Isolated dev/test/prod environments</b> → prevent accidental data leaks</li>
+ <li><b>Secure coding practices</b> → containerization (Docker/Kubernetes); secrets management (Vault, Key Vault — API keys, database passwords, encryption keys)</li>
+ <li><b>Zero-trust access</b> → MFA, role-based permissions</li></ul></div></details>
+      <details class="task"><summary>Configure storage &amp; backup systems</summary>
+        <div class="d"><ul>
+ <li><b>Primary storage</b> → data lakehouse (Delta Lake, Snowflake, BigQuery)</li>
+ <li><b>Backup strategy</b> → automated snapshots, geo-replication</li>
+ <li><b>Retention policies</b> → align with healthcare compliance (ABDM, HIPAA equivalents) — <b>3 years</b></li>
+ <li><b>Configuration files</b> → storage paths, model hyperparameters (batch size, learning rate), logging levels → <b>Kubernetes ConfigMap</b></li></ul></div></details>
+      <details class="task"><summary>Set up collaboration tools, version control &amp; experiment tracking</summary>
+        <div class="d"><ul>
+ <li><b>Version control</b> → Git/GitHub/GitLab for code + <b>DVC/MLflow</b> for datasets/models</li>
+ <li><b>Collaboration</b> → Teams/Slack, JupyterHub/VS Code shared notebooks</li>
+ <li><b>Experiment tracking</b> → MLflow, Weights &amp; Biases for reproducibility</li></ul></div></details>
+      <details class="task"><summary>Ensure security &amp; governance compliance</summary>
+        <div class="d"><ul>
+ <li><b>Encryption</b> → at rest (<b>AES-256</b> on DBs/disks, Azure Key Vault) + in transit (HTTPS/TLS for APIs)</li>
+ <li><b>Audit logs</b> → who accessed what &amp; when</li>
+ <li><b>Compliance checks</b> → automated scans for PII (<b>Azure Purview</b>), licensing, usage rights</li>
+ <li><b>Governance frameworks</b> → clinic policies (access authority) + national data-protection laws</li>
+ <li><b>Key rotation</b> → regularly rotate encryption keys</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 05 Integration framework ================= -->
+  <section class="stage p2" id="s5">
+    <header><span class="num">05</span><h2>Choose the data integration framework</h2><span class="phasechip">Phase II · decision</span></header>
+    <div class="body">
+      <p class="obj">One deliberate architecture decision, based on latency and use case — before pipelines are built.</p>
+      <div class="dtable"><table>
+        <tr><th>Framework</th><th>Latency</th><th>Best for</th></tr>
+        <tr><td><b>Real-time data processing</b></td><td>Sub-second to seconds; immediate, continuous streaming</td><td>In-the-moment AI scoring · live, volatile parameters (GPS tracking, traffic delays, machine telemetry)</td></tr>
+        <tr><td><b>Federated data model</b></td><td>On-demand (seconds to minutes); pulls data dynamically when queried</td><td>Cross-company or multi-cloud analysis · heavily regulated environments where data cannot legally be copied or moved</td></tr>
+        <tr><td><b>Unified data warehouse</b></td><td>Minutes to hours; optimized for high-volume historical lookbacks</td><td>Building a centralized feature store · complex analytical queries and historical model-training runs</td></tr>
+        <tr class="pick"><td><b>Lakehouse / Batch ETL pipeline ✓ (ours)</b></td><td>Scheduled intervals (hourly, nightly, weekly refreshes)</td><td>Non-urgent operations (updating customer tiers, calculating yesterday's store revenue) — fits nightly chatbot-log training refreshes</td></tr>
+      </table></div>
+      <div class="play">▶ <b>Try it live:</b> Data integration frameworks (existing playground) <a class="btn" href="/labs/data-pipeline-navigator" target="_blank" rel="noopener">Open ↗</a></div>
+    </div>
+  </section>
+
+  <!-- ================= 06 Gather ================= -->
+  <section class="stage p2" id="s6">
+    <header><span class="num">06</span><h2>Gather required data &amp; reconcile</h2><span class="phasechip">Phase II</span></header>
+    <div class="body">
+      <details class="task"><summary>Execute extraction from identified sources</summary>
+        <div class="d"><ul>
+ <li>Create the environments</li>
+ <li>Discover relationships (primary/foreign keys, dependencies)</li>
+ <li>Pull from internal databases, warehouses, external APIs</li>
+ <li>Identify patient, billing, prescription tables</li>
+ <li>Use secure connectors (ODBC/JDBC, API calls)</li>
+ <li>Decide structured formats (CSV, JSON, Parquet)</li>
+ <li>Ensure schema mapping aligns with chatbot intent labels</li></ul></div></details>
+      <details class="task"><summary>Coordinate transfers and migrations to AI environments</summary>
+        <div class="d"><ul>
+ <li>Set up a staging area in cloud or local servers</li>
+ <li>ETL pipelines (Airflow, Azure Data Factory, …)</li>
+ <li>Anonymize data</li>
+ <li>Encrypt in transit &amp; at rest (ABDM, India's Data Protection Bill)</li>
+ <li>Document schema transformations</li></ul></div></details>
+      <details class="task"><summary>Implement collection processes for ongoing feeds</summary>
+        <div class="d"><ul>
+ <li>Enable continuous ingestion for new patient queries</li>
+ <li>Connect chatbot logs and WhatsApp transcripts</li>
+ <li>Schedule batch jobs or streaming pipelines</li>
+ <li>Normalize multilingual inputs (English + local languages)</li>
+ <li>Store in incremental datasets</li></ul></div></details>
+      <details class="task"><summary>Validate completeness and accuracy during collection</summary>
+        <div class="d"><ul>
+ <li>Check record counts against source systems</li>
+ <li>Validate field accuracy (dates, doctor names, billing amounts)</li>
+ <li>Run schema-validation scripts</li>
+ <li><b>Flag and correct transfer anomalies</b> — problems created by the COPY itself: rows lost or duplicated during transfer, truncated or garbled records, the same batch loaded twice, schema drift between source and landing zone. This step asks “did the data arrive intact?”. Cleaning the CONTENT (typos, missing values, outliers) is a different job and happens once, in stage 13 · Cleanse.</li>
+ <li>Validate the relationships (primary/foreign keys)</li></ul></div></details>
+      <details class="task"><summary>Establish data refresh and update procedures</summary>
+        <div class="d"><ul>
+ <li>Define refresh frequency (daily for appointments, weekly for billing)</li>
+ <li>Automate incremental updates (<b>CDC</b>)</li>
+ <li>Archive old data for audit</li>
+ <li>Monitor for schema changes and update mappings</li>
+ <li>Keep existing data <b>clean, current, compliant</b></li></ul></div></details>
+      <details class="task"><summary>Reconcile data coming from multiple sources</summary>
+        <div class="d"><ul>
+          <li><b>Identify conflicts</b> → spot mismatches (different units, timestamps, or values for the same record)</li>
+          <li><b>Resolve duplicates</b> → remove or merge overlapping entries</li>
+          <li><b>Standardize formats</b> → align units, naming conventions and data structures — but only as far as needed to MERGE records correctly. A join cannot happen while one system writes “MRN-0012” and the other writes “12”, or one stores weight in kg and the other in lbs. Full content standardization for modeling still happens once, in stage 13 · Cleanse.</li>
+          <li><b>Define the authoritative source</b> → decide which source to trust when values differ</li>
+          <li><b>Align timelines</b> → synchronize data collected at different times or frequencies</li></ul>
+          <b>Why do these fixes here, when treatment is Phase III?</b> Reconciliation is CROSS-SOURCE surgery — two systems disagreeing about the same appointment must be merged into one truthful record before a dataset even exists. Phase III cleaning is CONTENT-level, model-oriented treatment WITHIN that merged dataset (imputation, outliers, scaling). The actions sound similar, but they serve a different purpose at each stage.</div></details>
+    </div>
+  </section>
+
+  <!-- ================= 07 Evaluation + EDA ================= -->
+  <section class="stage p2" id="s7">
+    <header><span class="num">07</span><h2>Oversee data evaluation + EDA</h2><span class="phasechip">Phase II</span></header>
+    <div class="body">
+      <details class="task" open><summary>📋 Data profiling</summary>
+        <div class="d"><ul>
+        <li><b>Count:</b> how many rows and columns each table has, and row counts per intent and per channel</li>
+        <li><b>Schema &amp; types:</b> every column's datatype, format, allowed values</li>
+        <li><b>Ranges &amp; value counts:</b> for every numeric column, record its smallest and largest value (the range); for every categorical column, count how many times each value occurs. These raw counts are the ingredients — reading meaning into them (shapes, skewness) is EDA’s job, below.</li>
+        <li><b>Missingness:</b> nulls, empties, zeros per column — the sparse fields</li>
+        <li><b>Uniqueness &amp; cardinality:</b> duplicates, how many distinct values each column holds</li>
+        <li><b>Relationships:</b> check that every key link is valid — each appointment points to a patient that actually exists — and list orphaned rows (a billing row whose appointment record is gone)</li>
+        <li><b>Freshness:</b> last-update timestamps per source</li></ul>
+        <b>How the three stages relate:</b> profiling collects the raw facts — counts, ranges, missing values. EDA studies those facts and identifies the patterns. Phase III then fixes what EDA found.</div></details>
+      <details class="task"><summary>Assess quality dimensions (accuracy, completeness, consistency, timeliness, relevance, trustworthiness)</summary>
+        <div class="d">Measure them with reconciliation counts, checksums and cross-channel comparisons. <span class="egtag">EXAMPLE</span> In the appointment database, check that at least 98% of records carry a valid patient ID and timestamp.</div></details>
+      <details class="task"><summary>Assess labeling needs (supervised learning check — feeds Gate 1)</summary>
+        <div class="d"><ul>
+        <li><b>Is labeling needed at all?</b> Supervised learning needs an answer column. Do the labels already exist naturally (repaid/defaulted comes free from billing history), or must humans create them (intent tags on chat messages)?</li>
+        <li><b>If humans must label:</b> run a small PILOT — annotate ~500 sample rows, measure how often labelers agree, and confirm a rulebook is writable.</li>
+        <li><b>Feed the answer into Gate 1:</b> label availability, pilot agreement rate, and estimated labeling cost/time are part of “does the data meet solution needs”. The full labeling campaign itself stays in Phase III (stage 15 · Label) — after the gate approves spending on it.</li></ul></div></details>
+      <details class="task"><summary>Evaluate freshness and relevance</summary>
+        <div class="d">Check the last-update timestamp of every source. <span class="egtag">EXAMPLE</span> Insurance codes update monthly, so a 6-month-old copy is stale. Also confirm the data still reflects current clinic workflows — new doctors, new lab tests.</div></details>
+      <details class="task"><summary>Review schema and structure for modeling compatibility</summary>
+        <div class="d">Align field names, formats and datatypes across sources so tables can be joined and modeled. <span class="egtag">EXAMPLE</span> The appointment database says “Doctor_Name” while billing says “Physician_ID” — map them to one consistent field.</div></details>
+      <details class="task" open><summary>Conduct EDA — document in Phase II, treat in Phase III</summary>
+        <div class="d"><ul>
+          <li><b>How a distribution plot is made:</b> pick one column. For a categorical column, group the rows by value and count each group — all rows carrying the SAME value are counted together. For a numeric column, first cut the number line into small ranges called <span class="term" data-t="bin">bins</span> (0–10, 10–20, …) and count how many rows fall into each. Then draw one bar per value or bin: the <b>X-axis holds the values (or bins)</b>, the <b>Y-axis holds the count of rows</b>. The finished picture shows where the data is plentiful and where it is thin.</li>
+          <li><b>From raw counts to meaning — this is where profiling’s numbers get read:</b>
+   <ul><li>OTP queries per hour → a symmetric <b>bell curve</b> peaking at 11am → normal traffic, nothing to treat.</li>
+   <li>Billing amounts → most bills small, a few huge → <b>positive (right) skew</b>: the tail stretches to the RIGHT toward large values. (<b>Negative (left) skew</b> is the mirror: most values high, tail stretching LEFT toward small ones — like exam scores clustered near full marks.) Skewed features often need a log transform in stage 18 · Feature engineering.</li>
+   <li>Rows per intent → 80% OTP / 20% rest → an <b>imbalance</b> verdict → run the imbalance-vs-bias question below.</li></ul></li>
+          <li><b>Analyze distributions and identify biases or gaps.</b> Count how often each value appears — appointments per doctor, queries per language. Large imbalances become visible immediately: for example, 90% of queries in English and only 10% in Malayalam/French. Note every category that is missing entirely or clearly under-represented. These under-represented groups are also the first place <b>fairness risk</b> becomes visible.</li>
+          <li><b>Document every pattern you find.</b> For each important column, record: the shape of its distribution — is it a symmetric <b>bell curve</b>, or is it <b>skewed</b> (skewness means the shape leans away from that symmetric bell curve to one side)? Also record outliers, multicollinearity (two features that rise and fall together, such as website traffic and page views), sparse or thinly-populated fields (many missing, null, empty or zero cells), and the class balance between intents. Against each finding, write the planned correction — the fixing itself happens in Phase III.</li>
+          <li><b>Class imbalance rule:</b> target class 1 has 80% of the data, target class 2 has 20%. If that IS the real-world representation → not bias; fix the imbalance with <b>oversampling, undersampling, SMOTE</b>. If it's missed or wrongly labelled/captured prod data → it's a <b>bias</b> → go and get it, or give a proper instruction manual to label it properly.</li>
+          <li>Ensure categorical-variable <b>encoding decisions</b> are made properly (target encoding for high-cardinality fields) . This decision travels across the journey: here in Phase II (step 07 · EDA) you simply NOTE which columns will need special encoding; in stage 18 · Feature engineering the method is chosen per column and applied — once.</li>
+          <li><b>Where each finding gets fixed (documented once here, fixed once there):</b> skewness → stage 18 · Feature engineering (scaling/log transform) · outliers → stage 18 (treatment ladder) · class imbalance → stage 17 · Balance (resampling, train only) · encoding decisions → stage 18 · fairness/subgroup gaps → stages 13–18 (collect &amp; label properly), PROVEN at Gate 2</li>
+          <li><b>Analytics vs data science — keep them apart, with examples:</b> <b>Analytics</b> is the OUTPUT — answers from data, at four levels: <b>descriptive</b> (what happened — “4,200 appointments last month, 9% no-shows”), <b>diagnostic</b> (why — “no-shows spike on heavy-rain days”), <b>predictive</b> (what will happen — “these 120 appointments next week are likely to be missed”), <b>prescriptive/projective</b> (what should we do — “send reminders + easy reschedule links to those 120”). <b>Data science</b> is the DISCIPLINE that produces those answers: it translates the business need “reduce no-shows” into mathematics, forms a hypothesis (“rain increases no-shows”), tests it statistically, and builds the models behind the predictive, prescriptive and diagnostic tiers. <b>AI/ML</b> are advanced forms of analytics built with data-science skills — our chatbot’s intent classifier is exactly that.</li></ul></div></details>
+      <div class="play">▶ <b>Try it live:</b> EDA lab · Class-imbalance playground — in v2 these will cover every item on this card: distributions, positive vs negative skew, outliers, multicollinearity, and the imbalance-vs-bias decision <a class="btn" href="/labs/data-pipeline-navigator" target="_blank" rel="noopener">Open ↗</a></div>
+    </div>
+  </section>
+
+  <!-- ================= GATE 1 ================= -->
+  <section class="stage p2 gatecard" id="s8">
+    <header><span class="num">⛔</span><h2>GATE 1 · Determine if data meets solution needs</h2><span class="phasechip">Decision gate</span></header>
+    <div class="body">
+      <details class="task"><summary>Compare available data against requirements</summary><div class="d">Line up every intent against its data target from step 02 and mark it met or not:<ul>
+ <li>OTP Query — 21,400 collected / 20,000 required ✓</li>
+ <li>FAQ — 52,300 / 50,000 ✓</li>
+ <li>Scheduling Appointment — 8,900 / 10,000 ✗</li>
+ <li>Fraud Reporting — 0 / 5,000 ✗ — a coverage hole: the intent exists in the design but no data exists for it</li></ul>
+ Coverage = intents meeting their target ÷ all intents (here 2 of 4).</div></details>
+      <details class="task"><summary>Assess sufficiency for robust models</summary>
+        <div class="d">Run three checks together: the <b>4V check</b> (volume, variety, velocity, veracity), <b>representativeness</b> (including freshness and relevance), and <b>class balance</b>. Then apply the <b>Goldilocks principle</b> — aim for just-enough data, because every extra feature spreads the information across more combinations and demands more rows; taken too far this becomes the <b>curse of dimensionality</b>. Four more questions decide how much data is enough:<ul>
+ <li><b>Which AI pattern(s) you implement</b> — Recognition or Conversation needs LESS data than Autonomous systems or Hyperpersonalization; check against the scenario coverage &amp; use cases</li>
+ <li><b>Build from scratch or extend a pretrained model</b> — and how often does the data change?</li>
+ <li><b>How big or complex a model you are building</b> — <b>algorithm choice also drives data needs</b>: deep networks and transformers need far more data than simpler models</li>
+ <li><b>How accurate the model must be</b> — higher accuracy targets demand more data</li></ul></div></details>
+      <details class="task"><summary>Identify gaps and remediation strategies</summary><div class="d">List every category that is missing or under-represented — for example, Malayalam/French queries — and write a remediation plan for each: what will be collected, by whom, and by when.</div></details>
+      <details class="task"><summary>Validate representativeness for target use cases</summary>
+        <div class="d">Data must reflect real clinic scenarios: languages spoken by patients · appointment types (consultation, lab, pharmacy) · billing categories (consultation, lab test, pharmacy).</div></details>
+
+      <div class="score">
+        <h4>Readiness scorecard — every check from the course sheet, live <span style="font-weight:400;color:#5a6478">(click any label to see what it measures &amp; where its number comes from)</span></h4>
+        <div class="srow"><span class="lbl"><span class="term" data-t="Coverage vs intents">Coverage of data vs intents</span></span><div class="bar"><i class="g" style="--w:92%"></i></div><span class="val g">92%</span></div>
+        <div class="srow"><span class="lbl">4V · Volume (≥20k OTP / ≥50k FAQ)</span><div class="bar"><i class="g" style="--w:100%"></i></div><span class="val g">met</span></div>
+        <div class="srow"><span class="lbl">4V · Variety (channels, languages)</span><div class="bar"><i class="a" style="--w:64%"></i></div><span class="val a">gap</span></div>
+        <div class="srow"><span class="lbl">4V · Velocity (freshness ≤7 days)</span><div class="bar"><i class="g" style="--w:96%"></i></div><span class="val g">96%</span></div>
+        <div class="srow"><span class="lbl">4V · Veracity (completeness ≥98%, accuracy ≥95%)</span><div class="bar"><i class="a" style="--w:81%"></i></div><span class="val a">81%</span></div>
+        <div class="srow"><span class="lbl"><span class="term" data-t="Representativeness">Representativeness (languages, appointment &amp; billing types)</span></span><div class="bar"><i class="a" style="--w:70%"></i></div><span class="val a">70%</span></div>
+        <div class="srow"><span class="lbl"><span class="term" data-t="Class balance">Class balance (intent distribution)</span></span><div class="bar"><i class="r" style="--w:38%"></i></div><span class="val r">80/20</span></div>
+        <div class="srow"><span class="lbl"><span class="term" data-t="Scenario coverage">Scenario coverage per intent (30+30 pos / 30+30 neg)</span></span><div class="bar"><i class="a" style="--w:75%"></i></div><span class="val a">45/60</span></div>
+        <div class="srow"><span class="lbl"><span class="term" data-t="Label availability">Label availability (answer column exists or creatable)</span></span><div class="bar"><i class="g" style="--w:100%"></i></div><span class="val g">exists</span></div>
+        <div class="srow"><span class="lbl"><span class="term" data-t="Pilot labeling agreement">Pilot labeling agreement (500-row pilot)</span></span><div class="bar"><i class="a" style="--w:82%"></i></div><span class="val a">82%</span></div>
+        <div class="srow"><span class="lbl">Goldilocks — just-enough data vs curse of dimensionality</span><div class="bar"><i class="g" style="--w:88%"></i></div><span class="val g">ok</span></div>
+        <div class="srow"><span class="lbl"><span class="term" data-t="Gaps &amp; remediation">Gaps &amp; remediation (under-represented languages)</span></span><div class="bar"><i class="r" style="--w:30%"></i></div><span class="val r">2 open</span></div>
+      </div>
+      <details class="task"><summary>Where do these bar values come from?</summary>
+        <div class="d"><ul>
+        <li><b>Coverage 92%</b> = intents having at least their minimum row target ÷ total intents — straight from PROFILING's row counts (step 07).</li>
+        <li><b>4V rows</b> = profiling outputs checked against the acceptance criteria you set in step 02 (≥20k/≥50k, ≤7-day freshness, ≥98% completeness / ≥95% accuracy).</li>
+        <li><b>Representativeness 70%</b> = data's mix vs the OUTSIDE reference (branch registers, credit-bureau-style benchmarks) per dimension, averaged.</li>
+        <li><b>Class balance</b> = intent distribution straight from profiling's frequency table.</li>
+        <li><b>Scenario coverage 45/60</b> = authored scenarios ticked off in the scenario register vs the (30+30)+(30+30) requirement.</li>
+        <li><b>Label rows</b> = from step 07's labeling-needs assessment: availability comes from checking whether the answer column exists naturally (billing history) or must be created; the agreement % is how often two labelers gave the same answer on the 500-row pilot (below ~85% means the rulebook needs sharpening before the full campaign in stage 15 · Label).</li>
+        <li><b>Gaps “2 open”</b> = unresolved items in the REMEDIATION TRACKER (each with owner + due date): ① Malayalam/French under-representation ② fraud-intent scenarios 45/60.</li></ul></div></details>
+      <details class="task"><summary>What each scorecard line means (they sound similar — they are not)</summary>
+        <div class="d"><ul>
+        <li><b>Coverage vs intents</b> — do we HAVE data for every intent at all? (Fraud Reporting with zero rows = a coverage hole.) A yes/no existence check per use case.</li>
+        <li><b>Representativeness</b> — within the data we have, does the MIX mirror reality? Languages spoken, appointment types, billing categories in real-world proportions. You can have full coverage yet a warped mix.</li>
+        <li><b>Class balance (intent distribution)</b> — the proportion BETWEEN the intents themselves (80% OTP / 20% everything else). Feeds the imbalance-vs-bias question from EDA.</li>
+        <li><b>Gaps &amp; remediation — the “2 open” are:</b> ① Malayalam/French queries under-represented (remediation: collect via branch kiosk + targeted sampling) · ② Fraud-intent scenario coverage at 45 of 60 required (remediation: author the missing negative scenarios). Each gap gets an owner and a date — that's what “remediation” means here.</li></ul></div></details>
+      <div class="verdict">
+        <div class="v go"><b>GO</b>Data covers intents; proceed to preparation.</div>
+        <div class="v fix"><b>FIX FIRST</b>Gaps are minor → remediation plan + proceed with training.</div>
+        <div class="v nogo"><b>NO-GO</b>Gaps are critical (e.g., missing cancellation data) → stop until data is collected. Document the decision for leadership with evidence (coverage %, bias analysis).</div>
+      </div>
+      <div class="play">▶ <b>Try it live:</b> Goldilocks &amp; the curse of dimensionality · Data-readiness report (existing) <a class="btn" href="/labs/data-pipeline-navigator" target="_blank" rel="noopener">Open ↗</a></div>
+    </div>
+  </section>
+
+  <!-- ================= 09 Leadership ================= -->
+  <section class="stage p2" id="s9">
+    <header><span class="num">09</span><h2>Convey data understanding to leadership</h2><span class="phasechip">Phase II</span></header>
+    <div class="body">
+      <details class="task"><summary>Provide regular progress updates</summary><div class="d">Short, periodic reports on assessment progress, challenges, milestones — <i>keeps leadership aligned and avoids surprises</i>.</div></details>
+      <details class="task"><summary>Translate technical concepts into business language</summary><div class="d">Convert schema/null rates into impact statements: <span class="egtag">EXAMPLE</span> “18% unusable records → only 2 of 3 customer segments can be scored today.” <i>Leadership decides on risk/impact, not technical jargon.</i></div></details>
+      <details class="task"><summary>Create visualizations and reports</summary><div class="d">Charts, dashboards, trend lines for quality, coverage, readiness — <i>makes findings digestible and actionable</i>.</div></details>
+      <details class="task"><summary>Prepare executive summaries of the data assessment</summary><div class="d">1–2 page summaries of key issues, readiness, recommendations — <i>a quick decision-making tool</i>.</div></details>
+      <details class="task"><summary>Present readiness status and recommendations</summary><div class="d">State clearly: <b>“Go / No-Go / Fix First”</b> with rationale — <i>enables informed project decisions</i>.</div></details>
+    </div>
+  </section>
+
+  
+  <!-- ================= 10 GOVERN ================= -->
+  <section class="stage p3" id="s10">
+    <header><span class="num">10</span><h2>Govern &amp; design the pipelines</h2><span class="phasechip">Phase II decides · Phase III enforces</span></header>
+    <div class="body">
+      <p class="obj">This design work BEGINS in Phase II, alongside data gathering (steps 03–06 above), and is enforced throughout Phase III — it is cross-cutting and shapes every later stage. Nothing here waits for Phase III to start.</p>
+      <details class="task" open><summary>Define the four pipelines — abstractly, not tied to one tool</summary>
+        <div class="d"><ul>
+        <li><b>Data collection / ingestion pipeline</b> — moves raw data from sources to a staging area or lake (also called a data feed). Defined first, so the training pipeline has something to read.</li>
+        <li><b>Training pipeline</b> — gather → clean → enhance → label → balance → split → fit transforms → training set. Built and RUN in Phase III, not just discussed — models cannot run on missing data.</li>
+        <li><b>Inference pipeline</b> (also called production / serving pipeline) — collect → clean and format for prediction; <b>no labels</b>; the SAME fitted transforms as training. Planned early although used in Phase VI; production data may slightly differ in volume, velocity and technology.</li>
+        <li><b>Retraining pipeline</b> — gather new real-world data → apply the training transforms → retrain → evaluate against the live version → redeploy as a new version.</li></ul></div></details>
+      <details class="task"><summary>Choose the pipeline mode and movement pattern</summary>
+        <div class="d"><ul>
+        <li><b>Batch / on-demand</b> (the “cold path”) — runs on a schedule or trigger; quality over speed. Weekly demand-forecast refresh.</li>
+        <li><b>Real-time / streaming</b> (the “hot path”) — must respond within an SLA. Card transactions scored in &lt;200&nbsp;ms. Trap: streaming for everything — cost and complexity without a need.</li>
+        <li><b><span class="term" data-t="ETL">ETL</span></b> — transform BEFORE loading, into a warehouse with a fixed schema. <b><span class="term" data-t="ELT">ELT</span></b> — load the raw data into a lake FIRST, transform per project. The transform stages below are the same work in both — only their position relative to the load changes.</li></ul></div></details>
+      <details class="task"><summary>Engineering guardrails</summary>
+        <div class="d"><ul>
+        <li><b><span class="term" data-t="Idempotency">Ingestion idempotency</span></b> — running the pipeline twice yields the same state, no duplicates (UPSERT, overwrite partitions, strict primary keys). Trap: a restart after failure duplicates millions of rows → later “deduplication” work and leakage.</li>
+        <li><b><span class="term" data-t="Schema drift">Schema evolution / validation</span></b> — detect renamed columns, new categories, changed types at the pipeline's entrance; fail the run instead of silently nulling a column (silent nulls train a broken model).</li>
+        <li><b><span class="term" data-t="Stateful vs stateless">Stateful vs stateless transformations</span></b> — the design decision behind this whole page: stateless = row by row (parse a date); stateful = needs whole-dataset statistics (a scaler, an encoder) and must be FITTED on training only, in stage 18.</li>
+        <li><b>Late-arriving data handling</b> — events that arrive hours or days late: watermarks, immutable event logs with ingestion timestamps.</li></ul></div></details>
+      <details class="task"><summary>Data governance — Phase II decides, Phase III enforces</summary>
+        <div class="d"><ul>
+        <li><b>Trustworthy-AI plan for preparation</b> — decide up front how representation is checked per group, how every step is documented, when audits run.</li>
+        <li><b>The nine governance areas</b> — document &amp; content management (unstructured files: contracts, scans, emails, images) · metadata · data quality · data architecture · data development · data operations · data security · reference &amp; master data · data warehousing &amp; BI.</li>
+        <li><b>The risks governance addresses</b> — security · privacy · uptime/availability · change management · data quality · ownership/IP · <span class="term" data-t="provenance">provenance</span> · auditing of changes.</li>
+        <li><b>Versioning</b> — version the raw snapshot, the pipeline code and the produced training set: training_set_v3 = raw_2026-06-30 + pipeline v1.4. Without it you cannot answer “which data trained which model” in an audit.</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 11 EXTRACT ================= -->
+  <section class="stage p3" id="s11">
+    <header><span class="num">11</span><h2>Extract — Phase II decided, Phase III runs</h2><span class="phasechip">Phase III · stage 1</span></header>
+    <div class="body">
+      <p class="obj">The inventory, audit, profiling (the 4&nbsp;Vs) and source mapping all happened above in Phase II (steps 03, 06, 07). This stage EXECUTES those decisions — and adds the scope and movement choices. <b>Exam wording trap:</b> inventory, audit, fact-checklist, reconciliation are Phase II <i>assessments</i>; cleansing, normalisation, pruning, synthetization are Phase III <i>treatments</i> — the phase named in the question decides which word is right.</p>
+      <details class="task"><summary>Objective-driven scope selection</summary>
+        <div class="d"><ul>
+        <li><b>Temporal selection (time window)</b> — keep only the period whose data still describes today's world; after a structural shift (crash, pandemic, new regulation) older records mislead. House-price model trained on post-2008 sales only.</li>
+        <li><b>Categorical / relevance selection</b> — keep only segments in scope for the objective.</li></ul></div></details>
+      <details class="task"><summary>Movement — why, how, and where the processing goes</summary>
+        <div class="d"><ul>
+        <li><b>Reasons data moves</b> — migration, new business processes, analytics/warehousing, application or device replacement, legacy replacement, hardware upgrades, geographic movement (GDPR: EU data stays in an EU region), compliance.</li>
+        <li><b>Movement method</b> — integration (merge into one place) · replication (copy for availability) · <b>CDC</b> (move only incremental changes — preferred when data is large and changes often; a full nightly reload of a 10&nbsp;TB table is the trap).</li>
+        <li><b>Move data to processing vs move processing to data</b> — exports/APIs when data is small and stable; scripts at the endpoint when volume is huge (an edge script filters camera frames before anything transfers). The challenges of movement: cost, time, complexity, architecture impact, security, compliance.</li>
+        <li><b>Ingestion approach</b> — batch at intervals · real-time streaming · caches/temporary stores for immediate availability.</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 12 LOAD ================= -->
+  <section class="stage p3" id="s12">
+    <header><span class="num">12</span><h2>Load — land &amp; snapshot the raw data</h2><span class="phasechip">Phase III · stage 2</span></header>
+    <div class="body">
+      <details class="task" open><summary>Raw immutable snapshot + entrance quality gate</summary>
+        <div class="d"><ul>
+        <li><b><span class="term" data-t="Immutable snapshot">Raw immutable snapshot</span></b> with an ingestion timestamp — store the data untouched and dated BEFORE any processing (s3://raw/orders/2026-06-30/). It is the input to lineage, backfills and audits. Trap: cleaning in place on the only copy — you can never reproduce anything again.</li>
+        <li><b>Quality gate at the entrance</b> — automated schema validation, row counts, null rates, duplicate rate on every load; the run FAILS if, say, the null rate on customer_id exceeds 0.1% — instead of discovering the broken column after training.</li>
+        <li>In <b>ELT</b>, the transform stages below happen after this load, inside the lake.</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 13 CLEANSE ================= -->
+  <section class="stage p3" id="s13">
+    <header><span class="num">13</span><h2>Transform (a) — Cleanse</h2><span class="phasechip">Phase III · stage 3 — stateless, safe before the split</span></header>
+    <div class="body">
+      <p class="obj"><b>Why quality first — GIGO (garbage in, garbage out):</b> the quality of the data in decides the quality of the model out, in training AND in inference — a pretrained vision model fed blurry production frames still fails. Cleansing is continuous, not once. Everything in this stage is <b>stateless</b>: fixed row by row, no learned statistics — which is exactly why it is safe before the split.</p>
+      <details class="task" open><summary>Cleansing — the row-level, human-readable fixes</summary>
+        <div class="d"><b>Row-level hygiene (safe BEFORE the split; each fix reads only its own row):</b>
+        <ul>
+          <li>Remove duplicates (must be before the split — see stage 16 · Split; and done on readable raw text, BEFORE tokenization — two messages that are obvious duplicates as sentences may look different once chopped into tokens)</li>
+          <li>Correct inconsistent formats (dates, units, categorical labels) — also called <b>format standardization</b>; this is text/format hygiene, a different thing from stage 18’s <b>statistical standardization</b> (z-score rescaling of numbers). This is also the Phase-III treatment of the “consistency” dimension measured in Phase II (step 07 · EDA).</li>
+          <li>Basic consistency transformations (lowercasing text, standardizing date formats)</li>
+          <li><b>Anonymisation &amp; generalization</b> — mask PII, group ages into ranges; and be precise about the three levels: <span class="term" data-t="anonymisation vs pseudonymisation vs masking">anonymisation (irreversible) · pseudonymisation (reversible with a key) · masking (display only)</span>. Best practice: anonymise anything the model does not need. Trap: leaving PII in “just the training set”.</li>
+          <li><b>Noise reduction &amp; disambiguation</b> — strip what carries no signal (background from product photos, hum from call audio) and make ambiguous values unambiguous (“NY” vs “New York” unified). Trap: noise learnt as signal → overfitting.</li>
+          <li><b>Data minimisation</b> — keep only the fields the pattern needs (a trustworthy-AI requirement): the fraud model keeps amount, merchant and time — not the cardholder name. It overlaps vertical pruning (stage 14 · Filter): minimisation is the PRIVACY reason, pruning is the MODELLING reason.</li>
+          <li><b>Value normalisation</b> — put values from different sources on one unit or scale before merging (sensor A in °F, sensor B in °C → one unit). Stateless, done here — NOT the min-max feature scaling of stage 18 (see the name-clash clinic).</li>
+        </ul>
+        <p style="margin:6px 0 0"><b>Where did tokenization go?</b> Not here. Text stays <b>human-readable</b> all the way through cleansing, filtering and labelling — the people working the pipeline need to read it. Tokenization (chopping text into model-ready pieces) happens at stage 18 · Feature engineering, inside vectorisation, just before the data goes to training.</p>
+        </div></details>
+      
+    </div>
+  </section>
+
+  <!-- ================= 14 FILTER ================= -->
+  <section class="stage p3" id="s14">
+    <header><span class="num">14</span><h2>Transform (b) — Filter: select &amp; prune</h2><span class="phasechip">Phase III · stage 4 — before the split</span></header>
+    <div class="body">
+      <p class="obj">Filtering = selection + sampling + pruning. <b>Horizontal = rows, vertical = columns.</b></p>
+      <details class="task" open><summary>Vertical pruning (columns) — domain-driven</summary>
+        <div class="d">Drop attributes the model plainly does not need: IDs, timestamps, constants, metadata, obviously irrelevant fields — decided by domain knowledge, NOT by target statistics (target-driven feature selection belongs to stage 18, decided on training data only). Benefits: focus, efficiency, simplicity. Trap: keeping row keys → <b>leaky IDs</b> (an ID column with “99% importance”). Also called: attribute pruning · feature selection (domain type).</div></details>
+      <details class="task" open><summary>Horizontal pruning (rows) = sampling</summary>
+        <div class="d"><ul>
+        <li><b>Simple random sampling</b> — uniform random subset when ALL data is relevant but there is too much of it (10&nbsp;M rows → 100&nbsp;K for rapid iteration). Trap: taking the first million sorted records is NOT a sample — it's bias.</li>
+        <li><b>Stratified sampling</b> — every sub-population keeps its share (every district represented in proportion). Note the clash: stratified SAMPLING decides size here; stratified SPLITTING (stage 16) keeps the class mix per set.</li>
+        <li><b>Cluster sampling</b> — pick whole groups (whole clinics), then sample inside; cheaper for field collection.</li>
+        <li>Run the <b>representativeness / bias check</b> per demographic group — and note it is NOT a one-time check: first in Phase II EDA (step 07), again HERE after sampling, again after the split (stage 16 — do the sets still mirror each other?), again at Gate 2 (stage 20, with PSI/KS numbers), and continuously in production (stage 21). The trustworthy-AI plan from stage 10 defines how.</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 15 LABEL ================= -->
+  <section class="stage p3" id="s15">
+    <header><span class="num">15</span><h2>Transform (c) — Label</h2><span class="phasechip">Phase III · stage 5 — before the split, so strata exist</span></header>
+    <div class="body">
+      <p class="obj">The labeling NEEDS were assessed in Phase II (step 07) and priced into Gate 1; the campaign runs here — and it runs BEFORE the split so that stratified splitting has classes to stratify on. <b>Vocabulary:</b> a <span class="term" data-t="label vs annotation">label</span> is the class or value; an annotation is richer context (boxes, polygons, entities, timestamps). Inference data is NEVER labelled — assuming it must be is an exam trap.</p>
+
+      <p class="obj">Choose the labelling workforce deliberately: <b>internal staff · outsourcing · agency · crowdsourcing · active learning (machine &amp; human)</b>. Crowdsourcing is usually rejected on quality grounds. Synthetic data must be <b>controlled, archived and vetted</b>.</p>
+      <div class="play">▶ <b>Try it live:</b> Labelling strategy simulator (existing) <a class="btn" href="/labs/data-pipeline-navigator" target="_blank" rel="noopener">Open ↗</a></div>
+    
+      <details class="task"><summary>Where labels come from — the full sourcing menu (one list with the workforce options above)</summary>
+        <div class="d"><ul>
+        <li><b>Repurpose existing data</b> — the cheapest first option: categories the business already recorded (support tickets already tagged by team). Trap: ignoring labels you already own.</li>
+        <li><b>Pre-labelled public / vendor datasets</b> — for common tasks (objects, sentiment). Trap: licence, bias and fit not checked.</li>
+        <li><b>Crowdsourcing from users inside the product</b> — CAPTCHA-style “select all stop signs”; works for simple labels at scale (distinct from paid crowdsourcing, which is usually rejected on quality grounds).</li>
+        <li><b>Model / GenAI pre-labelling</b> — a model proposes labels, humans verify (the active-learning pattern from the workforce card).</li></ul></div></details>
+      <details class="task"><summary>Annotation types &amp; the seven-step labelling process</summary>
+        <div class="d"><ul>
+        <li><b>Annotation types</b> — <span class="term" data-t="class label">class label</span> · <span class="term" data-t="bounding box">bounding box</span> · <span class="term" data-t="polygon / segmentation">polygon/segmentation</span> · <span class="term" data-t="key points">key points</span> · <span class="term" data-t="NER">NER</span> · <span class="term" data-t="audio timestamps">audio timestamps</span>. Choose the annotation that matches what the model must OUTPUT. If the model only says WHAT is in the image (“a dog”), a class label is enough. If it must say WHERE the dog is, draw a bounding box. If it must trace the dog’s exact outline pixel by pixel, use a polygon. On taxonomy size: the <b>~10 tags</b> figure is course guidance, not a law — each organisation defines its own taxonomy by need. The principle behind the number is real though: every extra tag needs its own training examples and scenario coverage, and multiplies dimensionality — so keep the tag set as small as the use case allows, and if you genuinely need many, structure them as a hierarchy (vehicle → car → SUV) rather than one flat list.</li>
+        <li><b>Sensor fusion</b> — correlate several sensors (lidar, radar, cameras) into 3D point clouds BEFORE labelling obstacles; labelling one stream in isolation is the trap.</li>
+        <li><b>The seven-step process</b> — gather gold-standard data → define annotations/taxonomy (≤10 tags) → <span class="term" data-t="HITL">human in the loop</span> → QA/consensus — accept a label when 2 of 3 annotators agree. <b>Agreement example:</b> “I didn’t receive my code” — both officers mark <i>OTP Query</i> → accepted. <b>Disagreement example:</b> “my payment failed while I was waiting for the OTP” — one officer marks <i>OTP Query</i>, the other <i>Fraud Reporting</i> → a third annotator adjudicates using the rulebook, and the rulebook gains a clarifying rule so the next such message is unambiguous → train &amp; test → use verified labels → monitor label quality. Bad labels on good images = bad data (GIGO).</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 16 SPLIT ================= -->
+  <section class="stage p3" id="s16">
+    <header><span class="num">16</span><h2>SPLIT FIRST — evaluation isolation</h2><span class="phasechip">Phase III · stage 6 — the orange line</span></header>
+    <div class="body">
+      <details class="task" open><summary>🗺️ The one-picture memory — what happens before the split, after it, and to which sets</summary>
+        <div class="d">
+        <div class="dtable"><table>
+          <tr><th>When</th><th>Activities</th><th>Training</th><th>Validation</th><th>Test</th><th>Production</th><th>Retraining</th></tr>
+          <tr><td><b>BEFORE the split</b><br>(stateless — row by row)</td><td>Cleanse (formats, dedup, anonymise) · Filter (prune columns, sample rows) · Label · row-wise derived features</td><td>same</td><td>same</td><td>same</td><td>same</td><td>same</td></tr>
+          <tr><td><b>✂️ THE SPLIT</b></td><td>~70 / val / 15–20, stratified·temporal·group as the data demands</td><td colspan="5">rows are dealt into sets — nothing is computed</td></tr>
+          <tr><td><b>AFTER the split</b><br>(fitted — whole-table statistics)</td><td>Impute · encode · scale · vocabulary/TF-IDF · target-driven selection · PCA</td><td><b>fit</b></td><td>apply</td><td>apply</td><td>apply</td><td>refit</td></tr>
+          <tr><td><b>TRAINING SET ONLY</b></td><td>Balance (oversample/SMOTE/undersample) · multiply · synthesize</td><td><b>fit</b></td><td>never</td><td>never</td><td>never</td><td>redo</td></tr>
+        </table></div>
+        Legend (from the master deck): <b>fit</b> = statistics learned here · <b>apply</b> = training parameters re-used, never re-learned · <b>never</b> = rows stay real · <b>same</b> = stateless, applied identically everywhere.
+        </div></details>
+      <p class="obj"><b>Training ~70% · validation · test 15–20%</b> (guidance, not law). Train = the model learns; validation = tune and detect over/underfit; test = one final unseen judgement. Why split at all: prove it works on NEW data — never test on the data you trained on. After this line, everything is fitted on the training set only.</p>
+
+      <p class="obj"><b>Pipeline sequencing: EDA → cleaning → SPLIT → transformation.</b> Split into train/validation/test <b>before</b> fitting any scaler — fit scalers on the training set only, then apply to validation/test, to avoid <b>leakage</b>. Exclude categorical variables or <span class="term" data-t="already-bounded values">already-bounded values</span> (percentages, binary flags) from scaling decisions here.</p>
+      <details class="task" open><summary>What comes BEFORE the split, what comes AFTER — the exact order</summary>
+        <div class="d">
+        <ul>
+        <li><b>✅ BEFORE the split</b> (safe — each of these looks at one row at a time, or removes rows entirely):
+          <ul>
+          <li><b>Deduplicate.</b> Why before? Dedup means DELETING the extra copies, so only ONE copy of each message survives — and that one copy can only land in one set. Done after the split, the copies are already sitting in both train and test, and the model gets “asked in the exam what it memorized in class” → inflated score. Your worry is exactly right for <i>keeping</i> duplicates — the fix is that we don't keep them.</li>
+          <li><b>Row-level cleaning:</b> fix formats, lowercase, tokenize — uses only that row's own content.</li>
+          <li><b>Row-level feature derivations:</b> ratios, days-since-discharge, text features from the row itself.</li>
+          </ul></li>
+        <li><b>✂️ THE SPLIT</b> — train / validation / test (stratified, so every subset keeps the same intent mix).</li>
+        <li><b>🔒 AFTER the split — anything LEARNED from data, fitted on TRAIN only.</b> In plain words: “fitted” means the step has numbers of its own computed from the WHOLE TABLE AT ONCE — many rows together (a median, a min/max, a category-average, a vocabulary) — unlike row-level fixes, which read one row at a time. Compute those numbers from the training set only — then APPLY the very same stored numbers to validation, test, and production. Every set goes through the identical recipe; none of them except train is allowed to TEACH the recipe.
+          <ul>
+          <li><b>Imputation — why not before?</b> Filling a missing value needs a fill VALUE (say, the median age). The median is <i>learned from the rows you compute it on</i>. Compute it on ALL rows and it silently contains the test rows' information — a whisper of the exam paper inside the study notes. Concretely: median(all 100 rows) = 34, median(train 80 rows) = 31 — training with 34 means the model was tuned using test-set knowledge, so its test score looks better than production ever will. Correct way: compute the median on train, STORE it, and reuse that same stored value to fill validation, test, and production.</li>
+          <li><b>Scalers</b> (min-max, z-score) — fitted on train, applied everywhere.</li>
+          <li><b>Target encoding</b> — after the split AND inside cross-validation.</li>
+          <li><b>Vocabulary / TF-IDF</b> — building a text vocabulary means reading the WHOLE corpus to list the known words and score how rare each is; that reading is the “learning”, so the vocabulary and scores are built from the training corpus only, then reused for validation, test and production text.</li>
+          <li><b>Augmentation &amp; synthetic rows</b> — training set only; validation/test stay untouched.</li>
+          </ul></li>
+        </ul></div></details>
+      <details class="task"><summary>Where does SAMPLING fit? (it happens at three different moments)</summary>
+        <div class="d"><ul>
+        <li><b>1 · While defining &amp; collecting (Phase II, step 02):</b> stratified sampling decides WHAT to collect — ≥20k OTP queries stratified by channel (SMS, app, web), ≥500 per FAQ category.</li>
+        <li><b>2 · At split time (here):</b> a stratified split keeps each subset's intent mix identical to the whole — otherwise a rare intent could end up missing from the test set.</li>
+        <li><b>3 · After the split, on train only:</b> oversampling / undersampling / SMOTE to rebalance classes for training. Never resample validation or test — they must stay an honest mirror of reality.</li></ul></div></details>
+      <div class="play">▶ <b>Try it live:</b> Split &amp; sampling theatre (existing) <a class="btn" href="/labs/data-pipeline-navigator" target="_blank" rel="noopener">Open ↗</a></div>
+    
+      <details class="task"><summary>Split strategies — choose by the data's structure</summary>
+        <div class="d"><ul>
+        <li><b>Random split</b> — shuffle and cut. Legitimate ONLY when rows are independent, balanced, with no time or group structure; on anything else it is the most common cause of leakage.</li>
+        <li><b>Stratified split</b> — each set keeps the class proportions (fraud 0.2% in train, validation and test alike); bin continuous targets first. Clash: stratified SPLIT preserves the distribution; RESAMPLING (stage 17) changes it.</li>
+        <li><b>Temporal / time-series split</b> — train on the past, test on the future (train ≤2025, test 2026); anything else is look-ahead leakage.</li>
+        <li><b>Group split</b> — all rows of one patient/customer stay in ONE set, or the model memorizes people instead of patterns.</li>
+        <li><b>Spatial split</b> — geographic hold-outs for location-dependent data.</li>
+        <li><b>k-fold cross-validation</b> — rotates INSIDE the training portion for tuning; the test set stays locked.</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 17 BALANCE & ENLARGE ================= -->
+  <section class="stage p3" id="s17">
+    <header><span class="num">17</span><h2>Transform (d) — Balance &amp; enlarge</h2><span class="phasechip">Phase III · stage 7 — training set ONLY</span></header>
+    <div class="body">
+      <p class="obj"><b>Everything in this stage touches the training set only — validation, test and production rows stay real.</b> And yes, that means exactly what it says: synthetic or augmented rows are NEVER placed in validation or test. Those two sets exist to measure how the model performs on reality — put generated rows in them and you are grading the model on your generator’s imagination, not on the world. An exam option that resamples or augments validation/test is always wrong.</p>
+      <details class="task" open><summary>Resampling — change the class distribution (training only)</summary>
+        <div class="d"><ul>
+        <li><b>Random oversampling</b> — clone minority rows exactly until classes balance; deliberate DUPLICATION (not multiplication, which transforms). Trap: the model memorises the copies → overfitting.</li>
+        <li><b>SMOTE</b> — draw lines between rare points and create new rows along them; preferred over random oversampling because it makes variations, not copies. SMOTE is synthetic data at ROW level; “synthetic data” below is dataset level.</li>
+        <li><b>Random undersampling</b> — delete majority rows; only when the majority class is massively bloated (1&nbsp;B non-fraud rows → 10&nbsp;M). Trap: information loss.</li>
+        <li><b><span class="term" data-t="Tomek links">Tomek links / cluster undersampling</span></b> — boundary cleaning: remove majority rows sitting dangerously close to minority rows, before oversampling.</li>
+        <li><b>Class weights</b> — the no-resampling alternative: keep the data as-is and tell the model a missed rare case costs more (our “cost setting” from the bias story).</li></ul></div></details>
+      <details class="task" open><summary>Multiplication — make MORE rows by transforming existing ones (training only)</summary>
+        <div class="d"><b>Three words that get swapped — pin them down once:</b>
+        <div class="dtable"><table>
+        <tr><th>Word</th><th>What it makes</th><th>Example</th></tr>
+        <tr><td><b>Duplication</b></td><td>IDENTICAL copies of a row</td><td>Random oversampling clones a fraud row exactly</td></tr>
+        <tr><td><b>Multiplication</b></td><td>TRANSFORMED copies — altered but still valid and correctly labelled (so it is a form of augmentation, never plain copy-paste)</td><td>The same cat photo rotated 10°, flipped, cropped — 1,000 images become 100–200&nbsp;K</td></tr>
+        <tr><td><b>Synthetization</b></td><td>BRAND-NEW rows generated from learned patterns</td><td>A GAN invents a patient that never existed</td></tr>
+        </table></div>
+        Course chain: <b>data transformation</b> (alter, keep validity) → <b>data augmentation</b> (create additional points) → <b>data multiplication</b> (the techniques).<ul>
+        <li><b>Images:</b> rotation · flipping · scaling · colorization · cropping · translation · occlusion — each altered image stays valid and correctly labelled; consider the relevance of every transformation (recolouring a stop sign breaks meaning).</li>
+        <li><b>Text / audio:</b> synonym replacement · back-translation · paraphrasing · noise, pitch and speed shifts. Trap: a synonym that flips the label (sentiment).</li></ul></div></details>
+
+      <details class="task"><summary>Choose augmentation techniques</summary>
+        <div class="d"><ul>
+ <li><b>Text:</b> paraphrasing, synonym replacement, back-translation</li>
+ <li><b>Images:</b> rotation, flipping, noise injection</li>
+ <li><b>Tabular:</b> jittering values, bootstrapping</li></ul></div></details>
+      <details class="task"><summary>Generate synthetic data</summary>
+        <div class="d"><ul>
+ <li>GANs or VAEs for realistic samples</li>
+ <li>Simulate sensor logs or patient vitals</li>
+ <li>Rule-based generation for structured fields</li></ul></div></details>
+      <details class="task"><summary>Validate quality</summary>
+        <div class="d"><ul>
+ <li>Ensure augmented/synthetic data is realistic and unbiased</li>
+ <li>Compare its distributions with the original data</li>
+ <li>Run a domain-expert review (e.g., clinicians)</li>
+ <li>Check for artifacts or unrealistic patterns — a generated patient aged 200; a \u201Chealthy\u201D ECG that flat-lines; a GAN image with six fingers; the same texture tile repeating across an image; synthetic bills whose amounts all end in .00</li></ul></div></details>
+      <details class="task"><summary>Integrate into the pipeline</summary>
+        <div class="d"><ul>
+ <li>Apply augmentation <b>only to the training set</b>; validation and test stay untouched</li>
+ <li>Document the lineage of every generated sample</li></ul></div></details>
+      <details class="task"><summary>Ensure reproducibility</summary>
+        <div class="d"><ul>
+ <li>Log parameters, seeds and methods</li>
+ <li>Version-control the synthetic datasets</li>
+ <li>Maintain metadata for compliance and audit</li></ul></div></details>
+    
+    </div>
+  </section>
+
+  <!-- ================= 18 FEATURES ================= -->
+  <section class="stage p3" id="s18">
+    <header><span class="num">18</span><h2>Transform (e) — Feature engineering</h2><span class="phasechip">Phase III · stage 8 — FIT on train, APPLY elsewhere</span></header>
+    <div class="body">
+      <p class="obj">Every step here is <b>stateful</b>: its parameters are computed from the ENTIRE training dataset at once (a mean over all rows, a category list over all rows) — not from any single row. The rule for the whole stage — and for every exam question about it: <b>fitted on training, applied to validation, test and production with the training parameters, refitted at retraining.</b></p>
+      <details class="task" open><summary>Imputation — handle missing fields (fitted)</summary>
+        <div class="d"><b>Fitted treatments (AFTER the split; fit on train, then APPLY the stored values to validation &amp; test too):</b>
+        <ul>
+          <li><b>Handle missing values</b> (<span class="term" data-t="drop (missing values)">drop</span>, <span class="term" data-t="impute">impute</span>, <span class="term" data-t="forward/backfill">forward/backfill</span>) — the fill VALUE (median/mean/most-frequent) is learned, so it is computed on train only. It IS then applied to validation and test: their missing cells are filled using the train-learned value. Why apply but not fit? Validation/test must travel the exact pipeline production data will travel — but if they also TAUGHT the pipeline, the exam would be leaking into the study notes.</li>
+          <li><b>Outlier treatment</b> — two separate parts:
+   <ul><li><b>Part 1 · Detection (where the fitted rule lives):</b> the thresholds that define “too extreme” (z-score limits, IQR fences) are computed from the training data; the SAME fences are then applied to validation and test.</li>
+   <li><b>Part 2 · Treatment (what to do with each flagged value):</b> investigate first — is it a real value or an error? A ₹9,00,000 bill may be a typo, or a real surgery. If it is an error → correct it or treat as missing (impute). If it is real but extreme → cap/<span class="term" data-t="winsorize">winsorize</span> or log-transform to soften its pull. If it is real and MEANINGFUL (fraud!) → keep it and use robust models. Never silently delete rare real events.</li></ul></li>
+        </ul>
+        <ul>
+        <li><b>Choose the imputer by the column:</b> <b>mean</b> for roughly symmetric numerics · <b>median</b> for skewed columns with outliers (mean on skewed income inflates values) · <b>mode</b> (most frequent) for categories · <b>forward/backward fill or interpolation</b> for time series (trap: backward fill in a live stream reads the future → leakage) · <b>algorithmic imputation (KNN, <span class="term" data-t="MICE">MICE</span>, model-based)</b> when gaps depend on other columns.</li></ul></div></details>
+
+      <details class="task" open><summary>Create new, meaningful features from raw data to improve model performance</summary>
+        <div class="d"><ul>
+          <li><b>Domain-driven derivations — sort each new feature by what it READS</b> (this is a different sorting from the two buckets of stage 13 — there we sorted cleaning fixes; here we sort NEW features — but the underlying rule is the same one):
+   <ul><li><b>Row-wise (reads one row → safe BEFORE the split):</b> ratios (readmission risk = prior admissions ÷ age), days-since-last-discharge — each reads columns of its OWN row only, so no validation/test information can leak through it. So yes: this part of feature engineering is allowed to run before the split; only the fitted parts below must wait.</li>
+   <li><b>Aggregated (fitted — after the split, computed on train only):</b> “average lab value per doctor”, “patient’s historical mean” — these read ACROSS rows, so computed on all data they would absorb validation/test rows. Compute the averages from train; apply the stored averages to the other sets.</li></ul></li>
+          <li><b>Encoding categorical variables — the method per column is CHOSEN here, and the encoding is APPLIED once, below in this same stage</b> (the encoding cards that follow). No double encoding — design and execution are two moments of one stage-18 activity.</li>
+          <li><b>Text features:</b> TF-IDF, embeddings, NLP extraction from clinical notes — all three build a vocabulary/model from data → fitted on train only, after the split</li>
+          <li><b>Interaction features</b> — a new column built by COMBINING two existing ones, because sometimes the signal lives in the combination, not in either column alone: <span class="term" data-t="comorbidity">comorbidity</span> × age (an 80-year-old with three conditions is far riskier than either fact suggests separately) · polynomial combinations (age², income × tenure).</li></ul></div></details>
+    
+      <p class="obj"><b>Same word, two meanings — placed where each belongs in a real project:</b> stage 13 · Cleanse did “format standardisation” — text/format hygiene (dates, units, casing), row-level, before the split. THIS step is <b><span class="term" data-t="statistical standardization">statistical rescaling of numbers</span></b>, and runs AFTER the split because the scaler is <i>learned</i> from data (fit on train only). One more sequencing note: scaling and encoding are <b>siblings, not a sequence</b> — scaling rescales the NUMERIC columns, encoding converts the CATEGORICAL columns into numbers; both are fitted on train after the split, and it does not matter which of the two you run first.</p>
+      <details class="task" open><summary>Decide the method by model type — then apply without leakage</summary>
+        <div class="d"><ul>
+          <li><b>Normalization (min-max scaling, values → [0,1]):</b> for distance-based models (KNN, SVM, neural nets)</li>
+          <li><b>Standardization (z-score, mean = 0, variance = 1):</b> for distribution-based models (linear/logistic regression, PCA)</li>
+          <li>Store fitted parameters (min, max, mean, std) from the training set; apply consistently across all subsets</li>
+          <li>Validation: check transformed distributions (histograms, boxplots); ensure scaling doesn't distort feature relationships; confirm no leakage (test set untouched during fitting)</li>
+          <li><b>Reproducibility &amp; documentation:</b> log scaler parameters · version-control transformations (MLflow, DVC, Git) · document which features were scaled, why, and how · ensure transformations are repeatable in production pipelines</li></ul></div></details>
+    
+      <p class="obj"><b>Encoding is not only for high cardinality</b> — EVERY categorical column must be encoded, because models only eat numbers; the table below covers all of them. The special case where the CHOICE really matters: high-cardinality categories — variables with a large number of unique values (e.g., <b>pincode</b>) → use <b>target encoding with cross-validation</b> (compresses the information into a single dense feature while explicitly preventing data leakage), <b>not one-hot</b> (one-hot creates a sparse — thinly scattered — high-dimensional matrix that triggers the curse of dimensionality, draining memory and degrading model performance).</p>
+      <details class="task" open><summary>All the encoding methods — what each is, when to choose it</summary>
+        <div class="d"><div class="dtable"><table>
+        <tr><th>Method</th><th>What it does</th><th>Choose it when</th></tr>
+        <tr><td><b>One-hot</b></td><td>One yes/no column per category</td><td>Few categories (≤ ~15), no order between them (channel: SMS/app/web)</td></tr>
+        <tr><td><b>Label encoding</b></td><td>Each category → an arbitrary integer (0,1,2…)</td><td>Tree-based models only (trees don't read the numbers as sizes); never for linear/distance models</td></tr>
+        <tr><td><b>Ordinal encoding</b></td><td>Categories → integers IN their natural order</td><td>A real order exists: mild &lt; moderate &lt; severe</td></tr>
+        <tr><td><b>Frequency / count encoding</b></td><td>Category → how often it appears</td><td>Popularity itself carries signal; quick baseline for many categories</td></tr>
+        <tr><td><b>Target encoding (+ cross-validation)</b></td><td>Category → the answer-column's average for that category</td><td>High-cardinality fields (pincode, doctor ID); must be fitted after the split, inside CV</td></tr>
+        <tr><td><b>Embeddings</b></td><td>Category → a short learned vector; similar categories end up close</td><td>Very many categories with hidden similarity (words, products, users); deep-learning settings</td></tr>
+        </table></div></div>
+      </details>
+      <details class="task" open><summary>Why this matters</summary>
+        <div class="d"><ul>
+        <li><b>Memory:</b> 20,000 pincodes one-hot = 20,000 columns of mostly zeros — RAM and storage drain for no signal.</li>
+        <li><b>Speed:</b> every extra column slows training and inference.</li>
+        <li><b>Overfitting:</b> a pincode seen 3 times gets its own column and the model memorizes those 3 rows instead of learning.</li>
+        <li><b>Accuracy:</b> and yes — sparsity and the curse of dimensionality rise TOGETHER: every mostly-zero column one-hot adds is another dimension across which the same rows are spread thinner, so patterns dissolve and performance degrades. That coupling is exactly why one-hot on 20,000 pincodes hurts.</li>
+        <li><b>The fix in one line:</b> target encoding keeps ONE dense, informative column; the cross-validation wrapper is what stops it peeking at the answer (leakage).</li></ul></div></details>
+      <div class="play">▶ <b>Try it live:</b> Encoder playground (existing) <a class="btn" href="/labs/data-pipeline-navigator" target="_blank" rel="noopener">Open ↗</a></div>
+    
+      <details class="task"><summary>Encoding traps the course tests</summary>
+        <div class="d"><ul>
+        <li><b>One-hot for linear models:</b> drop one column (drop="first") to avoid perfect multicollinearity.</li>
+        <li><b>Frequency/count encoding:</b> counts must come from the TRAINING set — counts on the whole dataset leak test frequencies in.</li>
+        <li><b>Target/mean encoding:</b> must be <span class="term" data-t="out-of-fold (OOF)">out-of-fold</span> and <span class="term" data-t="smoothing">smoothed</span> — without OOF and smoothing on tiny categories the leakage is extreme.</li></ul></div></details>
+      <details class="task"><summary>Create, enrich, vectorise, select, reduce</summary>
+        <div class="d"><ul>
+        <li><b>Derived features</b> — date parts, ratios, interactions, aggregates (rules from our step above apply: row-wise before the split, aggregated fitted on train). Trap: post-outcome information (“refund issued” predicting “will complain”) — the feature will not exist at prediction time.</li>
+        <li><b>External enrichment</b> — join weather, demographics, metadata that EXIST at prediction time.</li>
+        <li><b>Vectorisation</b> — this is where text finally stops being human-readable: <b>tokenize</b> (chop text into model-ready pieces — applying an existing pretrained tokenizer is deterministic, but building a NEW vocabulary, whether a BPE tokenizer’s word-list or a TF-IDF vocabulary, means learning the word-list from data → build it on train only), then map to embeddings/TF-IDF; images resized &amp; cropped; audio sliced; and for RAG, <span class="term" data-t="Chunking">chunk</span> long documents just before embedding them. Identical logic at inference.</li>
+        <li><b>Target-driven feature selection</b> — correlation, importance, L1: decided on the TRAINING set only (the domain-driven column drop already happened in stage 14).</li>
+        <li><b><span class="term" data-t="PCA">Dimensionality reduction (PCA)</span></b> — TRANSFORMS features into fewer components; it does not drop columns. Fitted on train.</li></ul></div></details>
+    </div>
+  </section>
+
+  <!-- ================= 19 NAME CLASHES ================= -->
+  <section class="stage crossband" id="s19">
+    <header><span class="num">⚠️</span><h2>Same word, different thing — the five name clashes</h2><span class="phasechip">Exam trap clinic</span></header>
+    <div class="body">
+      <div class="dtable"><table>
+        <tr><th>Word</th><th>Meaning A</th><th>Meaning B</th></tr>
+        <tr><td><b>Normalisation</b></td><td>Cleansing sense (stage 13): put values from different sources on one unit/scale before merging — stateless, before the split.</td><td>Feature-scaling sense (stage 18): min-max rescale to 0–1 using TRAINING min/max — fitted.</td></tr>
+        <tr><td><b>Standardisation</b></td><td>Format standardisation (stage 13): uniform types, field names, encodings across sources.</td><td>Z-score standardisation (stage 18): centre and scale by training mean/std.</td></tr>
+        <tr><td><b>Feature selection</b></td><td>Attribute/vertical pruning (stage 14): domain-driven column drop, no target statistics — before the split.</td><td>Target-driven selection (stage 18): correlation/importance/L1 on the training set. PCA transforms, it does not drop.</td></tr>
+        <tr><td><b>Duplication</b></td><td>Deduplication (stage 13): accidental repeats are a DEFECT, removed before the split; “duplicate rows across sets” is a leakage type.</td><td>Random oversampling (stage 17) DELIBERATELY duplicates minority rows; multiplication makes transformed copies, never identical ones.</td></tr>
+        <tr><td><b>Sampling · Splitting · Chunking</b></td><td>Sampling (stage 14) decides how many rows you keep; chunking (stage 13) splits documents for a context window.</td><td>Splitting (stage 16) decides which rows the model may learn from; resampling (stage 17) CHANGES the class mix — training only.</td></tr>
+      </table></div>
+      <p class="obj" style="margin-top:10px"><b>The wording trap in one line:</b> cleansing, normalisation, pruning, synthetization = Phase III treatments; inventory, audit, fact-checklist, reconciliation = Phase II assessments — the phase named in the question decides which word is right.</p>
+    </div>
+  </section>
+
+  <!-- ================= 20 GATE 2 ================= -->
+  <section class="stage p3 gatecard" id="s20">
+    <header><span class="num">⛔</span><h2>GATE 2 · Validate &amp; gate — go/no-go into model work</h2><span class="phasechip">Decision gate · stage 9</span></header>
+    <div class="body">
+      <details class="task" open><summary>The leakage audit — five types to hunt</summary>
+        <div class="d"><ul>
+        <li><b>1 · Target leakage</b> (post-event / look-ahead features) — a feature generated AFTER the target event: “refund issued” predicting “customer will complain”. The model looks perfect offline, useless live.</li>
+        <li><b>2 · Pre-split transformation leak</b> — statistics (mean, variance, max, encodings, PCA) computed on the whole dataset instead of the training split. The most common silent leak in notebooks.</li>
+        <li><b>3 · Leaky IDs / indices / timestamps</b> — administrative keys that correlate with the target (claim IDs issued in blocks per outcome).</li>
+        <li><b>4 · Duplicate rows across sets</b> — the same sample in training and test; dedup before the split, hash-check the sets here.</li>
+        <li><b>5 · Group leakage</b> — one person's rows spread across sets; the group split (stage 16) prevents it.</li></ul></div></details>
+      <details class="task" open><summary>Distribution, bias &amp; label-quality checks</summary>
+        <div class="d"><ul>
+        <li><b>Statistical set comparison</b> — train vs validation vs test vs production distributions using <span class="term" data-t="PSI">PSI</span> and the <span class="term" data-t="KS-test">KS-test</span> (PSI &gt; 0.2 on age → investigate); the same tests later detect drift in production.</li>
+        <li><b>Representation per group</b> — balanced classes can still hide skewed demographics.</li>
+        <li><b>Label QA</b> — inter-annotator agreement ≥ 0.8, spot checks, annotator confusion; good images with bad labels = bad data.</li></ul></div></details>
+
+      <details class="task"><summary>Validate preprocessing &amp; transformation results</summary>
+        <div class="d"><ul>
+ <li>Confirm missing values were handled correctly</li>
+ <li>Check encoding consistency — train, validation and test share the same categories</li>
+ <li>Verify normalization/standardization parameters were applied consistently across all sets</li>
+ <li>Ensure anonymization and schema transformations are intact</li></ul></div></details>
+      <details class="task"><summary>Assess representativeness &amp; bias</summary>
+        <div class="d"><ul>
+ <li>Compare distributions across subsets (train vs test)</li>
+ <li>Check class balance (readmission vs non-readmission)</li>
+ <li>Detect demographic bias (age, gender, socio-economic groups)</li>
+ <li>Run fairness metrics (<b>equal opportunity, disparate impact</b>)</li></ul> <b>Fairness thread:</b> the risk was IDENTIFIED in step 07 (EDA subgroup imbalances), TREATED across Phase III (fair collection in Extract, consistent labelling in stage 15, train-only rebalancing in stage 17) — and PROVEN here, with numbers.</div></details>
+      <details class="task"><summary>Decide data readiness for model development</summary>
+        <div class="d"><ul>
+ <li>Evaluate whether the sample size is sufficient</li>
+ <li>Confirm coverage of all required features</li>
+ <li>Ensure no leakage — the test set stayed untouched during preprocessing</li>
+ <li>Make a formal go/no-go decision</li></ul></div></details>
+      <details class="task"><summary>Document findings &amp; recommendations — the Data Quality Report</summary>
+        <div class="d"><ul>
+ <li>Completeness, consistency, accuracy and bias checks</li>
+ <li>Transformation logs (scalers, encoders, imputers)</li>
+ <li>Representativeness analysis</li></ul></div></details>
+      <div class="verdict">
+        <div class="v go"><b>GO</b>Data is model-ready — Phase IV begins.</div>
+        <div class="v nogo"><b>NO-GO</b>Back to the failing step; the Data Quality Report says exactly which one.</div>
+      </div>
+    
+      <details class="task"><summary>Documentation — the workbook checkpoints</summary>
+        <div class="d">Record for every iteration: cleansing &amp; enhancement methods used · data selection decisions · augmentation additions logged · pipeline documented with version control (CI/CD log per step). The checkpoint decides advancement — proceeding when a critical answer is “no” is the trap. If a source lacks consent → back to Phase II.</div></details>
+    </div>
+  </section>
+
+  <!-- ================= 21 OPERATE ================= -->
+  <section class="stage p3" id="s21">
+    <header><span class="num">21</span><h2>Operate — inference &amp; retraining</h2><span class="phasechip">Phase III → Phase VI link</span></header>
+    <div class="body">
+      <details class="task" open><summary>Serve, monitor, retrain</summary>
+        <div class="d"><ul>
+        <li><b>Inference pipeline</b> — collect live data → stateless clean/format → APPLY the training-fitted transforms → predict. No labels; same fitted scalers/encoders/imputers. Trap: refitting a scaler on production data → training/serving skew.</li>
+        <li><b>Drift monitoring</b> — <span class="term" data-t="feature drift">feature drift</span> (inputs change) · <span class="term" data-t="concept drift">concept drift</span> (the input→output relationship changes: spending habits pre- vs post-pandemic) · label/prior drift. Compare production against the training baseline with the same PSI/KS tests.</li>
+        <li><b>Retraining pipeline</b> — on a TRIGGER (not a calendar): new snapshot → same pipeline (stages 12–20) → REFIT transforms on the new training set → retrain → evaluate against the live version on the locked test set → version → redeploy. Retraining data must pass the same quality gate.</li></ul></div></details>
+    </div>
+  </section>
+
+
+  </main>
+</div>
+
+
+<div id="gloss"><span class="x">✕</span><b id="gt"></b><span id="gd"></span></div>
+<script>
+(() => {
+  // -------- glossary: plain-words definitions; click any dotted term --------
+  const GLOSS = {
+    "class label": "The simplest annotation: one tag for the whole item \u2014 this image is \u2018dog\u2019, this message is \u2018OTP Query\u2019.",
+    "bounding box": "A rectangle drawn around the object inside an image \u2014 tells the model WHERE the object is, not just that it exists.",
+    "polygon / segmentation": "A pixel-accurate outline traced around the object \u2014 the model learns the exact shape, not just a rectangle. Needed when boundaries matter (tumours, road surfaces).",
+    "key points": "Individual marked points on an object \u2014 eyes, nose, joints \u2014 used for faces and body-pose tasks.",
+    "NER": "Named Entity Recognition annotation: highlight spans of text and tag what they are \u2014 \u2018Dr Rao\u2019 = PERSON, \u2018Mumbai\u2019 = PLACE, \u201812 May\u2019 = DATE.",
+    "audio timestamps": "Marks on the audio timeline saying what happens when \u2014 speaker change at 00:41, keyword spoken at 02:13.",
+    "already-bounded values": "Values whose range is fixed by definition \u2014 a percentage can only be 0\u2013100, a yes/no flag only 0 or 1. They are already on a small known scale, so they don\u2019t need a scaler.",
+    "comorbidity": "The number of OTHER medical conditions a patient has alongside the main one (diabetes + hypertension + asthma = comorbidity of 3). It matters because risk multiplies with age \u2014 which is exactly why comorbidity \u00D7 age is a useful combined feature.",
+    "ETL": "Extract\u2013Transform\u2013Load: clean and reshape the data BEFORE loading it into a warehouse that expects a fixed schema. Suits structured, stable sources.",
+    "ELT": "Extract\u2013Load\u2013Transform: land the RAW data in a lake first, transform later per project. Suits varied or unstructured data; the transform work is the same, only its position moves.",
+    "Idempotency": "Running the same pipeline twice leaves the system in the same state \u2014 no duplicated rows. Achieved with UPSERTs, partition overwrites and strict primary keys, so a crash-and-restart cannot silently double the data.",
+    "Schema drift": "A source quietly changes shape \u2014 a renamed column, a new category, a changed type. Entrance validation must FAIL the run rather than silently null the column.",
+    "Stateful vs stateless": "Stateless = works row by row with no memory (parse a date, lowercase text) \u2014 safe anywhere. Stateful = needs whole-dataset statistics (a scaler\u2019s mean, an encoder\u2019s categories) \u2014 must be fitted on the training set only, after the split.",
+    "provenance": "Where data came from, provably. Data of unknown or unverifiable origin cannot show it is authentic or that you had the right to use it.",
+    "Immutable snapshot": "A dated, untouched copy of the raw data, stored before any processing and never edited. Lineage, backfills, audits and reproducibility all depend on it.",
+    "Chunking": "Splitting long documents into smaller pieces so they fit a model\u2019s context window \u2014 not to be confused with sampling (fewer rows) or splitting (train/test).",
+    "anonymisation vs pseudonymisation vs masking": "Anonymisation is IRREVERSIBLE removal of identity. Pseudonymisation swaps identity for a token, reversible with a key. Masking only hides values on display. The three are not interchangeable in a compliance answer.",
+    "label vs annotation": "A label is the answer itself (churn = yes). An annotation is richer context attached to the data: bounding boxes, polygons, named entities, timestamps.",
+    "HITL": "Human In The Loop \u2014 people review and correct machine work (or machines pre-label and humans verify), combining speed with judgment.",
+    "Tomek links": "Pairs of nearest-neighbour rows from OPPOSITE classes. Removing the majority-class member of each pair cleans the blurry boundary between classes before oversampling.",
+    "MICE": "Multivariate Imputation by Chained Equations \u2014 an imputer that predicts each missing field from the other columns, iterating until stable.",
+    "out-of-fold (OOF)": "WHY: target encoding replaces a category with the average ANSWER of that category \u2014 if a row\u2019s own answer is inside that average, the feature secretly contains the answer (leakage). HOW: fold the training data into parts; each row\u2019s encoded value is computed only from the OTHER folds, so no row ever feeds itself. WHERE: used whenever target or frequency encodings are fitted during training (stage 18); at production time the encoding built from the full training set is applied.",
+    "smoothing": "Blend a rare category\u2019s average toward the global mean, so a pincode seen 3 times doesn\u2019t get an extreme, memorised value.",
+    "PCA": "Principal Component Analysis \u2014 compresses many correlated features into a few new composite features (components). It TRANSFORMS; it does not select or drop columns. Fitted on train.",
+    "PSI": "Population Stability Index \u2014 a number measuring how much a distribution shifted between two datasets (train vs test, or train vs production). Above ~0.2 means investigate.",
+    "KS-test": "Kolmogorov\u2013Smirnov test \u2014 a statistical test asking whether two samples come from the same distribution; used to compare sets and detect drift.",
+    "feature drift": "The INPUTS change over time (customers spend differently) while the rule may still hold. Also called data drift.",
+    "concept drift": "The RELATIONSHIP between inputs and output changes (the same spending now means something different) \u2014 the model\u2019s learned rule itself is stale.",
+    "Label availability": "Does the ANSWER column for supervised learning exist naturally (repaid/defaulted sits in billing history), or must humans create it (intent tags on chat messages)? Checked in step 07; feeds this gate.",
+    "Pilot labeling agreement": "Before the full labeling campaign, ~500 sample rows are labeled by two people independently; the agreement % is how often they gave the same answer. Low agreement means the labeling rulebook is ambiguous — sharpen it before spending on the full campaign (stage 15 · Label).",
+    "bin": "Not binary! A bin is a small RANGE (bucket) on the number line \u2014 0\u201310, 10\u201320, 20\u201330 \u2026 \u2014 used to group numeric values so they can be counted and drawn as bars.",
+    "positive (right) skew": "The distribution\u2019s tail stretches to the RIGHT: most values are small, a few are very large (billing amounts, incomes). The mean gets dragged above the median.",
+    "negative (left) skew": "The tail stretches to the LEFT: most values are high, a few are very small (exam scores clustered near full marks). The mean gets dragged below the median.",
+    "Data types vs formats": "TYPE says what KIND of value a field holds \u2014 text, number, date, JSON object. FORMAT says how that value is WRITTEN and stored \u2014 UTF-8 encoding, the date pattern (2026-02-01 vs 01/02/2026), CSV vs JSON vs Parquet files. Two systems can share a type (date) yet clash on format.",
+    "sampling strategy": "The rule for WHICH rows you take when you cannot take everything. \u2022 Simple random \u2014 every row has an equal chance; good default. \u2022 Stratified \u2014 keep sub-group proportions intact (10% web traffic \u2192 10% of the sample); use when the mix matters, as here. \u2022 Systematic \u2014 every k-th row; fast on ordered logs, risky if the order has a rhythm. \u2022 Cluster \u2014 pick whole groups (whole clinics) then sample inside; cheaper for field collection. \u2022 Quota \u2014 fill fixed counts per category (\u2265500 per FAQ). \u2022 Convenience \u2014 whatever is easiest; avoid, it is how selection bias is born.",
+    "Temporal coverage": "The time WINDOW your data spans \u2014 \u2018daily queries from the last 6 months’. Asks: is there enough HISTORY to contain the patterns (seasonality, policy changes)?",
+    "Freshness": "How RECENT the newest records are \u2014 \u2018within 7 days’. Asks: is the latest data new enough to reflect today’s reality? Data can span 5 years (great coverage) yet end last year (terrible freshness).",
+    "Granularity": "The level of detail one row represents. Message-level = one row per message; session-level = one row per conversation; daily = one row per day. Collect at the FINEST level the use case needs \u2014 you can always aggregate up, never disaggregate down.",
+    "Quality standards": "The measurable targets you commit to, per quality dimension \u2014 completeness \u226598%, accuracy \u226595%, freshness \u22647 days. They define what \u2018good data’ means for this project.",
+    "acceptance criteria": "The pass/fail test applied at the gate: the dataset is ACCEPTED only if every quality standard is met AND the scenario coverage rule (30+30 positive, 30+30 negative per intent) is satisfied. Standards define quality; acceptance criteria decide go/no-go.",
+    "CPU": "Central Processing Unit \u2014 the computer’s general-purpose brain; few powerful cores. Fine for preprocessing, classical ML, and serving RAG.",
+    "GPU": "Graphics Processing Unit \u2014 thousands of small cores working in parallel; the workhorse for training deep networks and fine-tuning.",
+    "TPU": "Tensor Processing Unit \u2014 Google’s custom chip built specifically for the tensor math inside neural networks; used on Google Cloud.",
+    "distribution": "The full picture of how a column’s values spread \u2014 which values occur and how often. Drawn as a bar per value (categories) or per bin (numbers). A distribution is the CHART, neutral by itself.",
+    "imbalance": "A VERDICT about a categorical distribution: the counts are heavily uneven (80/20, 99/1). So the two words are related but not interchangeable \u2014 every column has a distribution; only a badly lopsided one is called an imbalance.",
+    "Completeness": "Are the required fields actually FILLED? \u201C98% completeness\u201D means at most 2 records in 100 may have a blank in any required field (patient ID, timestamp, message text). Measures presence, not correctness.",
+    "Accuracy": "Are the filled values CORRECT when checked against a trusted source? A record can be complete but wrong \u2014 an appointment date present but not matching the register. Completeness asks \u2018is it there?’; accuracy asks \u2018is it true?’.",
+    "Consistency": "Does the same fact look the same everywhere? Same patient ID format across systems, same value when two databases hold the same record.",
+    "Timeliness": "Is the data recent enough for the decision it feeds? A 7-day-old FAQ log is timely; a 6-month-old insurance code table is not.",
+    "Relevance": "Does the data actually relate to the problem \u2014 current doctors, current lab tests, the intents being built?",
+    "Trustworthiness": "Can the source be relied on end-to-end \u2014 known origin, documented lineage, controlled access, no tampering?",
+    "Scalers": "A scaler shrinks or stretches a numeric column so all columns live on comparable ranges. Example: income runs 10,000\u201390,000 while age runs 20\u201380. To many models, \u2018distance\u2019 between customers is dominated by income simply because its NUMBERS are bigger \u2014 age gets ignored. A scaler fixes that: min-max squeezes each column into 0\u20131, z-score re-expresses each value as \u2018how far from typical\u2019. The scaler MEMORISES the training set\u2019s min/max (or mean/spread) and re-uses those same numbers on every other set.",
+    "Target encoding": "Replace each category with a number learned from the ANSWER column \u2014 e.g. pincode \u2192 that pincode’s average default rate. Yes, the LOOKUP TABLE is 1:1 (20,000 pincodes \u2192 a 20,000-entry dictionary), but the DATASET gains just ONE numeric column \u2014 each row carries only its own pincode’s number. Compare one-hot: 20,000 new columns. Because it reads the answers, fit it after the split, inside cross-validation.",
+    "Label encoding": "Each category \u2192 an arbitrary integer (0,1,2\u2026). Fine for tree-based models (trees don’t read the numbers as sizes); wrong for linear/distance models, which would think web(2) > app(1).",
+    "Ordinal encoding": "Categories \u2192 integers in their NATURAL order (mild=0 < moderate=1 < severe=2). Only when a real order exists.",
+    "Frequency / count encoding": "Category \u2192 how often it appears in the data. Quick, dense, useful when popularity itself carries signal \u2014 fitted (counts come from train).",
+    "format standardization": "Making values LOOK the same: 01/02/2026 vs 2026-02-01 \u2192 one date format; kg vs lbs \u2192 one unit; \u2018Dr Rao’ vs \u2018RAO, Dr.’ \u2192 one spelling. Row-level hygiene \u2014 nothing is learned from data.",
+    "statistical standardization": "Z-score rescaling of numbers (mean 0, spread 1) \u2014 a fitted, learned transformation done after the split in step 14. Same word as format standardization, completely different act.",
+    "cardinality": "How many DISTINCT values a column holds. Channel has 3 (low). Pincode has ~20,000 (high). High cardinality is what makes the encoding choice critical.",
+    "Coverage vs intents": "An existence check per use case: do we HAVE data for every intent at all? Fraud Reporting with zero rows = a coverage hole. Computed from profiling's row counts vs each intent's minimum target.",
+    "Representativeness": "Within the data we do have, does the MIX mirror the real world along each dimension \u2014 languages, appointment types, billing categories? Checked against OUTSIDE references (branch registers, surveys). You can have full coverage and still a warped mix.",
+    "Class balance": "The proportion BETWEEN the intents themselves in the collected data (80% OTP vs 20% rest) \u2014 profiling's frequency table. Feeds the imbalance-vs-bias question: is the world really like this, or did collection lean?",
+    "Scenario coverage": "Your acceptance rule from step 02: for each intent, (30+30) positive and (30+30) negative test scenarios must be authored and ticked in the scenario register. 45/60 means 15 fraud scenarios still unwritten.",
+    "Gaps & remediation": "Open items in the remediation tracker, each with an owner and a due date. Currently \u2460 Malayalam/French queries under-represented (collect via branch kiosk + targeted sampling) \u2461 fraud-intent scenario coverage 45 of 60 (author the missing negatives).",
+    "impute": "Fill a missing value with a sensible stand-in (median, mean, most-frequent). The stand-in is LEARNED from data \u2014 so fit it on the training set only, after the split.",
+    "forward/backfill": "For time-ordered data: copy the previous known value forward (forward-fill) or the next known value backward (backfill) into the gap \u2014 e.g. a missed daily reading takes yesterday's value.",
+    "drop (missing values)": "Simply delete rows (or whole columns) that have missing values. Safe when few rows are affected; dangerous when the missingness itself is a pattern (e.g. village records missing more often).",
+    "paraphrasing": "Rewriting a sentence in different words with the same meaning \u2014 \u2018book a lab test’ \u2192 \u2018I need to schedule a lab test’ \u2014 giving the model more ways to hear the same intent.",
+    "synonym replacement": "Swap individual words for synonyms \u2014 \u2018doctor’ \u2192 \u2018physician’ \u2014 a cheap way to multiply text examples.",
+    "noise injection": "Add small random disturbances (pixel noise to images, character typos to text) so the model learns to tolerate real-world messiness.",
+    "winsorize": "Cap extreme values at a chosen percentile (e.g. everything above the 99th percentile is set TO the 99th) \u2014 softens outliers without deleting rows.",
+    "IQR": "Interquartile range \u2014 the spread of the middle 50% of values; a common outlier rule flags anything beyond 1.5\u00D7 IQR outside that middle box.",
+    "ABDM": "Ayushman Bharat Digital Mission \u2014 India's national digital-health network: health IDs for patients, registries for doctors/facilities, and consent-based sharing of health records. Health data systems must integrate with its standards.",
+    "NDHM": "National Digital Health Mission \u2014 the earlier name of the same national program (now ABDM); it defined the standards for how Indian health data is stored and exchanged.",
+    "bell curve": "The symmetric hill shape a healthy continuous measurement often makes \u2014 most values near the middle, few at the extremes (a normal distribution).",
+    "sparse": "Mostly empty \u2014 a table or matrix where the vast majority of cells are zero or missing, wasting memory and hiding signal.",
+    "histograms": "A bar chart of a single column: bars show how many values fall in each range \u2014 the quickest way to SEE a distribution's shape.",
+    "boxplots": "A compact box-and-whiskers picture of one column: the box holds the middle 50% of values, the line is the median, and lone points beyond the whiskers are outlier candidates.",
+    "z-score": "A value rewritten as \u2018how unusual is this?\u2019. Take the column\u2019s average and its typical spread (from training data). z-score = (value \u2212 average) \u00F7 spread. So 0 = perfectly typical, +2 = quite high, \u22122 = quite low \u2014 the same language for every column, whether it was rupees or years.",
+    "Tokenize": "Chop text into small pieces (words or word-parts) called tokens, so a model can read it. \u201CBook a lab test\u201D \u2192 [Book] [a] [lab] [test].",
+    "encoding": "Turning categories (words) into numbers, because models only eat numbers. E.g. SMS\u21920, app\u21921, web\u21922 \u2014 or smarter schemes below.",
+    "one-hot": "Give every category its own yes/no column. 3 channels \u2192 3 columns. Simple, but with 20,000 pincodes it explodes into 20,000 mostly-zero columns.",
+    "target encoding": "Replace each category with a number learned from the answer column (e.g. pincode \u2192 that pincode's average default rate). One dense column instead of thousands.",
+    "cross-validation": "Rotate which slice of data is held out, several times, so a number you compute never peeks at the row it will be used on.",
+    "CDC": "Change Data Capture \u2014 instead of re-copying the whole database nightly, only the rows that changed since last time flow in.",
+    "ETL": "Extract\u2013Transform\u2013Load: pull data out of a source, reshape it, load it into your analytics store.",
+    "SMOTE": "A technique that manufactures new rare-class rows by blending pairs of real rare rows \u2014 look-alikes, not copies.",
+    "stratified": "Sampling that keeps sub-group proportions intact \u2014 if 10% of traffic is web, 10% of your sample is web.",
+    "TF-IDF": "Scores each word by how special it is: frequent in THIS document, rare across all documents. Cheap, strong text features.",
+    "embeddings": "Turning words/sentences into lists of numbers where similar meanings land close together \u2014 how modern models understand text.",
+    "multicollinearity": "Two features that move together (website traffic & page views) \u2014 they double-count the same signal and confuse the model.",
+    "skewness": "A distribution leaning to one side instead of a symmetric bell curve.",
+    "Normalization": "Min-max scaling: squeeze a feature into the 0\u20131 range. For distance-based models (KNN, SVM, neural nets).",
+    "Standardization": "Rescale a column so its AVERAGE becomes 0 and its SPREAD becomes 1. Each value then reads as \u2018how far from typical?’ \u2014 e.g. +2 means two spreads above average. Lets features of different units (age, income) be compared fairly. Suits models that reason about distributions (linear/logistic regression, PCA).",
+    "leakage": "When information from the test set sneaks into training (e.g. fitting a scaler on ALL data) \u2014 scores look great, production fails.",
+    "curse of dimensionality": "With too many columns, data points become far apart and patterns dissolve \u2014 more features demand exponentially more rows.",
+    "Goldilocks": "Just-enough data: not too little (model can't learn), not wastefully much \u2014 sized to the number of features.",
+    "anonymization": "Stripping or masking anything that identifies a person (name \u2192 ID, DOB \u2192 age bucket).",
+    "PII": "Personally Identifiable Information \u2014 anything that points at a real person: name, phone, address, patient ID.",
+    "lineage": "The documented trail of where each dataset came from and every transformation applied to it.",
+    "GANs": "Generative Adversarial Networks \u2014 two neural networks in a contest: one forges samples, one detects forgeries \u2014 until the forgeries look real. Used to generate synthetic data.",
+    "VAEs": "Variational Autoencoders \u2014 a neural network that compresses data down to its essence, then generates new realistic samples from that essence.",
+    "back-translation": "Translate a sentence to another language and back \u2014 you get a natural paraphrase for free.",
+    "bootstrapping": "Build a new dataset by drawing rows from the original AT RANDOM, WITH REPLACEMENT, until it is the same size. How is that different from copying? A copy repeats everything once; a bootstrap sample repeats SOME rows two or three times and leaves others out entirely \u2014 every draw gives a different mix, which is what makes it useful for testing stability.",
+    "jittering": "Adding tiny random noise to numeric values so copies are not identical. Examples: a temperature reading 36.6 becomes 36.4 or 36.9; a salary 50,000 becomes 50,300. The row stays realistic, but the model sees variation instead of memorising exact numbers.",
+    "equal opportunity": "A fairness check: the model catches true positives at the same rate for every group.",
+    "disparate impact": "A fairness check: one group isn't approved/rejected at a wildly different rate than another.",
+    "Parquet": "A compressed, column-oriented file format \u2014 the standard for analytics data.",
+    "checksums": "A fingerprint of the data \u2014 if one byte changes, the fingerprint changes, so corruption is caught.",
+    "imputation": "Filling a missing value with a sensible stand-in (median, previous value).",
+    "containerization": "Packing code + all its dependencies into a sealed box (Docker) that runs identically everywhere.",
+    "zero-trust": "Assume no user or machine is safe by default \u2014 every access is verified every time (MFA, least privilege).",
+    "feature store": "A shared library of ready-made model inputs, so every team computes \u201Ccustomer age\u201D the same way."
+  };
+  const box = document.getElementById("gloss"), gt = document.getElementById("gt"), gd = document.getElementById("gd");
+  // auto-mark first occurrence of each term inside content areas
+  // Wrap each summary's text into ONE flex child, so marked terms don't
+  // get spread apart by the flex gap (commas floating between chips).
+  document.querySelectorAll("details.task > summary").forEach((su) => {
+    const roles = su.querySelector(".roles");
+    const span = document.createElement("span");
+    span.className = "stx";
+    while (su.firstChild && su.firstChild !== roles) span.appendChild(su.firstChild);
+    su.insertBefore(span, roles || null);
+  });
+  const areas = document.querySelectorAll(".stage .d, .stage .obj, .stage td, .stage summary .stx");
+  const done = new Set();
+  for (const term of Object.keys(GLOSS).sort((a, b) => b.length - a.length)) {
+    const re = new RegExp("\\b(" + term.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&") + ")\\b(?![^<]*>)", "i");
+    for (const a of areas) {
+      if (re.test(a.innerHTML)) {
+        a.innerHTML = a.innerHTML.replace(re, '<span class="term" data-t="' + term + '">$1</span>');
+      }
+    }
+    done.add(term);
+  }
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest(".term");
+    if (t) {
+      gt.textContent = t.dataset.t;
+      gd.textContent = GLOSS[t.dataset.t] || "";
+      box.style.display = "block";
+      const r = t.getBoundingClientRect();
+      box.style.left = Math.min(window.innerWidth - 360, Math.max(10, r.left)) + "px";
+      box.style.top = Math.min(window.innerHeight - 160, r.bottom + 8) + "px";
+    } else if (!e.target.closest("#gloss")) box.style.display = "none";
+    if (e.target.classList.contains("x")) box.style.display = "none";
+  });
+  // -------- metro map navigation --------
+  document.querySelectorAll(".mst").forEach(n => n.addEventListener("click", () => {
+    document.getElementById(n.dataset.go)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+
+  // -------- scrollspy: light up the rail entry for the section on screen --------
+  const railLinks = [...document.querySelectorAll(".rail a")];
+  const byId = Object.fromEntries(railLinks.map(a => [a.getAttribute("href").slice(1), a]));
+  const stages = [...document.querySelectorAll(".stage[id]")];
+  let spyTick = false;
+  function spy() {
+    spyTick = false;
+    const mark = window.innerHeight * 0.35;
+    let cur = stages[0];
+    for (const st of stages) {
+      if (st.getBoundingClientRect().top <= mark) cur = st;
+    }
+    railLinks.forEach(a => a.classList.remove("active"));
+    const a = byId[cur.id];
+    if (a) { a.classList.add("active"); a.scrollIntoView({ block: "nearest" }); }
+  }
+  window.addEventListener("scroll", () => {
+    if (!spyTick) { spyTick = true; requestAnimationFrame(spy); }
+  }, { passive: true });
+  spy();
+  // -------- scroll reveal --------
+  const io = new IntersectionObserver((es) => es.forEach(en => {
+    if (en.isIntersecting) en.target.classList.add("in");
+  }), { threshold: 0.08 });
+  document.querySelectorAll(".stage").forEach(st => io.observe(st));
+})();
+</script>
+
+<script>
+(() => {
+  function report() {
+    try {
+      parent.postMessage({ type: "dpn2-height",
+        h: document.documentElement.scrollHeight }, "*");
+    } catch { /* not embedded */ }
+  }
+  window.addEventListener("load", report);
+  window.addEventListener("resize", report);
+  new MutationObserver(report).observe(document.body,
+    { subtree: true, childList: true, attributes: true });
+  setInterval(report, 1500);
+})();
+</script>

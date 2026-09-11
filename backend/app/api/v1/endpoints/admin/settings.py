@@ -559,6 +559,10 @@ EDITABLE: dict[str, Callable] = {
     # cache. Add one <slug>_enabled key per future lab.
     "labs.metrics_lab_enabled":          _bool,
     "labs.pipeline_lab_enabled":         _bool,
+    # Data Pipeline Navigator 2 (auth-gated /labs/data-pipeline-navigator-2):
+    # show/hide switch + page title.
+    "labs.dpn2_enabled":                 _bool,
+    "labs.dpn2_title":                   _short_str(80),
     "labs.metrics_lab_title":            _short_str(80),
     "labs.metrics_lab_takeaway_html":    _optional_str(8000),
     "labs.metrics_lab_reference_html":   _optional_str(12000),

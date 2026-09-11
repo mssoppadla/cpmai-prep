@@ -64,6 +64,21 @@ def pipeline_lab_config():
     }
 
 
+@router.get("/labs/data-pipeline-navigator-2")
+def pipeline_lab2_config():
+    """Config for Data Pipeline Navigator 2 — the end-to-end Phase II/III
+    activity journey (Settings → labs.dpn2_*). The page itself is served
+    as a static asset (/labs/dpn-v2.html) inside an auth-gated route;
+    this endpoint carries the admin enable/disable switch and title.
+    Empty/missing settings → enabled with the default title (fail open,
+    same as every other lab)."""
+    return {
+        "enabled": settings_store.get_bool("labs.dpn2_enabled", True),
+        "title": settings_store.get_str(
+            "labs.dpn2_title", "Data Pipeline Navigator 2"),
+    }
+
+
 @router.get("/topics")
 def list_topics(db: Session = Depends(get_db)):
     return [

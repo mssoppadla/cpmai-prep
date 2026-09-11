@@ -131,6 +131,8 @@ HAPPY_PATH_VALUES: dict[str, object] = {
     "payments.reconcile_enabled":        True,
     "labs.metrics_lab_enabled":          True,
     "labs.pipeline_lab_enabled":         False,
+    "labs.dpn2_enabled":                 True,
+    "labs.dpn2_title":                   "Data Pipeline Navigator 2",
     "labs.metrics_lab_title":            "Metrics Playground",
     "labs.metrics_lab_takeaway_html":    "<b>1</b> Compare models by AUC.<br><b>2</b> Balanced → ROC.",
     "labs.metrics_lab_reference_html":   "<table><tr><td>Both low</td><td>Underfit</td></tr></table>",

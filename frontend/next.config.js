@@ -49,6 +49,13 @@ const nextConfig = {
       headers: [
         { key: "X-Frame-Options", value: "SAMEORIGIN" },
       ],
+    }, {
+      // Same relaxation for Data Pipeline Navigator 2's static page,
+      // embedded by /labs/data-pipeline-navigator-2.
+      source: "/labs/dpn-v2.html",
+      headers: [
+        { key: "X-Frame-Options", value: "SAMEORIGIN" },
+      ],
     }];
   },
 };
