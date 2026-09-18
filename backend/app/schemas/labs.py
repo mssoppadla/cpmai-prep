@@ -77,6 +77,7 @@ class LabIndexOut(BaseModel):
     enabled: bool
     gated: bool
     cuttable: bool
+    frame: str                     # "content" | "viewport" — how the page sizes the iframe
     mode: str
     free_upto: str
     free_upto_index: int
@@ -92,7 +93,7 @@ class LabIndexOut(BaseModel):
             default_title=lab.title, group=lab.group, domain=lab.domain,
             blurb=lab.blurb, minutes=lab.minutes,
             enabled=acc.settings.enabled, gated=lab.gated,
-            cuttable=lab.cuttable, mode=acc.settings.mode,
+            cuttable=lab.cuttable, frame=lab.frame, mode=acc.settings.mode,
             free_upto=acc.settings.free_upto,
             free_upto_index=lab.section_index(acc.settings.free_upto),
             sections=[LabSectionOut(id=s.id, title=s.title) for s in lab.sections],

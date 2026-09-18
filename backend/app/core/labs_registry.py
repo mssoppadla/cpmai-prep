@@ -52,6 +52,13 @@ class LabDef:
     asset: str | None = None      # frontend/labs-assets/<slug>.html, embedded via /labs/embed/<slug>
     teaches: tuple[str, ...] = ()  # JSON-LD "teaches"
     order: int = 100
+    # How /labs/<slug> sizes the iframe:
+    #   "content"  — frame grows to the document height; the PAGE scrolls
+    #                (right for infographics with no sticky UI)
+    #   "viewport" — frame fills the viewport and the DOCUMENT scrolls
+    #                (right for long pages with a sticky rail, fixed
+    #                buttons, popovers — they need a viewport of their own)
+    frame: str = "content"
 
     @property
     def gated(self) -> bool:
@@ -114,7 +121,7 @@ LABS: tuple[LabDef, ...] = (
         blurb=("Every Phase II & III activity with its owner, one continuous "
                "clinic-chatbot example, two go/no-go gates, the Phase III "
                "master sequence and 360+ tap-to-explain terms."),
-        asset="phase-2-3-walkthrough.html",
+        asset="phase-2-3-walkthrough.html", frame="viewport",
         sections=_secs(
             ("s1", "Identify data SMEs"),
             ("s2", "Define required data"),

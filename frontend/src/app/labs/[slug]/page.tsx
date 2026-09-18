@@ -91,7 +91,8 @@ export default async function LabPage({ params }: { params: { slug: string } }) 
             <ol>{lab.sections.map(s => <li key={s.id}>{s.title}</li>)}</ol>
           </nav>
         )}
-        <LabEmbedClient slug={lab.slug} title={lab.title} pagePath={path} />
+        <LabEmbedClient slug={lab.slug} title={lab.title} pagePath={path}
+                        frame={lab.frame} />
       </main>
       <SiteFooter />
     </>

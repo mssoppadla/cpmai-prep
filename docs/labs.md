@@ -62,9 +62,18 @@ still fail open as before).
      — `y` is the viewBox height to cut to, `close` closes whatever is
      open at that point.
    * `<!--LABSEC:END-->` once, before the trailing scripts.
-   * A height reporter: `parent.postMessage({type:"lab-height", h}, location.origin)`
-     on resize (copy the snippet from any existing asset).
-   * `<base target="_top">` so links open in the parent page.
+   * A height reporter that watches `document.body` (inside an iframe the
+     `<html>` box never resizes) and posts
+     `{type:"lab-height", h: documentElement.scrollHeight}` — copy the
+     snippet from any existing asset. Only needed for `frame="content"`.
+   * Site links (`href="/..."`) need `target="_top"`; copy the small
+     link-target script from an existing asset. Do NOT use
+     `<base target="_top">` — it retargets `#section` links too and they
+     then open the embed document in the top window.
+   * Pick the frame mode in the registry: `frame="content"` (frame grows
+     with the document, page scrolls — infographics) or
+     `frame="viewport"` (frame fills the viewport, document scrolls
+     inside — anything with a sticky rail, fixed buttons or popovers).
 2. Save it as `frontend/labs-assets/<slug>.html`.
 3. Add a `LabDef` to `LABS` in `backend/app/core/labs_registry.py` with
    the same `slug`, its `sections` (ids matching the markers, in order),

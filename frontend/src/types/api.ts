@@ -1260,6 +1260,9 @@ export interface LabIndexOut {
   enabled: boolean;
   gated: boolean;
   cuttable: boolean;
+  /** "content": frame grows with the document, page scrolls.
+   *  "viewport": frame fills the viewport, document scrolls inside. */
+  frame: "content" | "viewport";
   mode: LabAccessMode;
   free_upto: string;
   free_upto_index: number;
