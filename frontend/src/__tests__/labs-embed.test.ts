@@ -123,7 +123,7 @@ describe("lockCopy", () => {
 
 describe("labEmbedUrl", () => {
   it("carries the version and the token", () => {
-    expect(labEmbedUrl("x", "abc")).toBe("/labs/embed/x?v=2&t=abc");
-    expect(labEmbedUrl("x")).toBe("/labs/embed/x?v=2");
+    expect(labEmbedUrl("x", "abc")).toBe("/labs/embed/x?v=3&t=abc");
+    expect(labEmbedUrl("x")).toBe("/labs/embed/x?v=3");
   });
 });

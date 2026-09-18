@@ -19,7 +19,7 @@ import type { LabAccessOut, LabSectionOut } from "@/types/api";
 
 export const LAB_EMBED_PATH = "/labs/embed";
 /** Bump when an asset changes so browsers drop the cached iframe doc. */
-export const LAB_ASSET_VERSION = 2;
+export const LAB_ASSET_VERSION = 3;
 
 export function labPagePath(slug: string): string {
   return `/labs/${slug}`;

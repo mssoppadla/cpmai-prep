@@ -89,7 +89,7 @@ def test_index_lists_every_lab_free_by_default(client):
         assert b["mode"] == "free" and b["enabled"] is True
     walk = next(b for b in body if b["slug"] == WALK)
     assert walk["cuttable"] is True and len(walk["sections"]) == 22
-    assert walk["title"] == "CPMAI Phase II & III Walkthrough"
+    assert walk["title"] == "Data Understanding and Data Preparation"
 
 
 def test_unknown_slug_404s(client):
@@ -167,7 +167,7 @@ def test_plan_ticking_lab_unlocks_existing_subscriber(client, admin, user):
                      headers=auth_header(client, admin.email),
                      json={"perks": {"labs": [WALK]}})
     assert r.status_code == 200, r.text
-    assert r.json()["labs"] == [{"slug": WALK, "title": "CPMAI Phase II & III Walkthrough"}]
+    assert r.json()["labs"] == [{"slug": WALK, "title": "Data Understanding and Data Preparation"}]
     a = _access(client, WALK, user)
     assert a["full"] is True
     assert a["plans"] == [{"slug": "course-plan", "name": "Plan course-plan"}]

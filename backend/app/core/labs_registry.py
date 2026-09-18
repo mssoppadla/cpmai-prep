@@ -109,7 +109,7 @@ LABS: tuple[LabDef, ...] = (
     ),
     LabDef(
         slug="phase-2-3-walkthrough", key="walkthrough", order=30,
-        title="CPMAI Phase II & III Walkthrough", group="walkthrough",
+        title="Data Understanding and Data Preparation", group="walkthrough",
         domain="D-III · Data Understanding & Preparation", minutes=45,
         blurb=("Every Phase II & III activity with its owner, one continuous "
                "clinic-chatbot example, two go/no-go gates, the Phase III "
