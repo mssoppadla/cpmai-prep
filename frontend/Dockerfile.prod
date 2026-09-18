@@ -47,6 +47,11 @@ COPY --from=builder --chown=nextjs:nextjs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nextjs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nextjs /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nextjs /app/next.config.* ./
+# Lab documents served by the /labs/embed/<slug> route handler at
+# request time (read with fs from process.cwd()). They live OUTSIDE
+# /public on purpose (access-gated), so they must be copied explicitly —
+# without this line every lab page 404s in prod while dev works.
+COPY --from=builder --chown=nextjs:nextjs /app/labs-assets ./labs-assets
 USER nextjs
 EXPOSE 3000
 CMD ["npm", "run", "start"]

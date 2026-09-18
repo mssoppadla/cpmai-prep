@@ -559,10 +559,11 @@ EDITABLE: dict[str, Callable] = {
     # cache. Add one <slug>_enabled key per future lab.
     "labs.metrics_lab_enabled":          _bool,
     "labs.pipeline_lab_enabled":         _bool,
-    # Data Pipeline Navigator 2 (auth-gated /labs/data-pipeline-navigator-2):
-    # show/hide switch + page title.
-    "labs.dpn2_enabled":                 _bool,
-    "labs.dpn2_title":                   _short_str(80),
+    # Registry-driven access controls for every lab (see
+    # app/core/labs_registry.py): _access (free/signin/preview/plan) and
+    # _free_upto (section id of the LAST free section in preview mode),
+    # plus _enabled/_title for labs that don't declare them above. Added
+    # right after this dict literal — see ``_register_lab_keys``.
     "labs.metrics_lab_title":            _short_str(80),
     "labs.metrics_lab_takeaway_html":    _optional_str(8000),
     "labs.metrics_lab_reference_html":   _optional_str(12000),
@@ -798,6 +799,22 @@ EDITABLE: dict[str, Callable] = {
     # CTA link target in the email body (e.g. the pricing/checkout page).
     "email.enroll_url":                  _optional_url(500),
 }
+
+
+def _register_lab_keys() -> None:
+    """One settings quartet per registered lab. Adding a lab to the
+    registry makes its keys editable here with no further code."""
+    from app.core.labs_registry import ACCESS_MODES, LABS
+    for lab in LABS:
+        EDITABLE.setdefault(lab.setting("enabled"), _bool)
+        EDITABLE.setdefault(lab.setting("title"), _short_str(80))
+        if lab.gated:
+            EDITABLE.setdefault(lab.setting("access"), _choice(*ACCESS_MODES))
+            EDITABLE.setdefault(lab.setting("free_upto"),
+                                _choice("", *[sec.id for sec in lab.sections]))
+
+
+_register_lab_keys()
 
 
 MASK_PLACEHOLDER = "••••"

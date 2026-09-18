@@ -8,8 +8,28 @@ from typing import Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.labs_registry import LAB_BY_SLUG, PERK_LABS_KEY, normalise_perk_labs
+
 
 BundleType = Literal["exam_bundle", "course_bundle", "custom"]
+
+
+def _check_perk_labs(perks: dict | None) -> dict | None:
+    """perks["labs"] must be a list of registered lab slugs. Unknown
+    slugs are a 422 on WRITE (typo protection) even though reads drop
+    them silently."""
+    if perks is None:
+        return perks
+    raw = perks.get(PERK_LABS_KEY)
+    if raw is None:
+        return perks
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+        raise ValueError('perks.labs must be a list of lab slugs')
+    unknown = sorted(set(raw) - set(LAB_BY_SLUG))
+    if unknown:
+        raise ValueError(f"unknown lab slug(s): {', '.join(unknown)}")
+    perks[PERK_LABS_KEY] = normalise_perk_labs(perks)
+    return perks
 
 
 # ============================================================ admin in
@@ -28,6 +48,11 @@ class PlanCreate(BaseModel):
     display_order: int = 100
     exam_set_ids: list[int] = Field(default_factory=list)
     course_ids: list[int] = Field(default_factory=list)
+
+    @field_validator("perks")
+    @classmethod
+    def _perks_labs(cls, v):
+        return _check_perk_labs(v)
 
     @field_validator("discount_price_paise")
     @classmethod
@@ -57,6 +82,11 @@ class PlanUpdate(BaseModel):
     exam_set_ids: Optional[list[int]] = None
     course_ids: Optional[list[int]] = None
 
+    @field_validator("perks")
+    @classmethod
+    def _perks_labs(cls, v):
+        return _check_perk_labs(v)
+
 
 # =========================================================== admin out
 class PlanExamSetRef(BaseModel):
@@ -69,6 +99,22 @@ class PlanCourseRef(BaseModel):
     id: int
     slug: str
     title: str
+
+
+class PlanLabRef(BaseModel):
+    """A lab the plan unlocks (from perks["labs"], resolved against the
+    registry so the UI can print a title without a second lookup)."""
+    slug: str
+    title: str
+
+
+def _lab_refs(row) -> list["PlanLabRef"]:
+    from app.services.labs_access import lab_settings
+    out = []
+    for slug in normalise_perk_labs(row.perks):
+        lab = LAB_BY_SLUG[slug]
+        out.append(PlanLabRef(slug=slug, title=lab_settings(lab).title))
+    return out
 
 
 class PlanAdminOut(BaseModel):
@@ -86,6 +132,7 @@ class PlanAdminOut(BaseModel):
     display_order: int
     exam_sets: list[PlanExamSetRef]
     courses: list[PlanCourseRef]
+    labs: list[PlanLabRef]
     created_at: datetime
     updated_at: datetime
 
@@ -104,6 +151,7 @@ class PlanAdminOut(BaseModel):
             courses=[PlanCourseRef(id=c.id, slug=c.slug, title=c.title)
                      for c in (row.courses or [])
                      if not getattr(c, "is_deleted", False)],
+            labs=_lab_refs(row),
             created_at=row.created_at, updated_at=row.updated_at,
         )
 
@@ -124,6 +172,7 @@ class PlanPublicOut(BaseModel):
     perks: dict
     exam_sets: list[PlanExamSetRef]
     courses: list[PlanCourseRef]
+    labs: list[PlanLabRef]
 
     @classmethod
     def from_row(cls, row) -> "PlanPublicOut":
@@ -139,4 +188,5 @@ class PlanPublicOut(BaseModel):
             courses=[PlanCourseRef(id=c.id, slug=c.slug, title=c.title)
                      for c in (row.courses or [])
                      if not getattr(c, "is_deleted", False)],
+            labs=_lab_refs(row),
         )

@@ -3,119 +3,79 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { fetchJson } from "@/lib/ssr";
+import { labPagePath } from "@/lib/labs";
+import type { LabIndexOut } from "@/types/api";
+import { LabCardChip, LabCardCta } from "./LabCardChip";
 
 export const metadata: Metadata = {
-  title: "Interactive Labs — CPMAI Exam Prep",
+  title: "Interactive Labs & Visual Walkthroughs — CPMAI Exam Prep",
   description:
-    "Hands-on interactive labs for CPMAI concepts: play with thresholds, " +
-    "confusion matrices, ROC and precision-recall curves.",
+    "Hands-on labs and visual walkthroughs for CPMAI concepts: metrics, " +
+    "thresholds, the data pipeline end to end, the Phase II & III activity " +
+    "journey, the ML training pipeline and nested cross-validation.",
   alternates: { canonical: "/labs" },
 };
 
-/** Index of interactive labs. Each lab has an individual admin
- *  enable/disable switch (Settings → labs.<slug>_enabled); a disabled
- *  lab's card is hidden here and its page redirects back to /labs.
- *  Backend unreachable → everything shows (fail open). */
+const GROUPS: { key: LabIndexOut["group"]; title: string; lede: string }[] = [
+  { key: "interactive", title: "Interactive labs",
+    lede: "Concepts you can drag, not just read." },
+  { key: "walkthrough", title: "Visual walkthroughs",
+    lede: "The parts of CPMAI the exam tests at the application level, drawn end to end." },
+];
+
+/** Index of labs — registry-driven (backend app/core/labs_registry.py).
+ *  A disabled lab's card is hidden and its page redirects here. Backend
+ *  unreachable → the list is empty and a notice shows (fail open on the
+ *  pages themselves, never a 500 here). */
 export default async function LabsIndexPage() {
-  const [metrics, pipeline, dpn2] = await Promise.all([
-    fetchJson<{ enabled?: boolean }>(
-      "/content/labs/metrics-lab", { enabled: true }),
-    fetchJson<{ enabled?: boolean }>(
-      "/content/labs/data-pipeline-navigator", { enabled: true }),
-    fetchJson<{ enabled?: boolean }>(
-      "/content/labs/data-pipeline-navigator-2", { enabled: true }),
-  ]);
+  const labs = (await fetchJson<LabIndexOut[]>("/content/labs", []))
+    .filter(l => l.enabled);
   return (
     <>
       <SiteHeader active="labs" />
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-10 min-h-[60vh]">
         <h1 className="text-3xl font-bold text-slate-900 mb-2">Interactive Labs</h1>
         <p className="text-slate-600 mb-8 max-w-2xl">
-          Concepts you can drag, not just read. Each lab targets a topic the
-          CPMAI exam loves to test at the application level.
+          Concepts you can drag, not just read — plus visual walkthroughs of
+          the parts of CPMAI the exam loves to test at the application level.
         </p>
-        <div className="grid sm:grid-cols-2 gap-5">
-          {metrics.enabled !== false && (
-          <Link
-            href="/labs/metrics-lab"
-            className="block bg-white border border-slate-200 rounded-2xl p-6
-                       hover:border-indigo-300 hover:shadow-md transition"
-          >
-            <div className="flex gap-2 mb-3">
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
-                D-IV · Model Evaluation
-              </span>
-            </div>
-            <h2 className="font-semibold text-lg text-slate-900 mb-1">
-              Classification Metrics Lab
-            </h2>
-            <p className="text-sm text-slate-600">
-              Underfitting, overfitting, the imbalance trap — trigger each
-              failure mode, watch train vs test data, the bias–variance
-              target and both AUC curves react, and learn the remedy.
-            </p>
-            <span className="inline-block mt-4 text-sm font-medium text-indigo-600">
-              Open the lab →
-            </span>
-          </Link>
-          )}
-          {pipeline.enabled !== false && (
-          <Link
-            href="/labs/data-pipeline-navigator"
-            className="block bg-white border border-slate-200 rounded-2xl p-6
-                       hover:border-indigo-300 hover:shadow-md transition"
-          >
-            <div className="flex gap-2 mb-3">
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
-                D-III · Data Understanding &amp; Preparation
-              </span>
-            </div>
-            <h2 className="font-semibold text-lg text-slate-900 mb-1">
-              Data Pipeline Navigator
-            </h2>
-            <p className="text-sm text-slate-600">
-              Run one fraud-detection project through the whole CPMAI data
-              lifecycle — profile the 4 V&apos;s, validate at the source,
-              govern lineage, label, size, explore, cleanse, encode,
-              balance and split. Twelve live simulations; every decision
-              carries forward into a generated readiness report.
-            </p>
-            <span className="inline-block mt-4 text-sm font-medium text-indigo-600">
-              Open the lab →
-            </span>
-          </Link>
-          )}
-          {dpn2.enabled !== false && (
-          <Link
-            href="/labs/data-pipeline-navigator-2"
-            className="block bg-white border border-slate-200 rounded-2xl p-6
-                       hover:border-indigo-300 hover:shadow-md transition"
-          >
-            <div className="flex gap-2 mb-3">
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
-                D-III · Data Understanding &amp; Preparation
-              </span>
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                Logged-in learners
-              </span>
-            </div>
-            <h2 className="font-semibold text-lg text-slate-900 mb-1">
-              Data Pipeline Navigator 2
-            </h2>
-            <p className="text-sm text-slate-600">
-              The full Phase II &amp; III activity journey the way a real
-              enterprise AI program runs it: 22 stations, role chips, a
-              continuous clinic-chatbot example, two go/no-go gates, the
-              Phase III master sequence, and 300+ tap-to-explain terms.
-              The twelve playgrounds plug in where they belong.
-            </p>
-            <span className="inline-block mt-4 text-sm font-medium text-indigo-600">
-              Open the lab →
-            </span>
-          </Link>
-          )}
-        </div>
-        {metrics.enabled === false && pipeline.enabled === false && (
+        {GROUPS.map(g => {
+          const items = labs.filter(l => l.group === g.key);
+          if (!items.length) return null;
+          return (
+            <section key={g.key} className="mb-10">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+                {g.title}
+              </h2>
+              <div className="grid sm:grid-cols-2 gap-5">
+                {items.map(l => (
+                  <Link
+                    key={l.slug}
+                    href={labPagePath(l.slug)}
+                    className="block bg-white border border-slate-200 rounded-2xl p-6
+                               hover:border-indigo-300 hover:shadow-md transition"
+                  >
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                        {l.domain}
+                      </span>
+                      <LabCardChip lab={l} />
+                    </div>
+                    <h3 className="font-semibold text-lg text-slate-900 mb-1">{l.title}</h3>
+                    <p className="text-sm text-slate-600">{l.blurb}</p>
+                    {l.mode !== "free" && l.plans.length > 0 && (
+                      <p className="text-xs text-slate-500 mt-3">
+                        Full access with: {l.plans.map(p => p.name).join(", ")}
+                      </p>
+                    )}
+                    <LabCardCta lab={l} />
+                  </Link>
+                ))}
+              </div>
+            </section>
+          );
+        })}
+        {labs.length === 0 && (
           <p className="text-slate-500 text-sm">
             Labs are temporarily offline — check back soon.
           </p>
