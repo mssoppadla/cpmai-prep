@@ -5,12 +5,14 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { API, DEFAULT_REVALIDATE_S } from "@/lib/ssr";
 import { sanitizeHtml } from "@/lib/sanitizeHtml";
-import { PipelineLabClient } from "./PipelineLabClient";
+import { LabEmbedClient } from "../LabEmbedClient";
 
 /** Built-in defaults — used when the admin settings are empty, so a
  *  wiped setting can never blank the page. Kept in sync with the
  *  seeded values in backend/seeds/default_settings.json. */
-const DEFAULT_TITLE = "Data Pipeline Navigator";
+const DEFAULT_TITLE = "Data Pipeline Simulator";
+const SLUG = "data-pipeline-navigator";
+const PATH = `/labs/${SLUG}`;
 
 type PipelineCopy = {
   title: string;
@@ -22,7 +24,7 @@ type PipelineCopy = {
 
 async function loadCopy(): Promise<PipelineCopy> {
   try {
-    const r = await fetch(`${API}/content/labs/data-pipeline-navigator`, {
+    const r = await fetch(`${API}/content/labs/${SLUG}`, {
       next: { revalidate: DEFAULT_REVALIDATE_S },
     });
     if (r.ok) {
@@ -57,18 +59,18 @@ export async function generateMetadata(): Promise<Metadata> {
       "source, govern lineage, label data, size it against the curse of " +
       "dimensionality, run EDA, cleanse, encode, fix class imbalance and " +
       "split — every decision carries into the next stage.",
-    alternates: { canonical: "/labs/data-pipeline-navigator" },
+    alternates: { canonical: PATH },
     openGraph: {
       title: `${copy.title} — CPMAI Interactive Lab`,
       description:
         "Twelve live simulations, one continuous project: from raising " +
-        "data access to a generated data-readiness report. Free, no login.",
+        "data access to a generated data-readiness report.",
       type: "website",
     },
   };
 }
 
-export default async function DataPipelineNavigatorPage() {
+export default async function DataPipelineSimulatorPage() {
   const copy = await loadCopy();
   if (!copy.enabled) redirect("/labs");
   return (
@@ -92,7 +94,6 @@ export default async function DataPipelineNavigatorPage() {
           "Exploratory Data Analysis", "Target encoding",
           "SMOTE and class imbalance", "Data splitting and leakage",
         ],
-        isAccessibleForFree: true,
         provider: { "@type": "Organization", name: "CPMAI Exam Prep" },
       }} />
       <SiteHeader active="labs" />
@@ -112,7 +113,7 @@ export default async function DataPipelineNavigatorPage() {
           make follows the project into the next stage, and it ends
           with a generated data-readiness report.
         </p>
-        <div className="flex flex-wrap gap-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-4">
           <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full
                            bg-indigo-50 text-indigo-700">
             D-III · Data Understanding &amp; Preparation
@@ -121,15 +122,6 @@ export default async function DataPipelineNavigatorPage() {
                            bg-amber-50 text-amber-800">
             ~25 min
           </span>
-          <a
-            href="/labs/pipeline-sim.html?v=3"
-            target="_blank"
-            rel="noopener"
-            className="text-xs font-semibold px-2.5 py-0.5 rounded-full
-                       bg-slate-100 text-slate-700 hover:bg-slate-200"
-          >
-            Open full screen ↗
-          </a>
         </div>
         {copy.introHtml ? (
           <div
@@ -137,7 +129,8 @@ export default async function DataPipelineNavigatorPage() {
             dangerouslySetInnerHTML={{ __html: copy.introHtml }}
           />
         ) : null}
-        <PipelineLabClient stageLedes={copy.stageLedes} />
+        <LabEmbedClient slug={SLUG} title={copy.title} pagePath={PATH}
+                        ledes={copy.stageLedes} />
         {copy.takeawayHtml ? (
           <div
             className="prose prose-sm max-w-3xl mt-6 text-slate-700"

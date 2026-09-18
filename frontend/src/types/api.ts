@@ -1239,6 +1239,48 @@ export type BundleType = "exam_bundle" | "course_bundle" | "custom";
 
 export interface PlanExamSetRef { id: number; slug: string; name: string }
 export interface PlanCourseRef  { id: number; slug: string; title: string }
+/** A lab the plan unlocks — from perks.labs, resolved by the backend. */
+export interface PlanLabRef     { slug: string; title: string }
+
+// ---------------------------------------------------------------- labs
+// Registry-driven labs (backend app/core/labs_registry.py).
+export type LabAccessMode = "free" | "signin" | "preview" | "plan";
+export interface LabSectionOut { id: string; title: string }
+export interface LabPlanRef    { slug: string; name: string }
+/** One lab as /content/labs lists it — anonymous view + admin state. */
+export interface LabIndexOut {
+  slug: string;
+  key: string;
+  title: string;
+  default_title: string;
+  group: "interactive" | "walkthrough";
+  domain: string;
+  blurb: string;
+  minutes: number;
+  enabled: boolean;
+  gated: boolean;
+  cuttable: boolean;
+  mode: LabAccessMode;
+  free_upto: string;
+  free_upto_index: number;
+  sections: LabSectionOut[];
+  plans: LabPlanRef[];
+  teaches: string[];
+}
+/** The decision for one visitor (/content/labs/{slug}/access). */
+export interface LabAccessOut {
+  slug: string;
+  title: string;
+  enabled: boolean;
+  mode: LabAccessMode;
+  full: boolean;
+  reason: "ok" | "signin" | "plan" | "disabled";
+  free_upto_index: number;
+  sections: LabSectionOut[];
+  locked_sections: LabSectionOut[];
+  plans: LabPlanRef[];
+  embed_token: string;
+}
 
 export interface PlanPublicOut {
   id: number;
@@ -1253,6 +1295,7 @@ export interface PlanPublicOut {
   perks: Record<string, unknown>;
   exam_sets: PlanExamSetRef[];
   courses: PlanCourseRef[];
+  labs: PlanLabRef[];
 }
 
 export interface PlanAdminOut extends PlanPublicOut {

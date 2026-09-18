@@ -402,7 +402,7 @@
   {
     "key": "labs.pipeline_lab_enabled",
     "value": true,
-    "description": "Show the Data Pipeline Navigator lab. Off → its card disappears from /labs and /labs/data-pipeline-navigator redirects to /labs. Takes effect within about a minute (content cache)."
+    "description": "Show the Data Pipeline Simulator lab. Off → its card disappears from /labs and /labs/data-pipeline-navigator redirects to /labs. Takes effect within about a minute (content cache)."
   },
   {
     "key": "labs.metrics_lab_title",
@@ -421,8 +421,8 @@
   },
   {
     "key": "labs.pipeline_lab_title",
-    "value": "Data Pipeline Navigator",
-    "description": "Display name of the /labs/data-pipeline-navigator page — shown as the page heading, browser title, labs-index card and breadcrumb. Rename the lab here any time; the URL stays the same."
+    "value": "Data Pipeline Simulator",
+    "description": "Display name of the /labs/data-pipeline-navigator page (the interactive Data Pipeline Simulator) — page heading, browser title, labs-index card and breadcrumb. Rename here any time; the URL stays the same."
   },
   {
     "key": "labs.pipeline_lab_intro_html",
@@ -438,6 +438,76 @@
     "key": "labs.pipeline_lab_stage_ledes",
     "value": {},
     "description": "Per-stage description overrides inside the Data Pipeline Navigator. JSON object mapping stage slug to replacement text (plain text, no HTML): profiling, integration, validate, lineage, labelling, sizing, eda, cleansing, encoder, imbalance, split, summary. Example: {\"encoder\": \"Your custom explanation…\"}. Missing/empty keys keep the simulator's built-in text."
+  },
+  {
+    "key": "labs.pipeline_lab_access",
+    "value": "free",
+    "description": "Who can open this lab: free = everyone, full page · signin = any logged-in account, full page (plans ignored) · preview = free up to the section in <lab>_free_upto, the rest only for plan members · plan = header only, the body only for plan members. Plan members = users with an active subscription to a plan that ticks this lab (Admin → Plans → Labs). Prefer Admin → Labs for editing; it shows the choices. (This lab has no sections, so preview behaves like plan.)"
+  },
+  {
+    "key": "labs.pipeline_lab_free_upto",
+    "value": "",
+    "description": "Unused for the Simulator (no sections to cut at). Leave empty."
+  },
+  {
+    "key": "labs.walkthrough_enabled",
+    "value": true,
+    "description": "Show the CPMAI Phase II & III Walkthrough page. Off → its card disappears from /labs and /labs/phase-2-3-walkthrough redirects to /labs. Takes effect within about a minute (content cache)."
+  },
+  {
+    "key": "labs.walkthrough_title",
+    "value": "CPMAI Phase II & III Walkthrough",
+    "description": "Display name of /labs/phase-2-3-walkthrough — page heading, browser title, labs-index card and breadcrumb. The URL stays the same."
+  },
+  {
+    "key": "labs.walkthrough_access",
+    "value": "free",
+    "description": "Who can open this lab: free = everyone, full page · signin = any logged-in account, full page (plans ignored) · preview = free up to the section in <lab>_free_upto, the rest only for plan members · plan = header only, the body only for plan members. Plan members = users with an active subscription to a plan that ticks this lab (Admin → Plans → Labs). Prefer Admin → Labs for editing; it shows the choices."
+  },
+  {
+    "key": "labs.walkthrough_free_upto",
+    "value": "",
+    "description": "Preview mode only: id of the LAST section shown for free (everything after it is blurred + locked). One of: s1, s2, s3, cx, s10, s4, s5, s6, s7, s8, s9, s9r, s13, s14, s15, s16, s18, s17, s19, s20, s21, abbr. Empty = nothing free. Admin → Labs shows these as a dropdown with titles."
+  },
+  {
+    "key": "labs.ml_pipeline_enabled",
+    "value": true,
+    "description": "Show the ML Training Pipeline, Illustrated page. Off → its card disappears from /labs and /labs/ml-training-pipeline redirects to /labs. Takes effect within about a minute (content cache)."
+  },
+  {
+    "key": "labs.ml_pipeline_title",
+    "value": "ML Training Pipeline, Illustrated",
+    "description": "Display name of /labs/ml-training-pipeline — page heading, browser title, labs-index card and breadcrumb. The URL stays the same."
+  },
+  {
+    "key": "labs.ml_pipeline_access",
+    "value": "free",
+    "description": "Who can open this lab: free = everyone, full page · signin = any logged-in account, full page (plans ignored) · preview = free up to the section in <lab>_free_upto, the rest only for plan members · plan = header only, the body only for plan members. Plan members = users with an active subscription to a plan that ticks this lab (Admin → Plans → Labs). Prefer Admin → Labs for editing; it shows the choices."
+  },
+  {
+    "key": "labs.ml_pipeline_free_upto",
+    "value": "",
+    "description": "Preview mode only: id of the LAST section shown for free (everything after it is blurred + locked). One of: sec1, sec2, sec2b, sec3, sec4, legend, abbr. Empty = nothing free. Admin → Labs shows these as a dropdown with titles."
+  },
+  {
+    "key": "labs.nested_cv_enabled",
+    "value": true,
+    "description": "Show the Nested Cross-Validation, Every Loop page. Off → its card disappears from /labs and /labs/nested-cross-validation redirects to /labs. Takes effect within about a minute (content cache)."
+  },
+  {
+    "key": "labs.nested_cv_title",
+    "value": "Nested Cross-Validation, Every Loop",
+    "description": "Display name of /labs/nested-cross-validation — page heading, browser title, labs-index card and breadcrumb. The URL stays the same."
+  },
+  {
+    "key": "labs.nested_cv_access",
+    "value": "free",
+    "description": "Who can open this lab: free = everyone, full page · signin = any logged-in account, full page (plans ignored) · preview = free up to the section in <lab>_free_upto, the rest only for plan members · plan = header only, the body only for plan members. Plan members = users with an active subscription to a plan that ticks this lab (Admin → Plans → Labs). Prefer Admin → Labs for editing; it shows the choices."
+  },
+  {
+    "key": "labs.nested_cv_free_upto",
+    "value": "",
+    "description": "Preview mode only: id of the LAST section shown for free (everything after it is blurred + locked). One of: step1, step2, step2b, step3, step4, step5, step6, step6b, step7, abbr. Empty = nothing free. Admin → Labs shows these as a dropdown with titles."
   },
   {
     "key": "chat.whatsapp_enabled",

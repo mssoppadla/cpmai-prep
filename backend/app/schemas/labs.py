@@ -48,3 +48,84 @@ DEFAULT_THRESHOLD_EXPLORER = ThresholdExplorerConfig(
         ]
     ],
 )
+
+
+# ================================================================ labs
+# Registry-driven lab shapes (see app/core/labs_registry.py).
+
+class LabSectionOut(BaseModel):
+    id: str
+    title: str
+
+
+class LabPlanRef(BaseModel):
+    slug: str
+    name: str
+
+
+class LabIndexOut(BaseModel):
+    """One lab as the /labs index, the admin Labs screen and the plan
+    checkboxes see it. Anonymous view — no per-user entitlement."""
+    slug: str
+    key: str
+    title: str
+    default_title: str
+    group: str
+    domain: str
+    blurb: str
+    minutes: int
+    enabled: bool
+    gated: bool
+    cuttable: bool
+    mode: str
+    free_upto: str
+    free_upto_index: int
+    sections: list[LabSectionOut]
+    plans: list[LabPlanRef]
+    teaches: list[str]
+
+    @classmethod
+    def from_access(cls, acc) -> "LabIndexOut":
+        lab = acc.lab
+        return cls(
+            slug=lab.slug, key=lab.key, title=acc.settings.title,
+            default_title=lab.title, group=lab.group, domain=lab.domain,
+            blurb=lab.blurb, minutes=lab.minutes,
+            enabled=acc.settings.enabled, gated=lab.gated,
+            cuttable=lab.cuttable, mode=acc.settings.mode,
+            free_upto=acc.settings.free_upto,
+            free_upto_index=lab.section_index(acc.settings.free_upto),
+            sections=[LabSectionOut(id=s.id, title=s.title) for s in lab.sections],
+            plans=[LabPlanRef(**p) for p in acc.plans],
+            teaches=list(lab.teaches),
+        )
+
+
+class LabAccessOut(BaseModel):
+    """The decision for one visitor: what to render and how to embed."""
+    slug: str
+    title: str
+    enabled: bool
+    mode: str
+    full: bool
+    reason: str                    # ok | signin | plan | disabled
+    free_upto_index: int           # last free section (index), -1 = none
+    sections: list[LabSectionOut]
+    locked_sections: list[LabSectionOut]
+    plans: list[LabPlanRef]
+    embed_token: str
+
+    @classmethod
+    def from_access(cls, acc, embed_token: str) -> "LabAccessOut":
+        lab = acc.lab
+        return cls(
+            slug=lab.slug, title=acc.settings.title,
+            enabled=acc.settings.enabled, mode=acc.settings.mode,
+            full=acc.full, reason=acc.reason,
+            free_upto_index=acc.free_upto_index,
+            sections=[LabSectionOut(id=s.id, title=s.title) for s in lab.sections],
+            locked_sections=[LabSectionOut(id=s.id, title=s.title)
+                             for s in acc.locked_sections],
+            plans=[LabPlanRef(**p) for p in acc.plans],
+            embed_token=embed_token,
+        )

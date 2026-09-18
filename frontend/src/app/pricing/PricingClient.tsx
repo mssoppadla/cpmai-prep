@@ -652,10 +652,16 @@ export function PricingClient({ initialPlans, initialCurrencies }: {
                         / {p.duration_days} days
                       </span>
                     </div>
-                    {p.exam_sets.length > 0 && (
+                    {(p.exam_sets.length > 0 || (p.labs ?? []).length > 0) && (
                       <div className="mt-3 text-xs text-slate-500">
-                        Includes {p.exam_sets.length} exam set
-                        {p.exam_sets.length === 1 ? "" : "s"}.
+                        {p.exam_sets.length > 0 && (
+                          <>Includes {p.exam_sets.length} exam set
+                          {p.exam_sets.length === 1 ? "" : "s"}. </>
+                        )}
+                        {(p.labs ?? []).length > 0 && (
+                          <>Unlocks {p.labs.length === 1 ? "the lab " : "labs: "}
+                          {p.labs.map(l => l.title).join(", ")}.</>
+                        )}
                       </div>
                     )}
                   </button>

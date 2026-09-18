@@ -10,7 +10,7 @@ import type {
   LeadCreateIn, LeadCreateOut, LeadAdminOut, ContactRow, ChatQuota,
   FaqOut, FaqAdminOut, FaqIn, LandingCopy, SiteChrome,
   TestimonialOut, TestimonialAdminOut, TestimonialIn,
-  ThresholdExplorerConfig,
+  ThresholdExplorerConfig, LabIndexOut, LabAccessOut,
   StorageOverviewOut, StorageFileOut, MediaTrashOut, StorageTrashResult,
   ContentPageOut, ContentPageCreateIn, ContentPageUpdateIn,
   ContentPagePublicOut, ContentPageNavItemOut,
@@ -786,6 +786,18 @@ export const content = {
   },
   async faqs(): Promise<FaqOut[]> {
     const { data } = await request<FaqOut[]>("/content/faqs");
+    return data;
+  },
+  /** Every registered lab with its live admin state (anonymous view). */
+  async labs(): Promise<LabIndexOut[]> {
+    const { data } = await request<LabIndexOut[]>("/content/labs");
+    return data;
+  },
+  /** What THIS visitor may see of one lab. Sends the Bearer token when
+   *  one is stored; anonymous otherwise (the endpoint accepts both). */
+  async labAccess(slug: string): Promise<LabAccessOut> {
+    const { data } = await request<LabAccessOut>(
+      `/content/labs/${encodeURIComponent(slug)}/access`, { authed: true });
     return data;
   },
   /** Dataset for the public Threshold Explorer lab (admin-managed). */

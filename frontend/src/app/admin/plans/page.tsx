@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { admin, errMsg } from "@/lib/api";
+import { admin, content, errMsg } from "@/lib/api";
 import type {
   PlanAdminOut, PlanCreate, BundleType, ExamSetSummaryOut,
-  CourseOut,
+  CourseOut, LabIndexOut,
 } from "@/types/api";
 
 interface FormState {
@@ -19,6 +19,7 @@ interface FormState {
   display_order: number;
   exam_set_ids: number[];
   course_ids: number[];
+  lab_slugs: string[];    // → perks.labs on save
   perks_json: string;     // user-edited text → parsed on save
 }
 
@@ -26,7 +27,7 @@ const blank: FormState = {
   name: "", slug: "", description: "", bundle_type: "exam_bundle",
   base_price_paise: 99900, discount_price_paise: null,
   duration_days: 365, is_active: true, display_order: 100,
-  exam_set_ids: [], course_ids: [], perks_json: "{}",
+  exam_set_ids: [], course_ids: [], lab_slugs: [], perks_json: "{}",
 };
 
 function rupees(paise: number) { return (paise / 100).toFixed(2); }
@@ -35,6 +36,7 @@ export default function AdminPlansPage() {
   const [rows, setRows] = useState<PlanAdminOut[] | null>(null);
   const [examSets, setExamSets] = useState<ExamSetSummaryOut[]>([]);
   const [courses, setCourses] = useState<CourseOut[]>([]);
+  const [labs, setLabs] = useState<LabIndexOut[]>([]);
   const [editing, setEditing] = useState<PlanAdminOut | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,15 +44,18 @@ export default function AdminPlansPage() {
 
   async function reload() {
     try {
-      const [list, sets, cs] = await Promise.all([
+      const [list, sets, cs, ls] = await Promise.all([
         admin.plans.list(),
         admin.examSets.list(),
         // Courses are LMS-side — the plan admin needs them to populate
         // the multi-select. We pull both published + draft so admins
         // can bundle work-in-progress courses too.
         admin.lms.listCourses(true),
+        // Labs come from the backend registry; ticking one writes its
+        // slug into perks.labs — no schema, no migration.
+        content.labs(),
       ]);
-      setRows(list); setExamSets(sets); setCourses(cs);
+      setRows(list); setExamSets(sets); setCourses(cs); setLabs(ls);
     } catch (e) { setErr(errMsg(e)); }
   }
   useEffect(() => { reload(); }, []);
@@ -71,7 +76,10 @@ export default function AdminPlansPage() {
       is_active: p.is_active, display_order: p.display_order,
       exam_set_ids: p.exam_sets.map(es => es.id),
       course_ids: (p.courses ?? []).map(c => c.id),
-      perks_json: JSON.stringify(p.perks ?? {}, null, 2),
+      lab_slugs: (p.labs ?? []).map(l => l.slug),
+      perks_json: JSON.stringify(
+        Object.fromEntries(Object.entries(p.perks ?? {}).filter(([k]) => k !== "labs")),
+        null, 2),
     });
   }
   function cancel() { setEditing(null); setForm(null); }
@@ -82,6 +90,7 @@ export default function AdminPlansPage() {
     let perks: Record<string, unknown>;
     try { perks = JSON.parse(form.perks_json || "{}"); }
     catch { setErr("Perks must be valid JSON"); setBusy(false); return; }
+    perks = { ...perks, labs: form.lab_slugs };
 
     const payload: PlanCreate = {
       name: form.name, slug: form.slug,
@@ -271,7 +280,43 @@ export default function AdminPlansPage() {
             </p>
           </Field>
 
-          <Field label="Perks (JSON, e.g. course bundles use course_zoom_url)">
+          <Field label="Labs & walkthroughs (unlock for active subscribers)">
+            <div className="border border-slate-300 rounded p-3 max-h-48 overflow-auto space-y-1">
+              {labs.length === 0 ? (
+                <div className="text-sm text-slate-500">No labs registered.</div>
+              ) : labs.map(l => (
+                <label key={l.slug} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox"
+                         checked={form.lab_slugs.includes(l.slug)}
+                         onChange={e => {
+                           const set = new Set(form.lab_slugs);
+                           if (e.target.checked) set.add(l.slug); else set.delete(l.slug);
+                           setForm({ ...form, lab_slugs: [...set] });
+                         }} />
+                  <span>{l.title}</span>
+                  <span className="text-xs text-slate-400">/labs/{l.slug}</span>
+                  {!l.gated && (
+                    <span className="text-[10px] uppercase tracking-wide bg-slate-100 text-slate-600 px-1.5 rounded">
+                      always free
+                    </span>
+                  )}
+                  {l.gated && l.mode === "free" && (
+                    <span className="text-[10px] uppercase tracking-wide bg-emerald-50 text-emerald-700 px-1.5 rounded">
+                      currently free
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Ticking a lab here unlocks it for everyone with an active subscription
+              to this plan — existing subscribers included, immediately. It only
+              matters once the lab is set to Preview or Plan-only under{" "}
+              <a href="/admin/labs" className="text-indigo-600 hover:underline">Labs &amp; Walkthroughs</a>.
+            </p>
+          </Field>
+
+          <Field label="Other perks (JSON, e.g. course bundles use course_zoom_url — labs are managed above)">
             <textarea value={form.perks_json}
                       onChange={e => setForm({ ...form, perks_json: e.target.value })}
                       rows={3}
@@ -300,6 +345,7 @@ export default function AdminPlansPage() {
               <th className="text-right px-4 py-2">Price</th>
               <th className="text-left px-4 py-2">Exam sets</th>
               <th className="text-left px-4 py-2">Courses</th>
+              <th className="text-left px-4 py-2">Labs</th>
               <th className="text-left px-4 py-2">Status</th>
               <th></th>
             </tr>
@@ -337,6 +383,10 @@ export default function AdminPlansPage() {
                 <td className="px-4 py-3 text-slate-600">
                   {(p.courses ?? []).length === 0 ? "—"
                     : p.courses.map(c => c.title).join(", ")}
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                  {(p.labs ?? []).length === 0 ? "—"
+                    : p.labs.map(l => l.title).join(", ")}
                 </td>
                 <td className="px-4 py-3">
                   {p.is_active

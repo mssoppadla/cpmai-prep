@@ -1,0 +1,579 @@
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<base target="_top">
+
+<title>ML Training Pipeline, Illustrated</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  :root{--bg:#f6f7fb;--panel:#ffffff;--ink:#182033;--ink2:#3d4660;--ink3:#7a8399;--line:#d9deea;
+        --s1:#2b4a9e;--s1soft:#e8eefc;--s2:#c85d16;--s2soft:#fdf0e4;--s3:#1f7a4d;--s3soft:#e6f5ec;--cv:#7c3aed;--cvsoft:#f1e9fe}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f1420;--panel:#171e2e;--ink:#e8ecf5;--ink2:#c3cadb;--ink3:#8b95ab;--line:#2b3448;
+        --s1:#8fa8f0;--s1soft:#1b2745;--s2:#f0955a;--s2soft:#3a2415;--s3:#5cc48d;--s3soft:#14301f;--cv:#b48cf7;--cvsoft:#2a1f45}}
+  :root[data-theme="dark"]{--bg:#0f1420;--panel:#171e2e;--ink:#e8ecf5;--ink2:#c3cadb;--ink3:#8b95ab;--line:#2b3448;
+        --s1:#8fa8f0;--s1soft:#1b2745;--s2:#f0955a;--s2soft:#3a2415;--s3:#5cc48d;--s3soft:#14301f;--cv:#b48cf7;--cvsoft:#2a1f45}
+  html,body{overflow-x:hidden}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 "Source Sans 3","Segoe UI",system-ui,sans-serif}
+  header{max-width:1400px;margin:0 auto;padding:28px 24px 8px}
+  h1{font-family:Manrope,"Segoe UI",sans-serif;font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance}
+  header p{color:var(--ink2);margin:0;max-width:78ch}
+  figure{max-width:1400px;margin:12px auto 30px;padding:0 24px}
+  svg{width:100%;height:auto;display:block;font-family:"Source Sans 3","Segoe UI",system-ui,sans-serif}
+  figcaption{color:var(--ink2);font-size:14px;margin-top:10px;max-width:90ch}
+  .h{font-family:Manrope,"Segoe UI",sans-serif;font-weight:800;letter-spacing:.06em}
+  .t{font-weight:700}
+  .m{font-family:"JetBrains Mono",monospace;font-size:11px}
+  .s{font-size:11.5px;fill:var(--ink2)}
+  .k{font-size:12px;fill:var(--ink)}
+  .legend{max-width:1400px;margin:0 auto 40px;padding:0 24px;display:flex;flex-wrap:wrap;gap:14px 26px;font-size:13.5px;color:var(--ink2)}
+  .legend span{display:inline-flex;align-items:center;gap:8px}
+  .legend i{display:inline-block;width:26px;height:0;border-top:2px solid var(--ink)}
+  .legend i.d{border-top-style:dashed;border-color:var(--cv)}
+  .legend i.o{border-color:var(--s2)}
+  .pagenav{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:13.5px}
+  .pagenav a{display:inline-block;padding:5px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink2);text-decoration:none;font-weight:600}
+  .pagenav a:hover{border-color:var(--cv);color:var(--cv)}
+  .abbr{max-width:1400px;margin:0 auto 48px;padding:0 24px}
+  .abbr h2{font-family:Manrope,"Segoe UI",sans-serif;font-size:16px;letter-spacing:.04em;text-transform:uppercase;margin:0 0 10px;color:var(--ink2)}
+  .abbr .g{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px 22px;font-size:13.5px;color:var(--ink2)}
+  .abbr .g div{display:grid;grid-template-columns:96px 1fr;gap:8px;padding:3px 0;border-bottom:1px solid var(--line)}
+  .abbr .g b{color:var(--ink);font-family:"JetBrains Mono",monospace;font-size:12.5px}
+  .hv{text-decoration:underline dotted;text-decoration-color:var(--s2);text-underline-offset:3px;cursor:help;outline:none}
+  .hv:focus{text-decoration-style:solid}
+  #gloss{position:fixed;z-index:50;display:none;max-width:360px;background:#182033;color:#f1f3f9;border-radius:12px;padding:12px 16px;font-size:14px;line-height:1.5;box-shadow:0 14px 40px rgba(10,15,35,.4)}
+  #gloss b{display:block;color:#f0b98a;margin-bottom:3px;font-family:Manrope,sans-serif}
+</style>
+
+<header>
+  <h1>ML training pipeline, illustrated</h1>
+  <p>From model-ready data through the training loop to what a run leaves behind. K-fold and nested cross-validation sit between the data and the trainer: they decide which rows each training run sees and which hyperparameters it runs with.</p>
+  <div class="pagenav"><a href="/labs/phase-2-3-walkthrough" target="_top">← Phase II &amp; III Walkthrough (before this page)</a><a href="/labs/nested-cross-validation" target="_top">Nested CV, every loop written out →</a></div>
+</header>
+
+<figure>
+<svg viewBox="0 0 1600 1840" role="img" aria-label="Three-stage training pipeline: model-ready data feeds K-fold and nested cross-validation loops, which feed a training cycle of input batch, forward pass, loss, backpropagation, weight update, metrics logging and checkpoint saving, looping per epoch and per hyperparameter set; the run outputs trained weights, checkpoints, configuration, metrics and experiment metadata.">
+<defs>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/></marker>
+  <marker id="arc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--cv)"/></marker>
+  <marker id="aro" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--s2)"/></marker>
+</defs>
+
+<!--LABSEC id="sec1" y="20" close="</svg></figure>"-->
+<!-- ============ SECTION 1 · DATA READY ============ -->
+<rect x="20" y="20" width="1560" height="370" rx="16" fill="var(--s1soft)" stroke="var(--s1)" stroke-width="1.5"/>
+<rect x="20" y="20" width="1560" height="40" rx="16" fill="var(--s1)"/>
+<rect x="20" y="44" width="1560" height="16" fill="var(--s1)"/>
+<text x="44" y="46" class="h" font-size="15" style="fill:#fff">1 · DATA READY FOR TRAINING</text>
+<text x="1556" y="46" font-size="12.5" fill="#fff" text-anchor="end" opacity=".9">output of Phase III · Gate 3 passed</text>
+
+<!-- cleaned -->
+<g>
+  <rect x="48" y="78" width="190" height="120" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <path d="M74 92 h30 a6 6 0 0 1 0 12 h-30 a6 6 0 0 1 0 -12 z" fill="none" stroke="var(--s1)" stroke-width="2"/>
+  <path d="M74 98 v14 a6 6 0 0 0 6 6 h18 a6 6 0 0 0 6 -6 v-14" fill="none" stroke="var(--s1)" stroke-width="2"/>
+  <text x="120" y="108" class="t k" font-size="13.5">Prepared rows</text>
+  <text x="64" y="132" class="s">cleanse (stateless) · filter: select</text>
+  <text x="64" y="146" class="s">&amp; prune · label — all before any split</text>
+  <text x="64" y="162" class="s">(stages 10–12 of the Data Pipeline)</text>
+  <text x="64" y="178" class="s">12,000 labelled rows, all numbers</text>
+</g>
+<line x1="238" y1="138" x2="266" y2="138" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<!-- split: test held out -->
+<g>
+  <rect x="268" y="78" width="230" height="120" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <rect x="284" y="96" width="120" height="12" fill="var(--s1)"/><rect x="404" y="96" width="24" height="12" fill="var(--s3)"/>
+  <text x="284" y="126" class="t k" font-size="13.5">Split — hold out the TEST set</text>
+  <text x="284" y="142" class="s">2,000 rows locked until the final model</text>
+  <text x="284" y="158" class="s">10,000 rows = the training set</text>
+  <text x="284" y="174" class="s">rule: stratified / temporal / group</text>
+  <text x="284" y="190" class="s">(the same rule shapes the CV folds)</text>
+</g>
+<line x1="498" y1="138" x2="526" y2="138" stroke="var(--cv)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#arc)"/>
+<!-- K-fold -->
+<g>
+  <rect x="528" y="78" width="220" height="120" rx="10" fill="var(--cvsoft)" stroke="var(--cv)" stroke-width="1.5"/>
+  <text x="544" y="100" class="t" font-size="13.5" style="fill:var(--cv)">OUTER K-FOLD  (K = 5)</text>
+  <g>
+    <text x="536" y="117" text-anchor="end" style="fill:var(--cv);font-size:7.5px;font-weight:700">K1</text><rect x="544" y="110" width="28" height="8" rx="1.5" fill="var(--cv)"/><rect x="574" y="110" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="604" y="110" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="634" y="110" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="664" y="110" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/>
+    <text x="536" y="127" text-anchor="end" style="fill:var(--cv);font-size:7.5px;font-weight:700">K2</text><rect x="544" y="120" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="574" y="120" width="28" height="8" rx="1.5" fill="var(--cv)"/><rect x="604" y="120" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="634" y="120" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="664" y="120" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/>
+    <text x="536" y="137" text-anchor="end" style="fill:var(--cv);font-size:7.5px;font-weight:700">K3</text><rect x="544" y="130" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="574" y="130" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="604" y="130" width="28" height="8" rx="1.5" fill="var(--cv)"/><rect x="634" y="130" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="664" y="130" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/>
+    <text x="536" y="147" text-anchor="end" style="fill:var(--cv);font-size:7.5px;font-weight:700">K4</text><rect x="544" y="140" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="574" y="140" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="604" y="140" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="634" y="140" width="28" height="8" rx="1.5" fill="var(--cv)"/><rect x="664" y="140" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/>
+    <text x="536" y="157" text-anchor="end" style="fill:var(--cv);font-size:7.5px;font-weight:700">K5</text><rect x="544" y="150" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="574" y="150" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="604" y="150" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="634" y="150" width="28" height="8" rx="1.5" fill="var(--cv)" opacity=".35"/><rect x="664" y="150" width="28" height="8" rx="1.5" fill="var(--cv)"/>
+  </g>
+  <text x="544" y="170" class="s">■ judge · ▒ the other 4 · one row per round</text>
+  <text x="544" y="183" class="s">10,000 ÷ 5 = 2,000 per fold → each round:</text>
+  <text x="544" y="195" class="s"><tspan class="t">8,000</tspan> to the inner loop + <tspan class="t">2,000 judge</tspan></text>
+</g>
+<line x1="748" y1="138" x2="776" y2="138" stroke="var(--cv)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#arc)"/>
+<!-- Nested CV -->
+<g>
+  <rect x="778" y="78" width="220" height="120" rx="10" fill="var(--cvsoft)" stroke="var(--cv)" stroke-width="1.5"/>
+  <text x="794" y="100" class="t" font-size="13.5" style="fill:var(--cv)">INNER LOOP  (I = 10) on the 8,000</text>
+  <rect x="794" y="108" width="172" height="44" rx="6" fill="none" stroke="var(--cv)" stroke-width="1.5"/>
+  <text x="800" y="121" class="s" style="fill:var(--cv)">8,000 ÷ 10 = 800 rows per inner fold</text>
+  <rect x="802" y="126" width="156" height="20" rx="4" fill="var(--cv)" opacity=".25"/>
+  <text x="808" y="140" class="s">inner run: 7,200 train · 800 val</text>
+  <text x="794" y="168" class="s">3 H × 10 inner folds = 30 runs per round;</text>
+  <text x="794" y="181" class="s">mean over I picks H* → 1 judge run on the</text>
+  <text x="794" y="194" class="s">2,000 → honest score · 5 rounds: 155 runs</text>
+</g>
+<line x1="998" y1="138" x2="1026" y2="138" stroke="var(--cv)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#arc)"/>
+<text x="1012" y="72" class="s" text-anchor="middle" style="fill:var(--cv)">per fold ↓</text>
+<!-- per-fold: feature engineered -->
+<g>
+  <rect x="1028" y="78" width="240" height="120" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <circle cx="1052" cy="100" r="9" fill="none" stroke="var(--s1)" stroke-width="2"/><path d="M1052 91 v4 M1052 105 v4 M1043 100 h4 M1057 100 h4" stroke="var(--s1)" stroke-width="2"/>
+  <text x="1134" y="104" class="t k" font-size="13.5">Feature engineered</text>
+  <text x="1044" y="126" class="s">impute · encode · scale · vectorise</text>
+  <text x="1044" y="142" class="s"><tspan class="t">FIT on the train folds only</tspan>,</text>
+  <text x="1044" y="158" class="s">APPLY to the validate fold (and later</text>
+  <text x="1044" y="174" class="s">to test) — refitted for every fold, so</text>
+  <text x="1044" y="190" class="s">no fold ever teaches another fold’s scaler</text>
+</g>
+<line x1="1268" y1="138" x2="1296" y2="138" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<!-- per-fold: balanced -->
+<g>
+  <rect x="1298" y="78" width="240" height="120" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <rect x="1314" y="92" width="7" height="22" fill="var(--s1)" opacity=".45"/><rect x="1323" y="108" width="7" height="6" fill="var(--s1)" opacity=".45"/><path d="M1334 104 h9 m-3 -3 l3 3 l-3 3" stroke="var(--s1)" stroke-width="1.5" fill="none"/><rect x="1348" y="92" width="7" height="22" fill="var(--s1)"/><rect x="1357" y="92" width="7" height="22" fill="var(--s1)"/>
+  <text x="1420" y="104" class="t k" font-size="13.5">Balanced</text>
+  <text x="1304" y="126" class="s">oversample · SMOTE · undersample</text>
+  <text x="1304" y="142" class="s"><tspan class="t">train folds only</tspan> — the validate fold</text>
+  <text x="1304" y="158" class="s">keeps its real class mix, so the score</text>
+  <text x="1304" y="174" class="s">measures reality, not the resampler</text>
+  <text x="1304" y="190" class="s">class weights = the no-resampling option</text>
+</g>
+
+<!-- what leaves section 1 -->
+<rect x="48" y="212" width="1510" height="100" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+<text x="64" y="236" class="t k" font-size="13">What actually enters the trainer, per run — order matters: split first, then fit everything inside the fold:</text>
+<text x="64" y="256" class="s">• an INNER run: 7,200 train + 800 validate rows   • a JUDGE run: 8,000 train + 2,000 judge rows   • the FINAL run: all 10,000 train rows   • the TEST set — locked until the final model. Transforms and balancing are refitted inside every run.</text>
+<text x="64" y="276" class="s">• one hyperparameter set chosen by the inner loop   • a run ID and seed so the whole thing is reproducible   • the metric chosen in Phase V (F1 here), used unchanged everywhere</text>
+<text x="64" y="292" class="s" style="fill:var(--cv)">All 155 CV models are discarded after scoring; only their scores survive. The shipped model is the 156th run — trained afresh on all 10,000 rows with the winning H, then scored ONCE on the test set.</text>
+<text x="64" y="306" class="s" style="fill:var(--s2)">Data problem discovered while training? Never patch rows inside a run — stop, fix it in the Phase III pipeline as a NEW data version (training_set_v4), and start a new run. The run ID records which data trained which model.</text>
+
+
+<!-- fit → apply row -->
+<rect x="48" y="322" width="1510" height="58" rx="10" fill="var(--panel)" stroke="var(--s1)" stroke-width="1.2"/>
+<text x="64" y="340" class="t k" font-size="12.5">FIT once, on the training rows → APPLY the stored parameters to every other set — never refit them there</text>
+<rect x="64" y="348" width="386" height="24" rx="6" fill="var(--s1)"/>
+<text x="257" y="364" class="s" text-anchor="middle" style="fill:#fff" font-weight="700">FIT on train rows → stored: median · min/max · category map · vocabulary</text>
+<line x1="450" y1="360" x2="470" y2="360" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="472" y="348" width="196" height="24" rx="6" fill="var(--s1soft)" stroke="var(--s1)"/>
+<text x="570" y="364" class="s" text-anchor="middle" font-weight="700">APPLY → 800 validate (inner)</text>
+<line x1="668" y1="360" x2="688" y2="360" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="690" y="348" width="196" height="24" rx="6" fill="var(--cvsoft)" stroke="var(--cv)"/>
+<text x="788" y="364" class="s" text-anchor="middle" font-weight="700">APPLY → 2,000 judge (judge run)</text>
+<line x1="886" y1="360" x2="906" y2="360" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="908" y="348" width="196" height="24" rx="6" fill="var(--s3soft)" stroke="var(--s3)"/>
+<text x="1006" y="364" class="s" text-anchor="middle" font-weight="700">APPLY → 2,000 TEST (final run)</text>
+<line x1="1104" y1="360" x2="1124" y2="360" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="1126" y="348" width="174" height="24" rx="6" fill="var(--s3soft)" stroke="var(--s3)"/>
+<text x="1213" y="364" class="s" text-anchor="middle" font-weight="700">APPLY → production rows</text>
+<text x="1316" y="364" class="s">balancing / SMOTE: train rows only</text>
+
+<!-- arrows into section 2 -->
+<path d="M1418 198 V214" stroke="var(--cv)" stroke-width="2" stroke-dasharray="6 4" fill="none"/>
+<path d="M888 198 V214" stroke="var(--cv)" stroke-width="2" stroke-dasharray="6 4" fill="none"/>
+<path d="M1418 380 V424" stroke="var(--cv)" stroke-width="2" stroke-dasharray="6 4" fill="none" marker-end="url(#arc)"/>
+<path d="M888 380 V424" stroke="var(--cv)" stroke-width="2" stroke-dasharray="6 4" fill="none" marker-end="url(#arc)"/>
+<text x="1411" y="412" class="s" text-anchor="end" style="fill:var(--cv)">this run (K1, H2, I3): 7,200 train + 800 validate</text>
+<text x="896" y="412" class="s" style="fill:var(--cv)">H2 — one of the 3 sets tried</text>
+<path d="M340 380 V424" stroke="var(--ink)" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<text x="350" y="412" class="s">run ID · seed · data version</text>
+
+<!--LABSEC id="sec2" y="426" close="</svg></figure>"-->
+<!-- ============ SECTION 2 · TRAINING ============ -->
+<rect x="20" y="426" width="1560" height="470" rx="16" fill="var(--s2soft)" stroke="var(--s2)" stroke-width="1.5"/>
+<rect x="20" y="426" width="1560" height="40" rx="16" fill="var(--s2)"/>
+<rect x="20" y="450" width="1560" height="16" fill="var(--s2)"/>
+<text x="44" y="452" class="h" font-size="15" style="fill:#fff">2 · MODEL TRAINING &amp; HYPERPARAMETER TUNING</text>
+<text x="1556" y="452" font-size="12.5" fill="#fff" text-anchor="end" opacity=".9">Phase IV · one run = one (fold, H) · 3 H × 5 K × 10 I = 150 inner + 5 judge + 1 final = 156 runs</text>
+
+<!-- algorithm choice -->
+<g>
+  <rect x="48" y="490" width="250" height="72" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <path d="M64 508 h12 v12 h-12 z M84 502 h12 v24 h-12 z M104 514 h12 v12 h-12 z" fill="var(--s2)" opacity=".85"/>
+  <text x="126" y="512" class="t k" font-size="13.5">Algorithm &amp; <tspan class="hv" data-t="architecture">architecture</tspan></text>
+  <text x="64" y="536" class="s">learning type: <tspan class="t">supervised</tspan> · task: classification</text>
+  <text x="64" y="552" class="s">logistic regression · boosting · neural net</text>
+</g>
+<line x1="173" y1="562" x2="173" y2="574" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<!-- init -->
+<g>
+  <rect x="48" y="576" width="250" height="130" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <circle cx="72" cy="600" r="9" fill="none" stroke="var(--s2)" stroke-width="2"/><path d="M72 594 v6 l4 3" fill="none" stroke="var(--s2)" stroke-width="2"/>
+  <text x="90" y="604" class="t k" font-size="13.5">Initialization</text>
+  <text x="64" y="626" class="m" style="fill:var(--ink2)"><tspan class="hv" data-t="run ID">run_id</tspan>  = 2026-09-18_K1_H2_I3</text>
+  <text x="64" y="644" class="m" style="fill:var(--ink2)"><tspan class="hv" data-t="seed">seed</tspan>    = 42  (<tspan class="hv" data-t="splits (seeded)">splits</tspan> · <tspan class="hv" data-t="sampler (seeded)">sampler</tspan> · <tspan class="hv" data-t="init (seeded)">init</tspan>)</text>
+  <text x="64" y="662" class="m" style="fill:var(--ink2)"><tspan class="hv" data-t="parameters">params</tspan> (weights) = start values:</text>
+  <text x="64" y="680" class="s">random (seeded) OR copied from a pretrained</text>
+  <text x="64" y="694" class="s">model; not learned yet — step 05 adjusts them</text>
+</g>
+<!-- hyperparameters -->
+<g>
+  <rect x="48" y="720" width="250" height="155" rx="10" fill="var(--panel)" stroke="var(--s2)" stroke-width="1.5"/>
+  <path d="M72 738 h18 M72 746 h18 M72 754 h18" stroke="var(--s2)" stroke-width="2"/><circle cx="78" cy="738" r="3" fill="var(--s2)"/><circle cx="86" cy="746" r="3" fill="var(--s2)"/><circle cx="75" cy="754" r="3" fill="var(--s2)"/>
+  <text x="100" y="750" class="t k" font-size="13.5"><tspan class="hv" data-t="hyperparameters">Hyperparameters</tspan> (set H2)</text>
+  <text x="64" y="776" class="m" style="fill:var(--ink2)"><tspan class="hv" data-t="epochs">epochs</tspan>        = 30</text>
+  <text x="64" y="794" class="m" style="fill:var(--ink2)"><tspan class="hv" data-t="batch size">batch_size</tspan>    = 64  (rows fed per pass)</text>
+  <text x="64" y="812" class="m" style="fill:var(--ink2)"><tspan class="hv" data-t="learning rate">learning_rate</tspan> = 0.001</text>
+  <text x="64" y="830" class="m" style="fill:var(--ink2)"><tspan class="hv" data-t="dropout">dropout</tspan>       = 0.3</text>
+  <text x="64" y="848" class="m" style="fill:var(--ink2)"><tspan class="hv" data-t="optimizer">optimizer</tspan>     = AdamW  (SGD family)</text>
+  <text x="64" y="858" class="s">CHOSEN, not learned — includes the SHAPE:</text>
+  <text x="64" y="871" class="s">layers, nodes, tree depth, number of trees</text>
+</g>
+<line x1="298" y1="635" x2="336" y2="635" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="317" y="625" class="s" text-anchor="middle">start</text>
+<line x1="298" y1="808" x2="336" y2="808" stroke="var(--s2)" stroke-width="1.8" marker-end="url(#aro)"/>
+
+<!-- training cycle: 7 steps in a 4+3 grid -->
+<rect x="338" y="490" width="1220" height="394" rx="12" fill="none" stroke="var(--s2)" stroke-width="1.2" stroke-dasharray="3 3"/>
+<text x="354" y="510" class="t" font-size="12.5" style="fill:var(--s2)" letter-spacing=".06em">TRAINING CYCLE — one run</text>
+
+<g id="steps">
+  <rect x="356" y="526" width="210" height="86" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="372" y="548" class="m" style="fill:var(--s2)">01</text><text x="396" y="548" class="t k" font-size="13.5">Input batch</text>
+  <text x="372" y="568" class="s">64 rows from the 7,200 train rows</text>
+  <text x="372" y="584" class="s">shuffled each epoch (seeded)</text>
+  <text x="372" y="600" class="s">already transformed — numbers only</text>
+
+  <rect x="652" y="526" width="256" height="86" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="668" y="548" class="m" style="fill:var(--s2)">02</text><text x="692" y="548" class="t k" font-size="13.5">Forward pass</text>
+  <text x="668" y="568" class="s">the 64 rows come out of the algorithm as</text>
+  <text x="668" y="584" class="s">predictions ŷ — using its CURRENT parameters</text>
+  <text x="668" y="600" class="s">(dropout active in training mode)</text>
+
+  <rect x="948" y="526" width="256" height="86" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="964" y="548" class="m" style="fill:var(--s2)">03</text><text x="988" y="548" class="t k" font-size="13.5">Loss calculation</text>
+  <text x="964" y="568" class="s">compare each guess ŷ with the true label y</text>
+  <text x="964" y="584" class="s">→ ONE number = the batch’s total error</text>
+  <text x="964" y="600" class="s">(the <tspan class="hv" data-t="loss function">loss</tspan>; bigger = more wrong)</text>
+
+  <rect x="1244" y="526" width="290" height="86" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="1260" y="548" class="m" style="fill:var(--s2)">04</text><text x="1284" y="548" class="t k" font-size="13.5">Backpropagation</text>
+  <text x="1260" y="568" class="s">for every weight (a dial), work out which way</text>
+  <text x="1260" y="584" class="s">to turn it to shrink the error, and how strongly</text>
+  <text x="1260" y="600" class="s">= its <tspan class="hv" data-t="gradient">gradient</tspan> (+/− and steepness); not yet how far</text>
+
+  <rect x="1244" y="676" width="290" height="98" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="1260" y="698" class="m" style="fill:var(--s2)">05</text><text x="1284" y="698" class="t k" font-size="13.5">Weight update</text>
+  <text x="1260" y="716" class="s"><tspan class="t">w_new = w_old − <tspan class="hv" data-t="learning rate">lr</tspan> × ∂L/∂w</tspan>   (the <tspan class="hv" data-t="optimizer">optimizer</tspan>’s step)</text>
+  <text x="1260" y="730" class="s">∂L/∂w = that weight’s gradient from step 04</text>
+  <text x="1260" y="744" class="s">e.g. 0.80 − 0.001 × (+0.5) = 0.7995 — the loss pushed</text>
+  <text x="1260" y="758" class="s">it down (+ gradient → decrease) — learned a little</text>
+
+  <rect x="948" y="676" width="256" height="98" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="964" y="698" class="m" style="fill:var(--s2)">06</text><text x="988" y="698" class="t k" font-size="13.5">Metrics logging</text>
+  <text x="964" y="716" class="s">every batch: record the training loss</text>
+  <text x="964" y="730" class="s">end of each epoch: run the 800 validate rows</text>
+  <text x="964" y="744" class="s">through the model → validate <tspan class="hv" data-t="F1">F1</tspan> for that epoch</text>
+  <text x="964" y="758" class="s">run’s score = its best epoch’s F1 (e12: 0.91)</text>
+
+  <rect x="652" y="676" width="256" height="98" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="668" y="698" class="m" style="fill:var(--s2)">07</text><text x="692" y="698" class="t k" font-size="13.5">Checkpoint saving</text>
+  <text x="668" y="718" class="s"><tspan class="hv" data-t="checkpoint">weights + optimizer state + epoch #</tspan></text>
+  <text x="668" y="734" class="s">at epoch end (or every N steps):</text>
+  <text x="668" y="750" class="s">keep best-val and last; resume / roll back</text>
+</g>
+<line x1="566" y1="569" x2="578" y2="569" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="580" y="546" width="60" height="46" rx="8" fill="var(--s2soft)" stroke="var(--s2)" stroke-width="1.5"/>
+<path d="M596 560 h7 v10 h-7 z M606 555 h7 v15 h-7 z M616 563 h7 v7 h-7 z" fill="var(--s2)" opacity=".9"/>
+<text x="610" y="586" text-anchor="middle" class="hv" data-t="algorithm (in training)" style="fill:var(--s2);font-size:9px;font-weight:700;letter-spacing:.03em">ALGORITHM</text>
+<line x1="640" y1="569" x2="650" y2="569" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="908" y1="569" x2="946" y2="569" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="1204" y1="569" x2="1242" y2="569" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="1389" y1="612" x2="1389" y2="674" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="1244" y1="719" x2="1206" y2="719" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="1225" y="710" text-anchor="middle" style="fill:var(--s2);font-size:9px;font-weight:700">after</text>
+<text x="1225" y="734" text-anchor="middle" style="fill:var(--s2);font-size:9px;font-weight:700">b113</text>
+<!-- batch loop: 05 back to 01, over the top -->
+<path d="M1300 676 V642 a14 14 0 0 0 -14 -14 H574 a14 14 0 0 0 -14 14 V615" stroke="var(--s2)" stroke-width="2" stroke-dasharray="7 5" stroke-linecap="round" fill="none" marker-end="url(#aro)"/>
+<circle cx="1300" cy="662" r="13" fill="var(--panel)" stroke="var(--s2)" stroke-width="1.5"/>
+<text x="1300" y="666" text-anchor="middle" style="fill:var(--s2);font-size:9.5px;font-weight:700">×113</text>
+<rect x="690" y="617" width="480" height="22" rx="11" fill="var(--panel)" stroke="var(--s2)" stroke-width="1.5"/>
+<text x="930" y="632" text-anchor="middle" style="fill:var(--s2);font-size:11.5px;font-weight:700;letter-spacing:.02em">↻  NEXT BATCH b+1  ·  01→05 repeat ×113 per epoch  ·  then 06→07 once</text>
+<line x1="948" y1="719" x2="910" y2="719" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ar)"/>
+
+<!-- loop: next batch / next epoch — from checkpoint back to input batch -->
+<path d="M 652 719 H 632 V 630 H 484 V 616" stroke="var(--ink)" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<!-- batch vs epoch, drawn -->
+<g>
+  <rect x="356" y="642" width="264" height="150" rx="8" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="368" y="660" class="t k" font-size="12">Batches and epochs in THIS run (K1·H2·I3)</text>
+  <text x="368" y="674" class="s">7,200 train rows (judge run: 8,000 · final: 10,000)</text>
+  <g>
+    <rect x="368" y="680" width="20" height="14" fill="var(--s2)"/><rect x="390" y="680" width="20" height="14" fill="var(--s2)" opacity=".8"/><rect x="412" y="680" width="20" height="14" fill="var(--s2)" opacity=".65"/><rect x="434" y="680" width="20" height="14" fill="var(--s2)" opacity=".5"/><rect x="456" y="680" width="20" height="14" fill="var(--s2)" opacity=".4"/>
+    <text x="486" y="691" class="s">…</text>
+    <rect x="500" y="680" width="20" height="14" fill="var(--s2)" opacity=".4"/><rect x="522" y="680" width="20" height="14" fill="var(--s2)" opacity=".5"/><rect x="544" y="680" width="20" height="14" fill="var(--s2)" opacity=".65"/>
+    <text x="378" y="691" font-size="8" fill="#fff" text-anchor="middle">1</text><text x="400" y="691" font-size="8" fill="#fff" text-anchor="middle">2</text><text x="422" y="691" font-size="8" fill="#fff" text-anchor="middle">3</text><text x="554" y="691" font-size="8" fill="#fff" text-anchor="middle">113</text>
+  </g>
+  <text x="368" y="708" class="s">you CHOOSE batch_size = 64 rows per pass;</text>
+  <text x="368" y="722" class="s">→ 7,200 ÷ 64 = <tspan class="t">113 <tspan class="hv" data-t="batch">batches</tspan></tspan> (last one 32 rows)</text>
+  <path d="M 368 728 V 734 H 564 V 728" fill="none" stroke="var(--ink)" stroke-width="1"/>
+  <text x="466" y="746" class="s" text-anchor="middle">1 <tspan class="hv" data-t="epoch">epoch</tspan> = 113 × (01→05), then 06 score val, 07 checkpoint</text>
+  <g>
+    <rect x="368" y="754" width="76" height="16" rx="3" fill="var(--s2soft)" stroke="var(--s2)"/><text x="406" y="766" class="s" text-anchor="middle">e1 ▸ 06 ▸ 07</text>
+    <rect x="450" y="754" width="76" height="16" rx="3" fill="var(--s2soft)" stroke="var(--s2)"/><text x="488" y="766" class="s" text-anchor="middle">e2 ▸ 06 ▸ 07</text>
+    <text x="532" y="766" class="s">… e17</text>
+  </g>
+  <text x="368" y="784" class="s">e1…e17: the rows pass the model 17× (30 planned)</text>
+</g>
+<rect x="356" y="800" width="290" height="58" rx="8" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.2"/>
+<text x="371" y="816" class="t k" font-size="12.5">↻ NEXT EPOCH — after 07, go back to 01 and pass</text>
+<text x="371" y="831" class="s">all 7,200 rows again in a new shuffled order.</text>
+<text x="371" y="847" class="s"><tspan class="hv" data-t="early stopping">Stop</tspan> when val F1 stalls: best e12, no gain for 5 → stop e17.</text>
+
+<!-- candidate hyperparameter sets -->
+<g>
+  <rect x="652" y="776" width="882" height="88" rx="8" fill="var(--panel)" stroke="var(--s2)"/>
+  <text x="666" y="793" class="t k" font-size="12">Candidate <tspan class="hv" data-t="hyperparameter set">hyperparameter sets</tspan> H1, H2, H3 — the grid the inner loop tries; how many is your choice (nothing to do with K = 5). Scores: band 2b.</text>
+  <text x="666" y="811" class="m" style="fill:var(--ink2)">H1  lr 0.01    bs 32   dropout 0.2  epochs 20</text>
+  <text x="666" y="825" class="m" style="fill:var(--s2)">H2  lr 0.001   bs 64   dropout 0.3  epochs 30   ← this run</text>
+  <text x="666" y="839" class="m" style="fill:var(--ink2)">H3  lr 0.0001  bs 128  dropout 0.5  epochs 40</text>
+  <text x="666" y="856" class="s">each round: 3 H × 10 I = 30 inner runs → pick H* → 1 judge run. A run logs a val F1 per epoch (early stopping) but gives the grid ONE score: its best-epoch F1</text>
+</g>
+<line x1="1076" y1="762" x2="1076" y2="774" stroke="var(--s2)" stroke-width="1.8" marker-end="url(#aro)"/>
+
+<!-- loop: hyperparameter adjustment — from metrics up to hyperparameters -->
+<path d="M 1093 864 V 882 H 172 V 872" stroke="var(--s2)" stroke-width="2" stroke-dasharray="7 4" fill="none" marker-end="url(#aro)"/>
+<rect x="300" y="870" width="560" height="24" rx="6" fill="var(--s2soft)" stroke="var(--s2)"/>
+<text x="580" y="887" class="t" font-size="12" style="fill:var(--s2)" text-anchor="middle">↻ Hyperparameter adjustment — next set (H1 → H2 → H3), same folds, re-run</text>
+
+<!--LABSEC id="sec2b" y="922" close="</svg></figure>"-->
+<!-- ============ SECTION 2b · AGGREGATE ============ -->
+<path d="M 700 896 V 920" stroke="var(--ink)" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<text x="712" y="912" class="s">150 inner runs → 150 scores</text>
+<rect x="20" y="922" width="1560" height="300" rx="16" fill="var(--cvsoft)" stroke="var(--cv)" stroke-width="1.5"/>
+<rect x="20" y="922" width="1560" height="40" rx="16" fill="var(--cv)"/>
+<rect x="20" y="946" width="1560" height="16" fill="var(--cv)"/>
+<text x="44" y="948" class="h" font-size="15" style="fill:#fff">2b · AGGREGATE THE RUNS — average, pick, judge, choose, discard, retrain</text>
+<text x="1556" y="948" font-size="12.5" fill="#fff" text-anchor="end" opacity=".9">what the CV loops DO with the results (see the Nested CV page)</text>
+
+<!-- row 1: inner means matrix -->
+<g>
+  <rect x="48" y="976" width="700" height="104" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="64" y="994" class="t k" font-size="12.5">① AVERAGE — each cell = that round’s mean over its 10 inner folds (H × K); ② PICK H* per round = best column value</text>
+  <text x="64" y="1014" class="m" style="fill:var(--ink2)">           K1     K2     K3     K4     K5</text>
+  <text x="64" y="1029" class="m" style="fill:var(--ink2)">H1        .852   .855   .866   .865   .850</text>
+  <text x="64" y="1044" class="m" style="fill:var(--s2)">H2        .907   .912   .911   .873   .900</text>
+  <text x="64" y="1059" class="m" style="fill:var(--ink2)">H3        .876   .880   .873   .927   .874</text>
+  <text x="64" y="1074" class="m" style="fill:var(--s2)">H*        H2     H2     H2     H3     H2   ← may differ per round</text>
+</g>
+<line x1="748" y1="1028" x2="782" y2="1028" stroke="var(--cv)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#arc)"/>
+<!-- row 1: judge runs -->
+<g>
+  <rect x="784" y="976" width="772" height="104" rx="10" fill="var(--panel)" stroke="var(--cv)" stroke-width="1.5"/>
+  <text x="800" y="994" class="t k" font-size="12.5">③ JUDGE — 5 runs, one per round: retrain ONE model on that round’s 8,000 with its H*, score on its 2,000 judge rows</text>
+  <text x="800" y="1014" class="m" style="fill:var(--ink2)">K1: 8,000 rows · H2 → judge K1 = .90     K2: 8,000 · H2 → judge K2 = .91     K3: 8,000 · H2 → judge K3 = .90</text>
+  <text x="800" y="1029" class="m" style="fill:var(--ink2)">K4: 8,000 rows · H3 → judge K4 = .89     K5: 8,000 · H2 → judge K5 = .91</text>
+  <text x="800" y="1050" class="s" style="fill:var(--cv)" font-weight="700">HONEST ESTIMATE = mean(.90 .91 .90 .89 .91) = 0.90 ± 0.01 → the procedure is stable</text>
+  <text x="800" y="1068" class="s">each judge run is a full training run (125 b/epoch); transforms fitted on the 8,000, APPLIED to the 2,000 judge rows before scoring — never refitted there</text>
+</g>
+<path d="M 1170 1080 V 1094 H 200 V 1106" stroke="var(--cv)" stroke-width="1.8" stroke-dasharray="6 4" fill="none" marker-end="url(#arc)"/>
+
+<!-- row 2 -->
+<g>
+  <rect x="48" y="1110" width="300" height="96" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="64" y="1128" class="t k" font-size="12.5">④ CHOOSE  H = most frequent H*</text>
+  <text x="64" y="1148" class="s">H2 picked in 4 of 5 rounds (K4 picked H3) → H2</text>
+  <text x="64" y="1164" class="s">badly split? break the tie with one plain</text>
+  <text x="64" y="1180" class="s">5-fold CV on all 10,000 rows</text>
+  <text x="64" y="1198" class="s">the settings are kept; no model is kept yet</text>
+</g>
+<line x1="348" y1="1158" x2="382" y2="1158" stroke="var(--ink)" stroke-width="1.8" marker-end="url(#ar)"/>
+<g>
+  <rect x="384" y="1110" width="330" height="96" rx="10" fill="var(--panel)" stroke="#d64545" stroke-width="1.5"/>
+  <path d="M408 1134 h20 M412 1134 v16 h12 v-16 M416 1130 h4" fill="none" stroke="#d64545" stroke-width="2"/>
+  <text x="438" y="1140" class="t k" font-size="12.5" style="fill:#b23a3a">⑤ DISCARD all 155 CV models</text>
+  <text x="400" y="1162" class="s">150 inner + 5 judge: weights and checkpoints</text>
+  <text x="400" y="1178" class="s">thrown away — only their scores were the point</text>
+  <text x="400" y="1198" class="s" style="fill:#b23a3a">none of them is the shipped model</text>
+</g>
+<line x1="714" y1="1158" x2="748" y2="1158" stroke="var(--ink)" stroke-width="1.8" marker-end="url(#ar)"/>
+<g>
+  <rect x="750" y="1110" width="400" height="96" rx="10" fill="var(--panel)" stroke="var(--s3)" stroke-width="1.5"/>
+  <text x="766" y="1128" class="t k" font-size="12.5">⑥ RETRAIN ONCE — run 156, the final model</text>
+  <text x="766" y="1148" class="s">all 10,000 training rows (no fold held out) with H2, the same</text>
+  <text x="766" y="1164" class="s">seven-step cycle; transforms refitted on all 10,000 · 157 b/epoch</text>
+  <text x="766" y="1180" class="s">epochs = 12, the best-epoch count seen in CV · run_id …_final_H2</text>
+  <text x="766" y="1198" class="s">no folds — CV already settled H, quality, epochs</text>
+</g>
+<line x1="1150" y1="1158" x2="1184" y2="1158" stroke="var(--ink)" stroke-width="1.8" marker-end="url(#ar)"/>
+<g>
+  <rect x="1186" y="1110" width="370" height="96" rx="10" fill="var(--panel)" stroke="var(--s3)" stroke-width="1.5"/>
+  <text x="1202" y="1128" class="t k" font-size="12.5">⑦ TEST ONCE — the 2,000 locked rows</text>
+  <text x="1202" y="1148" class="s">APPLY the 10,000-fitted transforms to the 2,000, then score</text>
+  <text x="1202" y="1164" class="s">once → test F1 0.90 ≈ the honest estimate 0.90 ✓</text>
+  <text x="1202" y="1180" class="s">(a big gap = leakage somewhere — go back and check)</text>
+  <text x="1202" y="1198" class="s">not validation: change anything after seeing it and it stops being honest</text>
+</g>
+
+<!--LABSEC id="sec3" y="1252" close="</svg></figure>"-->
+<!-- ============ SECTION 3 · OUTPUTS ============ -->
+<path d="M 1371 1222 V 1250" stroke="var(--ink)" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<text x="1360" y="1240" class="s" text-anchor="end">final model → what it leaves behind</text>
+<rect x="20" y="1252" width="1560" height="250" rx="16" fill="var(--s3soft)" stroke="var(--s3)" stroke-width="1.5"/>
+<rect x="20" y="1252" width="1560" height="40" rx="16" fill="var(--s3)"/>
+<rect x="20" y="1276" width="1560" height="16" fill="var(--s3)"/>
+<text x="44" y="1278" class="h" font-size="15" style="fill:#fff">3 · TRAINING OUTPUTS &amp; LOGS</text>
+<text x="1556" y="1278" font-size="12.5" fill="#fff" text-anchor="end" opacity=".9">versioned together — this is what an audit asks for</text>
+
+<g>
+  <rect x="48" y="1316" width="300" height="164" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <circle cx="72" cy="1340" r="4" fill="var(--s3)"/><circle cx="90" cy="1332" r="4" fill="var(--s3)"/><circle cx="90" cy="1348" r="4" fill="var(--s3)"/><path d="M 76 948 L 86 943 M 76 952 L 86 957" stroke="var(--s3)" stroke-width="1.5"/>
+  <text x="104" y="1344" class="t k" font-size="13.5">Trained model</text>
+  <text x="64" y="1366" class="s"><tspan class="hv" data-t="parameters">parameters</tspan> = the learned numbers: weights &amp; biases</text>
+  <text x="64" y="1382" class="m" style="fill:var(--ink2)">model_final_H2.pt  (run 156, epoch 12)</text>
+  <text x="64" y="1400" class="s">+ the fitted transforms it depends on</text>
+  <text x="64" y="1416" class="s">(imputer, encoder, scaler, vocabulary)</text>
+  <text x="64" y="1440" class="s" style="fill:var(--s3)">The shipped model = retrained on the FULL</text>
+  <text x="64" y="1454" class="s" style="fill:var(--s3)">training set with the winning H, then</text>
+  <text x="64" y="1468" class="s" style="fill:var(--s3)">scored ONCE on the locked test set.</text>
+</g>
+<g>
+  <rect x="340" y="1316" width="260" height="164" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <rect x="356" y="1330" width="14" height="18" rx="2" fill="none" stroke="var(--s3)" stroke-width="2"/><rect x="362" y="1336" width="14" height="18" rx="2" fill="var(--panel)" stroke="var(--s3)" stroke-width="2"/>
+  <text x="386" y="1344" class="t k" font-size="13.5">Saved checkpoints</text>
+  <text x="356" y="1366" class="m" style="fill:var(--ink2)">ckpt_epoch12.pt  (final run, shipped)</text>
+  <text x="356" y="1384" class="m" style="fill:var(--ink2)">ckpt_epoch06 / 09 kept for rollback</text>
+  <text x="356" y="1408" class="s">each = weights + optimizer state</text>
+  <text x="356" y="1424" class="s">+ epoch # + RNG state</text>
+  <text x="356" y="1448" class="s">resume after a crash, or roll back</text>
+  <text x="356" y="1464" class="s">to the best epoch (early stopping)</text>
+</g>
+<g>
+  <rect x="622" y="1316" width="280" height="164" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <rect x="638" y="1330" width="20" height="20" rx="3" fill="none" stroke="var(--s3)" stroke-width="2"/><path d="M642 1337 h12 M642 1343 h12" stroke="var(--s3)" stroke-width="2"/>
+  <text x="668" y="1344" class="t k" font-size="13.5">Configuration</text>
+  <text x="638" y="1366" class="m" style="fill:var(--ink2)">run_id      2026-09-18_final_H2</text>
+  <text x="638" y="1384" class="m" style="fill:var(--ink2)">step  1,884 / 1,884 (12 ep × 157 b)</text>
+  <text x="638" y="1402" class="m" style="fill:var(--ink2)">hyperparams H2 (ep 12 of 30 bs64 lr0.001</text>
+  <text x="638" y="1420" class="m" style="fill:var(--ink2)">            do0.3 AdamW)</text>
+  <text x="638" y="1438" class="m" style="fill:var(--ink2)">seed 42 · all 10,000 rows · 157 b/epoch</text>
+  <text x="638" y="1462" class="s">config.yaml — enough to re-run it exactly</text>
+</g>
+<g>
+  <rect x="924" y="1316" width="270" height="164" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <text x="940" y="1344" class="t k" font-size="13.5">Metrics &amp; logs</text>
+  <!-- loss curve -->
+  <rect x="940" y="1356" width="116" height="70" rx="4" fill="var(--bg)" stroke="var(--line)"/>
+  <polyline points="946,1366 960,1382 974,1396 988,1406 1002,1412 1016,1416 1030,1418 1044,1420" fill="none" stroke="var(--s2)" stroke-width="2"/>
+  <polyline points="946,1372 960,1386 974,1398 988,1404 1002,1406 1016,1408 1030,1412 1044,1418" fill="none" stroke="var(--s1)" stroke-width="2" stroke-dasharray="3 2"/>
+  <text x="998" y="1438" class="s" text-anchor="middle">loss ↓  train — · val ┄</text>
+  <!-- accuracy curve -->
+  <rect x="1066" y="1356" width="116" height="70" rx="4" fill="var(--bg)" stroke="var(--line)"/>
+  <polyline points="1072,1418 1086,1400 1100,1386 1114,1376 1128,1370 1142,1366 1156,1364 1170,1363" fill="none" stroke="var(--s3)" stroke-width="2"/>
+  <polyline points="1072,1420 1086,1406 1100,1394 1114,1386 1128,1382 1142,1380 1156,1381 1170,1384" fill="none" stroke="var(--s1)" stroke-width="2" stroke-dasharray="3 2"/>
+  <text x="1124" y="1438" class="s" text-anchor="middle">accuracy / F1 ↑ per epoch</text>
+  <text x="940" y="1460" class="s">per batch: loss · lr · grad norm · step time</text>
+  <text x="940" y="1474" class="s">per epoch: val F1 · confusion matrix · gap train↔val</text>
+</g>
+<g>
+  <rect x="1246" y="1316" width="292" height="164" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+  <circle cx="1268" cy="1338" r="8" fill="none" stroke="var(--s3)" stroke-width="2"/><path d="M1268 1334 v5 h4" fill="none" stroke="var(--s3)" stroke-width="2"/>
+  <text x="1284" y="1344" class="t k" font-size="13.5">Experiment metadata</text>
+  <text x="1262" y="1366" class="m" style="fill:var(--ink2)">data     training_set_v3</text>
+  <text x="1262" y="1384" class="m" style="fill:var(--ink2)">pipeline v1.4  git 9f3c2a1</text>
+  <text x="1262" y="1402" class="m" style="fill:var(--ink2)">env      torch 2.6 · cuda 12.4</text>
+  <text x="1262" y="1420" class="m" style="fill:var(--ink2)">hardware 1× A100 · 42 min (final run)</text>
+  <text x="1262" y="1438" class="m" style="fill:var(--ink2)">metric   F1 (Phase V) · ds-team</text>
+  <text x="1262" y="1464" class="s">lineage: which data trained which model</text>
+</g>
+
+<!--LABSEC id="sec4" y="1530" close="</svg></figure>"-->
+<!-- ============ SECTION 4 · READING THE SCORES ============ -->
+<path d="M800 1502 V1526" stroke="var(--ink)" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<text x="812" y="1520" class="s">the scores come back — what do they tell you?</text>
+<rect x="20" y="1530" width="1560" height="290" rx="16" fill="var(--cvsoft)" stroke="var(--cv)" stroke-width="1.5"/>
+<rect x="20" y="1530" width="1560" height="40" rx="16" fill="var(--cv)"/>
+<rect x="20" y="1554" width="1560" height="16" fill="var(--cv)"/>
+<text x="44" y="1556" class="h" font-size="15" style="fill:#fff">4 · READING THE SCORES — three different comparisons, three different problems, three different fixes</text>
+<text x="1556" y="1556" font-size="12.5" style="fill:#fff" text-anchor="end" opacity=".9">CV measures — it never fixes; every fix means running the whole procedure again</text>
+<text x="48" y="1588" class="t k" font-size="12.5">problem</text>
+<text x="190" y="1588" class="t k" font-size="12.5">which two numbers you compare</text>
+<text x="440" y="1588" class="t k" font-size="12.5">healthy</text>
+<text x="600" y="1588" class="t k" font-size="12.5">sick</text>
+<text x="770" y="1588" class="t k" font-size="12.5">what it means — and how it differs from the row above</text>
+<text x="1250" y="1588" class="t k" font-size="12.5">how to correct it</text>
+<rect x="36" y="1600" width="1528" height="52" rx="8" fill="var(--panel)" stroke="var(--line)"/>
+<text x="48" y="1631" class="s" font-weight="700" style="fill:var(--cv)">OVERFITTING</text>
+<text x="190" y="1631" class="s">TRAIN score vs VALIDATE score of the SAME run</text>
+<text x="440" y="1631" class="m" style="fill:var(--s3)">train .92 · val .90</text>
+<text x="600" y="1631" class="m" style="fill:#b23a3a">train .99 · val .85</text>
+<text x="770" y="1623" class="s">the model MEMORISED its training rows instead of learning the pattern —</text>
+<text x="770" y="1639" class="s">perfect on rows it saw, much worse on rows it did not (gap ≥ .05 is a warning)</text>
+<text x="1250" y="1623" class="s" style="fill:var(--s3)" font-weight="700">more dropout / weight decay · smaller model</text>
+<text x="1250" y="1639" class="s" style="fill:var(--s3)" font-weight="700">stop earlier · more data / augmentation · fewer features</text>
+<rect x="36" y="1658" width="1528" height="52" rx="8" fill="var(--panel)" stroke="var(--line)"/>
+<text x="48" y="1689" class="s" font-weight="700" style="fill:var(--cv)">UNDERFITTING</text>
+<text x="190" y="1689" class="s">the same pair — but BOTH are low</text>
+<text x="440" y="1689" class="m" style="fill:var(--s3)">train .92 · val .90</text>
+<text x="600" y="1689" class="m" style="fill:#b23a3a">train .70 · val .69</text>
+<text x="770" y="1681" class="s">the model is too simple (or stopped too soon) to capture the pattern —</text>
+<text x="770" y="1697" class="s">differs from overfitting: no gap between train and validate, just low everywhere</text>
+<text x="1250" y="1681" class="s" style="fill:var(--s3)" font-weight="700">bigger model · more epochs · higher learning rate ·</text>
+<text x="1250" y="1697" class="s" style="fill:var(--s3)" font-weight="700">better features</text>
+<rect x="36" y="1716" width="1528" height="52" rx="8" fill="var(--panel)" stroke="var(--line)"/>
+<text x="48" y="1747" class="s" font-weight="700" style="fill:var(--cv)">UNSTABLE</text>
+<text x="190" y="1747" class="s">the FIVE judge scores compared with EACH OTHER</text>
+<text x="440" y="1747" class="m" style="fill:var(--s3)">.90 .91 .90 .89 .91</text>
+<text x="600" y="1747" class="m" style="fill:#b23a3a">.86 .94 .88 .92 .85</text>
+<text x="770" y="1739" class="s">a spread of ±.01 is fine; ±.05 means the score depends on WHICH rows landed in which fold —</text>
+<text x="770" y="1755" class="s">too little data, folds not comparable, or preparation done differently per run — the SPREAD is off</text>
+<text x="1250" y="1739" class="s" style="fill:var(--s3)" font-weight="700">more data · simpler model · stratified / group folds</text>
+<text x="1250" y="1755" class="s" style="fill:var(--s3)" font-weight="700">refit transforms &amp; balancing inside every run, seeded</text>
+<text x="48" y="1798" class="s" style="fill:var(--cv)" font-weight="700">Read the healthy column first: small differences (.01–.02) are normal noise, not a problem. Act only on the sick pattern. Then change H, the data or the model — and run the whole 156-run procedure again.</text>
+</svg>
+<figcaption>One training <em>run</em> is one (K, H, I) triple — an outer fold, a hyperparameter set, an inner fold — plus the 5 judge runs and the final run. K-fold rotates the validate fold to measure how stable a design is; nested CV wraps that in an outer loop so the hyperparameter choice is judged on data it never tuned on. Inside a run, the seven-step cycle repeats for every batch of every epoch; metrics from the validate fold drive both early stopping and the next hyperparameter set. Everything in section 3 is versioned together so any result can be reproduced or audited.</figcaption>
+</figure>
+
+<!--LABSEC id="legend"-->
+<div class="legend">
+  <span><i></i> data / control flow</span>
+  <span><i class="d"></i> cross-validation loops decide what a run sees</span>
+  <span><i class="o"></i> tuning loop — next hyperparameter set</span>
+  <span>dotted words — hover or tap for the meaning</span>
+  <span><b>Notation:</b> K = outer fold · I = inner fold · H = hyperparameter set · e = epoch · b = batch · one run = (K, H, I)</span>
+  <span>Learning rates are plain decimals (0.001); if you see “1e-3” elsewhere it is scientific notation for 0.001 — not an epoch.</span>
+</div>
+
+<!--LABSEC id="abbr"-->
+<section class="abbr"><h2>Abbreviations used on this page</h2><div class="g"><div><b>CV</b><span>cross-validation — measuring a design by training on some folds and scoring on the fold held out, rotating the held-out fold</span></div><div><b>K / I / H</b><span>outer fold / inner fold / hyperparameter set (see the Notation line)</span></div><div><b>H*</b><span>the winning hyperparameter set of a round — the one with the best mean inner score</span></div><div><b>e / b</b><span>epoch / batch</span></div><div><b>F1</b><span>the F1 score — harmonic mean of precision and recall; the metric chosen in Phase V for imbalanced classes</span></div><div><b>val</b><span>the validate rows of a run (inner: 800 rows; judge: 2,000 rows)</span></div><div><b>lr</b><span>learning rate — how far each weight moves per update (0.001 here)</span></div><div><b>bs</b><span>batch size — rows fed through the algorithm per pass (64 here)</span></div><div><b>do</b><span>dropout — fraction of neurons switched off per pass during training (0.3 = 30%)</span></div><div><b>ep</b><span>epochs — how many times the training rows are passed through (30 planned, stopped at 17)</span></div><div><b>SGD</b><span>stochastic gradient descent — the basic optimizer rule: move each weight against its gradient, using one batch at a time</span></div><div><b>AdamW</b><span>an optimizer in the SGD family that adapts the step size per weight and applies weight decay correctly</span></div><div><b>∂L/∂w</b><span>the gradient: how the loss L changes when weight w changes a little</span></div><div><b>ŷ / y</b><span>the predicted value / the true label</span></div><div><b>ckpt</b><span>checkpoint — a saved snapshot of weights, optimizer state and epoch number</span></div><div><b>RNG</b><span>random number generator state — saved so a resumed run continues with the same randomness</span></div><div><b>run_id / ID</b><span>the unique name of one training run, used to tie its config, checkpoints, metrics and logs together</span></div><div><b>config.yaml</b><span>the run's configuration file — enough to re-run it exactly</span></div><div><b>SMOTE</b><span>Synthetic Minority Over-sampling Technique — creates new minority-class rows between existing ones; training rows only</span></div><div><b>MLflow</b><span>an experiment-tracking tool that stores per-batch and per-epoch metrics, parameters and artefacts</span></div><div><b>ML</b><span>machine learning</span></div><div><b>A100 / GPU</b><span>a data-centre graphics processor used to train models; GPU = graphics processing unit</span></div><div><b>CUDA</b><span>NVIDIA's software layer that lets training code run on a GPU</span></div><div><b>torch</b><span>PyTorch, the deep-learning framework used in the example</span></div><div><b>git 9f3c2a1</b><span>the exact version (commit) of the pipeline code — part of lineage</span></div><div><b>Phase II–V</b><span>the CPMAI phases: II Data Understanding · III Data Preparation · IV Model Development · V Model Evaluation</span></div><div><b>Gate 3</b><span>the go/no-go at the end of Phase III — data is ready for model development</span></div><div><b>K-fold</b><span>cross-validation with K folds; nested = an inner CV inside each outer fold</span></div></div></section>
+<div id="gloss" role="dialog" aria-live="polite"><b id="gt"></b><span id="gd"></span></div>
+<!--LABSEC:END-->
+<script>
+(() => {
+  const G = {"hyperparameters": "Settings you choose BEFORE training. Two kinds: (1) how learning runs — epochs, batch size, learning rate, dropout, optimizer, regularisation strength; (2) the model’s SHAPE — number of layers and nodes in a network, max depth and min rows per leaf of a tree, number of trees in a forest or boosting ensemble, kernel and C of an SVM, number of heads in a transformer. None are learned from data; the inner CV loop compares sets and keeps the best. Rule of thumb: if it fixes the shape or the training recipe, it is a hyperparameter; if training fills it in, it is a parameter.", "epochs": "One epoch = the model has seen every training row once. 30 epochs = the whole training set is passed through 30 times. Too few → underfit; too many → overfit (early stopping guards this).", "batch size": "A value YOU choose: how many rows (or images) are fed through the algorithm in one pass before the weights are updated once. It is not calculated from anything. What is derived from it is the number of batches per epoch: 8,000 rows ÷ 64 = 125 passes (and so 125 weight updates) per epoch. Small batches = noisier but more frequent updates; large batches = smoother, need more memory.", "learning rate": "How big a step the optimizer takes on each weight update (w ← w − lr · gradient): the gradient gives the direction (+/−) and steepness, the learning rate scales how FAR to move. 1e-3 = 0.001. Too high → training bounces around and diverges; too low → painfully slow or stuck. Real runs usually vary it with a schedule (warm-up, then decay).", "dropout": "During training, randomly switch off a fraction of neurons (0.3 = 30%) on each forward pass, so the network cannot rely on any single path — a regularisation trick against overfitting. Off at inference.", "optimizer": "The rule that turns each batch’s gradients into actual weight changes — it runs once per batch, right after backpropagation. SGD (stochastic gradient descent) is the plain rule: w_new = w_old − lr × gradient, using the gradient of the current batch (‘stochastic’ = estimated from a batch, not the whole set). SGD + momentum keeps a running average of past gradients so the step keeps its direction and does not zig-zag. Adam / AdamW go further: they keep running averages of both the gradient and its square, so every weight gets its own effective step size — big steps for weights with small, steady gradients, small steps for noisy ones; AdamW additionally applies weight decay (a small shrink toward zero) correctly. Adam-family optimisers are the default for neural networks; plain SGD is still used for large vision models and when you want maximal control. Because they carry running averages, optimisers have state of their own — which is why a checkpoint saves the optimizer state, not only the weights.", "seed": "The starting number for every random process — the split, the shuffle order, the sampler, the random initial weights. Same seed + same data + same code (algorithm, architecture, preprocessing) → the identical result, which makes a run reproducible.", "run ID": "A unique name for one training run (one fold × one hyperparameter set), used to tie together its config, checkpoints, metrics and logs in the experiment tracker.", "starting weights": "Weights need a value before the first forward pass, but they are NOT yet learned. Two options: random initialisation (small random numbers from the seed), or copying the weights of a pretrained model (transfer learning / fine-tuning). Either way, training then adjusts them at every weight update — that adjusting is the learning.", "architecture": "The shape of the model: which algorithm (logistic regression, gradient-boosted trees, a neural network) and, for a network, how many layers and neurons, which activations. Chosen in Phase IV from the AI pattern and the data; the weights live INSIDE this shape.", "loss function": "The formula that turns ‘actual vs predicted’ into one number — think of it as the total error the batch scored on a quiz, where confident wrong answers cost the most. Cross-entropy for classification, mean squared error (MSE) for regression. Lower is better; training exists to push it down.", "gradient": "Picture every weight as a dial. The gradient tells you, for each dial, which way to turn it to reduce the error and how sensitive the error is to that dial — but not how far to turn it (that is the learning rate’s job). Backpropagation computes all the gradients in one sweep, from the output back to the input.", "checkpoint": "A snapshot of the run saved to disk: the weights, the optimizer's state, the epoch number and the RNG state. Lets you resume after a crash or roll back to the best-validation epoch.", "F1": "The harmonic mean of precision and recall — the usual metric when classes are imbalanced. Chosen once in Phase V for the business problem and then used unchanged for every fold, epoch and loop.", "batch": "One slice of the training rows (here 64) that goes through the seven-step cycle together and produces ONE weight update.", "epoch": "One complete pass over all training rows — all 125 batches once. The row order is reshuffled before each epoch.", "hyperparameter set": "One complete combination of settings (learning rate, batch size, dropout, epochs, optimizer) — H1, H2, H3 are three such combinations. The inner CV loop trains one run per set per fold, averages the validation scores, and keeps the set with the best mean. Only that winner is used to train the final model.",
+ "splits (seeded)": "Which rows land in which fold — the K outer folds, the I inner folds — is a random shuffle. Seeding it means the same rows fall into the same folds every time the run is repeated.",
+ "sampler (seeded)": "Two random things inside a run: the order the 7,200 rows are dealt into batches each epoch, and the randomness inside the resampler (which minority rows SMOTE picks, which majority rows undersampling drops). Seeded, they repeat exactly.",
+ "init (seeded)": "The starting values of the weights are drawn at random (small numbers around zero). Seeding the initialiser makes every repeat of the run start from the identical weights — otherwise two ‘identical’ runs end at slightly different scores.",
+ "parameters": "The numbers the model LEARNS — what training fills into the chosen shape. By algorithm: weights and biases (neural networks) · coefficients and intercept (linear / logistic regression) · the split thresholds at each node and the leaf values (trees, forests, boosting) · the support vectors and their weights (SVM) · attention weights and embeddings (transformers). They start as random values (or a pretrained copy) and change at every update; the trained model IS its final parameters. Not to be confused with hyperparameters, which you CHOOSE before training and which never change during a run.",
+ "model": "Think of the model as a recipe plus dial settings. The recipe is the algorithm you chose (logistic regression, boosting, a neural net); the dials are its parameters — the weights. A forward pass pours one batch of rows through the recipe with the dials where they currently are, and reads the predictions ŷ that come out. Steps 03–05 then turn the dials a little. When training ends, the model = the recipe + the final dial settings; that is what gets saved and shipped.",
+ "algorithm (in training)": "What the batch passes through during training: the chosen algorithm (the recipe — logistic regression, boosting, a neural net) carrying its parameters as they currently stand — random start values at first, or a pretrained model’s values if you began from one. It is not a finished model yet; it becomes THE model only when training stops and the final parameters are frozen and saved.",
+ "early stopping": "Watch the validation score at the end of each epoch; if it has not improved for N epochs (patience, here 5), stop and keep the best checkpoint — instead of running all 30 epochs and overfitting."};
+  const box = document.getElementById("gloss"), gt = document.getElementById("gt"), gd = document.getElementById("gd");
+  function show(el) {
+    const k = el.getAttribute("data-t"); if (!G[k]) return;
+    gt.textContent = k; gd.textContent = G[k];
+    const r = el.getBoundingClientRect();
+    box.style.display = "block";
+    box.style.left = Math.min(window.innerWidth - 380, Math.max(10, r.left)) + "px";
+    box.style.top = Math.min(window.innerHeight - 180, r.bottom + 8) + "px";
+  }
+  document.querySelectorAll(".hv").forEach(el => {
+    el.setAttribute("tabindex", "0"); el.setAttribute("role", "button");
+    el.addEventListener("mouseenter", () => show(el));
+    el.addEventListener("mouseleave", () => { box.style.display = "none"; });
+    el.addEventListener("focus", () => show(el));
+    el.addEventListener("click", (e) => { e.stopPropagation(); show(el); });
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#gloss")) box.style.display = "none"; });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") box.style.display = "none"; });
+})();
+</script>
+<script>
+(() => { // report content height to the embedding page (/labs/<slug>)
+  const post = () => { try { parent.postMessage({ type: "lab-height", h: document.documentElement.scrollHeight }, window.location.origin); } catch (e) {} };
+  new ResizeObserver(post).observe(document.documentElement);
+  window.addEventListener("load", post); setTimeout(post, 400);
+})();
+</script>

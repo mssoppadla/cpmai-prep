@@ -41,13 +41,17 @@ const nextConfig = {
         { key: "Permissions-Policy",          value: "camera=(), microphone=(), geolocation=()" },
       ],
     }, {
-      // The Data Pipeline Navigator simulator is a static page embedded
-      // in an <iframe> by /labs/data-pipeline-navigator. The global DENY
-      // above blocks even same-origin framing, so relax to SAMEORIGIN
-      // for this one file (still no third-party framing).
-      source: "/labs/pipeline-sim.html",
+      // Lab documents (/labs/embed/<slug>, served from labs-assets/ by
+      // the route handler after the access check) are embedded in an
+      // <iframe> by /labs/<slug>. The global DENY above blocks even
+      // same-origin framing, so relax to SAMEORIGIN here (still no
+      // third-party framing). No-store: the document differs per
+      // visitor (free preview vs full).
+      source: "/labs/embed/:slug",
       headers: [
         { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+        { key: "Cache-Control", value: "private, no-store" },
       ],
     }];
   },

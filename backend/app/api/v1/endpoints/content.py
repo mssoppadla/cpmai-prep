@@ -2,7 +2,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from app.core.deps import get_db
+from app.core.deps import get_db, get_optional_user
+from app.core.exceptions import NotFoundError
+from app.core.labs_registry import LABS, get_lab
 from app.core import domains as domain_registry
 from app.core.settings_store import settings_store
 from app.models.faq import FaqItem
@@ -10,9 +12,13 @@ from app.models.question import Question
 from app.models.testimonial import Testimonial
 from app.models.zoom import ZoomSession
 from app.models.topic import Topic
+from app.models.user import User
 from app.schemas.faq import FaqOut
-from app.schemas.labs import ThresholdExplorerConfig
+from app.schemas.labs import LabAccessOut, LabIndexOut, ThresholdExplorerConfig
 from app.schemas.testimonial import TestimonialOut
+from app.services.labs_access import (
+    access_from_token, resolve_access, sign_lab_token, verify_lab_token,
+)
 
 router = APIRouter()
 
@@ -55,13 +61,49 @@ def pipeline_lab_config():
         "enabled": settings_store.get_bool(
             "labs.pipeline_lab_enabled", True),
         "title": settings_store.get_str(
-            "labs.pipeline_lab_title", "Data Pipeline Navigator"),
+            "labs.pipeline_lab_title", "Data Pipeline Simulator"),
         "intro_html": settings_store.get_str(
             "labs.pipeline_lab_intro_html", ""),
         "takeaway_html": settings_store.get_str(
             "labs.pipeline_lab_takeaway_html", ""),
         "stage_ledes": ledes if isinstance(ledes, dict) else {},
     }
+
+
+@router.get("/labs", response_model=list[LabIndexOut])
+def labs_index(db: Session = Depends(get_db)):
+    """Every registered lab with its live admin state — drives the /labs
+    index, the admin Labs screen and the plan checkboxes. Per-visitor
+    state (is THIS user entitled) comes from /labs/{slug}/access."""
+    out = []
+    for lab in sorted(LABS, key=lambda l: l.order):
+        acc = resolve_access(db, lab, None)
+        out.append(LabIndexOut.from_access(acc))
+    return out
+
+
+@router.get("/labs/{slug}/access", response_model=LabAccessOut)
+def lab_access(slug: str, t: str | None = None,
+               user: User | None = Depends(get_optional_user),
+               db: Session = Depends(get_db)):
+    """What the caller may see of one lab.
+
+    * With a Bearer token → resolved for that user, and the response
+      carries an ``embed_token`` the iframe passes back as ``?t=``.
+    * With ``?t=<embed_token>`` (the embed route calling on the
+      browser's behalf) → the decision encoded in the token, narrowed
+      by the CURRENT settings.
+    * Neither → anonymous.
+    """
+    lab = get_lab(slug)
+    if lab is None:
+        raise NotFoundError()
+    claims = verify_lab_token(t, slug) if t else None
+    if claims is not None:
+        acc = access_from_token(db, lab, claims)
+    else:
+        acc = resolve_access(db, lab, user)
+    return LabAccessOut.from_access(acc, embed_token=sign_lab_token(acc))
 
 
 @router.get("/topics")
