@@ -1,8 +1,7 @@
 <meta charset="utf-8">
 <meta name="robots" content="noindex">
-<base target="_top">
 
-<title>CPMAI Phase II & III Walkthrough</title>
+<title>Data Understanding and Data Preparation</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@500&display=swap">
 <style>
   :root{
@@ -188,7 +187,7 @@
 </style>
 
 <header class="hero">
-  <h1>CPMAI Phase II &amp; III <span style="color:var(--p2)">Walkthrough</span></h1>
+  <h1>Data Understanding <span style="color:var(--p2)">and Data Preparation</span></h1>
   <p class="lede">Run Phases II &amp; III the way a real enterprise AI program runs them — every activity, who owns it, a worked example, the decisions, and the two gates. Governance, extraction and landing are decided and run in Phase II; Phase III then transforms: Cleanse → Filter → Label → SPLIT → Features → Balance → Gate — with a closing preview of how Phase VI reuses what you built. The interactive playgrounds you already know are stops along this journey.</p>
   <div class="scenario"><b>Running scenario:</b> a clinic's multilingual patient chatbot. Business objectives: 1) “Reduce chatbot response time by 20%”, 2) “Improve intent classification accuracy to 90%”. Intents (four, each its own use case): <b>OTP Query · FAQ · Fraud Reporting · Scheduling Appointment</b>. Along the way you will examine two kinds of charts: the bell curve (normal distribution) for continuous numbers, and class-distribution plots for the categorical intents.</div>
 </header>
@@ -1142,7 +1141,7 @@
         <tr><td><b>Design questions</b></td><td>Type and characteristics of training data (image size, text type)? Labelling needed and what kind? Too big to manage or too small (augment, upscale)? Use models to generate labels and check them</td><td>How will you access real-world data? What preparation (vectorise text, crop or resize images)? Does it match training data closely? Higher volume, more variety, real-time velocity, veracity issues? Different technology than training?</td><td>What criteria and timeline? How are retraining costs and time managed? How are model versions managed — which version is live, can you roll back?</td></tr>
         <tr><td><b>Over time</b></td><td>Keep multiple pipelines at different stages or versions</td><td>Plan early how data flows to the model; trap: refitting a scaler on production data → training/serving skew</td><td>Continuous monitoring detects the drift that signals retraining; each retrain is a versioned iteration; retraining data passes the same quality gate as the original</td></tr>
         </table></div>
-        <p style="margin:8px 0 0"><b>Drift, precisely:</b> feature / data drift (covariate shift) = production inputs changed vs training data · concept drift = the input→output relationship changed (spending habits pre- vs post-pandemic) · label / prior drift = the class mix changed. Compare production against the training baseline with the same PSI / KS tests Gate 3 used.</p>
+        <p style="margin:8px 0 0"><b>Drift, precisely:</b> feature / data drift (covariate shift) = production inputs changed vs training data · concept drift = the input→output relationship changed (spending habits pre- vs post-pandemic) · label / prior drift = the class mix changed. Compare production against the training baseline with the same drift checks Gate 3 used: PSI (population stability index) and the KS test (Kolmogorov–Smirnov).</p>
         </div></details>
     </div>
   </section>
@@ -1267,6 +1266,8 @@
 (() => {
   // -------- glossary: plain-words definitions; click any dotted term --------
   const GLOSS = {
+    "KS test": "Kolmogorov–Smirnov test — a statistical test asking whether two samples (for example training rows and last week’s production rows) come from the same distribution. Used to detect drift in a column.",
+    "population stability index": "PSI — how much the distribution of a column has shifted between two samples (training vs production). Small = stable, large = drift.",
     "term frequency–inverse document frequency": "TF-IDF: each word scores high when it is frequent in this document but rare across all documents. Learned from the whole training corpus, so fitted on training rows only.",
     "target-driven feature selection": "Choosing which columns to keep by measuring how well each one predicts the label (correlation, importance, L1). Because it looks at the label, it must be computed on training rows only — letting test rows into that measurement leaks the answer.",
     "target-driven selection": "Choosing columns by how well they predict the label (correlation, importance, L1). Uses the label, so training rows only — decided after the split.",
@@ -1585,9 +1586,38 @@
 })();
 </script>
 <script>
+(() => { // links to the site open in the parent page; "#section" links stay inside the frame
+  const fix = () => document.querySelectorAll('a[href^="/"]:not([target])').forEach(a => { a.target = "_top"; });
+  fix(); document.addEventListener("DOMContentLoaded", fix);
+})();
+</script>
+
+<script>
 (() => { // report content height to the embedding page (/labs/<slug>)
-  const post = () => { try { parent.postMessage({ type: "lab-height", h: document.documentElement.scrollHeight }, window.location.origin); } catch (e) {} };
-  new ResizeObserver(post).observe(document.documentElement);
+  // Observe the BODY: inside an iframe the <html> box is the frame's own
+  // viewport and never resizes, so a ResizeObserver on it fires once and
+  // goes quiet (expand/collapse then left the frame at the old height).
+  // (setTimeout, not requestAnimationFrame: rAF is paused in hidden tabs
+  // and the frame would come back stale when the tab is shown again)
+  let t = 0;
+  // measure the CONTENT (bottom edge of the body's in-flow children):
+  // documentElement.scrollHeight and body.scrollHeight never drop below
+  // the frame's own height inside an iframe, so the frame would grow on
+  // expand but never shrink back after a collapse
+  const height = () => {
+    let m = 0;
+    for (const el of document.body.children) {
+      const cs = getComputedStyle(el);
+      if (el.tagName === "SCRIPT" || cs.position === "fixed" || cs.position === "absolute" || cs.display === "none") continue;
+      m = Math.max(m, el.getBoundingClientRect().bottom + window.scrollY + (parseFloat(cs.marginBottom) || 0));
+    }
+    return Math.ceil(m + (parseFloat(getComputedStyle(document.body).paddingBottom) || 0) + 8);
+  };
+  const post = () => { t = 0; try { parent.postMessage({ type: "lab-height", h: height() }, window.location.origin); } catch (e) {} };
+  const queue = () => { if (!t) t = setTimeout(post, 16); };
+  new ResizeObserver(queue).observe(document.body);
+  new MutationObserver(queue).observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ["class", "hidden", "open", "style"] });
+  document.addEventListener("transitionend", queue, true);
   window.addEventListener("load", post); setTimeout(post, 400);
 })();
 </script>

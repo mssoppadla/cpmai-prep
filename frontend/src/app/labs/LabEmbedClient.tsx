@@ -42,11 +42,22 @@ export function AccessChip({ a }: { a: Parameters<typeof accessChip>[0] }) {
  *  2. Loads the iframe with that token; the embed route serves the
  *     asset cut at the decision. If the access call fails the iframe
  *     loads anonymously — the embed route decides again server-side.
- *  3. Keeps the page scrolling as one document (height messages), and
- *     records a CTA event when the lock panel is shown.
+ *  3. Sizes the frame per the lab's frame mode and records a CTA event
+ *     when the lock panel is shown.
+ *
+ *  Frame modes (registry `frame`):
+ *   - "content": the frame grows to the document's reported height
+ *     (lab-height messages) so the PAGE scrolls as one document. Right
+ *     for infographics with no sticky UI.
+ *   - "viewport": the frame fills the viewport and the DOCUMENT scrolls
+ *     inside it, like a standalone page. Sticky rails, fixed buttons,
+ *     popovers and in-page navigation all need a viewport of their own;
+ *     a content-sized frame has none (2026-09-18: rail scrolled away,
+ *     back-pill landed 20,000 px down, expand/collapse "stuck" while
+ *     the height message lagged).
  */
 export function LabEmbedClient({
-  slug, title, pagePath, ledes, fullscreenLink = true,
+  slug, title, pagePath, ledes, fullscreenLink = true, frame = "content",
 }: {
   slug: string;
   title: string;
@@ -54,11 +65,30 @@ export function LabEmbedClient({
   /** Simulator-only: per-stage copy overrides posted into the iframe. */
   ledes?: Record<string, string>;
   fullscreenLink?: boolean;
+  frame?: "content" | "viewport";
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(1100);
   const [access, setAccess] = useState<LabAccessOut | null>(null);
   const [src, setSrc] = useState<string | null>(null);
+  const viewport = frame === "viewport";
+
+  // viewport mode: fill the window below the frame's top edge, and keep
+  // a small margin so the page's own bottom edge stays reachable.
+  useEffect(() => {
+    if (!viewport) return;
+    function fit() {
+      const top = frameRef.current?.getBoundingClientRect().top ?? 0;
+      // when the frame sits below the header, leave room for it; once the
+      // user has scrolled the page so the frame is at the top, use the
+      // whole window
+      const avail = window.innerHeight - Math.max(0, Math.min(top, 96)) - 16;
+      setHeight(Math.max(560, Math.floor(avail)));
+    }
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [viewport]);
 
   useEffect(() => {
     let alive = true;
@@ -75,14 +105,14 @@ export function LabEmbedClient({
       if (!d || typeof d !== "object") return;
       if ((d.type === "lab-height" || d.type === "dpn-height" || d.type === "dpn2-height")
           && typeof d.h === "number") {
-        setHeight(Math.min(60000, Math.max(600, Math.ceil(d.h))));
+        if (!viewport) setHeight(Math.min(60000, Math.max(600, Math.ceil(d.h))));
       } else if (d.type === "lab-lock") {
         trackCta("lab_lock_shown", { lab: slug, locked: Number(d.locked) || 0 });
       }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [slug]);
+  }, [slug, viewport]);
 
   function onLoad() {
     if (ledes && Object.keys(ledes).length) {
@@ -122,6 +152,7 @@ export function LabEmbedClient({
           title={title}
           onLoad={onLoad}
           style={{ height }}
+          scrolling={viewport ? "yes" : "no"}
           className="w-full border border-slate-200 rounded-2xl bg-white"
         />
       ) : (

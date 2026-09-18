@@ -1,6 +1,5 @@
 <meta charset="utf-8">
 <meta name="robots" content="noindex">
-<base target="_top">
 
 <title>ML Training Pipeline, Illustrated</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
@@ -46,7 +45,7 @@
 <header>
   <h1>ML training pipeline, illustrated</h1>
   <p>From model-ready data through the training loop to what a run leaves behind. K-fold and nested cross-validation sit between the data and the trainer: they decide which rows each training run sees and which hyperparameters it runs with.</p>
-  <div class="pagenav"><a href="/labs/phase-2-3-walkthrough" target="_top">← Phase II &amp; III Walkthrough (before this page)</a><a href="/labs/nested-cross-validation" target="_top">Nested CV, every loop written out →</a></div>
+  <div class="pagenav"><a href="/labs/phase-2-3-walkthrough" target="_top">← Data Understanding and Data Preparation (before this page)</a><a href="/labs/nested-cross-validation" target="_top">Nested CV, every loop written out →</a></div>
 </header>
 
 <figure>
@@ -571,9 +570,38 @@
 })();
 </script>
 <script>
+(() => { // links to the site open in the parent page; "#section" links stay inside the frame
+  const fix = () => document.querySelectorAll('a[href^="/"]:not([target])').forEach(a => { a.target = "_top"; });
+  fix(); document.addEventListener("DOMContentLoaded", fix);
+})();
+</script>
+
+<script>
 (() => { // report content height to the embedding page (/labs/<slug>)
-  const post = () => { try { parent.postMessage({ type: "lab-height", h: document.documentElement.scrollHeight }, window.location.origin); } catch (e) {} };
-  new ResizeObserver(post).observe(document.documentElement);
+  // Observe the BODY: inside an iframe the <html> box is the frame's own
+  // viewport and never resizes, so a ResizeObserver on it fires once and
+  // goes quiet (expand/collapse then left the frame at the old height).
+  // (setTimeout, not requestAnimationFrame: rAF is paused in hidden tabs
+  // and the frame would come back stale when the tab is shown again)
+  let t = 0;
+  // measure the CONTENT (bottom edge of the body's in-flow children):
+  // documentElement.scrollHeight and body.scrollHeight never drop below
+  // the frame's own height inside an iframe, so the frame would grow on
+  // expand but never shrink back after a collapse
+  const height = () => {
+    let m = 0;
+    for (const el of document.body.children) {
+      const cs = getComputedStyle(el);
+      if (el.tagName === "SCRIPT" || cs.position === "fixed" || cs.position === "absolute" || cs.display === "none") continue;
+      m = Math.max(m, el.getBoundingClientRect().bottom + window.scrollY + (parseFloat(cs.marginBottom) || 0));
+    }
+    return Math.ceil(m + (parseFloat(getComputedStyle(document.body).paddingBottom) || 0) + 8);
+  };
+  const post = () => { t = 0; try { parent.postMessage({ type: "lab-height", h: height() }, window.location.origin); } catch (e) {} };
+  const queue = () => { if (!t) t = setTimeout(post, 16); };
+  new ResizeObserver(queue).observe(document.body);
+  new MutationObserver(queue).observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ["class", "hidden", "open", "style"] });
+  document.addEventListener("transitionend", queue, true);
   window.addEventListener("load", post); setTimeout(post, 400);
 })();
 </script>

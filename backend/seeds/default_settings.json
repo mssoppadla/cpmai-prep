@@ -452,11 +452,11 @@
   {
     "key": "labs.walkthrough_enabled",
     "value": true,
-    "description": "Show the CPMAI Phase II & III Walkthrough page. Off → its card disappears from /labs and /labs/phase-2-3-walkthrough redirects to /labs. Takes effect within about a minute (content cache)."
+    "description": "Show the Data Understanding and Data Preparation page. Off → its card disappears from /labs and /labs/phase-2-3-walkthrough redirects to /labs. Takes effect within about a minute (content cache)."
   },
   {
     "key": "labs.walkthrough_title",
-    "value": "CPMAI Phase II & III Walkthrough",
+    "value": "Data Understanding and Data Preparation",
     "description": "Display name of /labs/phase-2-3-walkthrough — page heading, browser title, labs-index card and breadcrumb. The URL stays the same."
   },
   {
