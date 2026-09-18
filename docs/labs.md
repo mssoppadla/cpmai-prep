@@ -79,3 +79,11 @@ plan form shows the checkbox, the access modes work.
 The mock → asset conversion for the current three pages is scripted in
 the session scratchpad (`sync_assets.py`); the markers it inserts are
 the ones listed above.
+
+## Backlog
+
+- **"Try it live" stops in the Walkthrough** are rendered as disabled
+  "Upcoming" chips (`sync`: `.play .btn.soon`). The Simulator cannot yet
+  open at a given stage; add a `?stage=<slug>` (or hash) handler to
+  `labs-assets/data-pipeline-navigator.html`, point each stop at its
+  stage, then re-enable the chips as links.

@@ -467,7 +467,7 @@
   {
     "key": "labs.walkthrough_free_upto",
     "value": "",
-    "description": "Preview mode only: id of the LAST section shown for free (everything after it is blurred + locked). One of: s1, s2, s3, cx, s10, s4, s5, s6, s7, s8, s9, s9r, s13, s14, s15, s16, s17, s18, s19, s20, s21, abbr. Empty = nothing free. Admin → Labs shows these as a dropdown with titles."
+    "description": "Preview mode only: id of the LAST section shown for free (everything after it is blurred + locked). One of: s1, s2, s3, cx, s10, s4, s5, s6, s7, s8, s9, s9r, s13, s14, s15, s16, s18, s17, s19, s20, s21, abbr. Empty = nothing free. Admin → Labs shows these as a dropdown with titles."
   },
   {
     "key": "labs.ml_pipeline_enabled",
