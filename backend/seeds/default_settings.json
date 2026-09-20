@@ -510,6 +510,26 @@
     "description": "Preview mode only: id of the LAST section shown for free (everything after it is blurred + locked). One of: step1, step2, step2b, step3, step4, step5, step6, step6b, step7, abbr. Empty = nothing free. Admin → Labs shows these as a dropdown with titles."
   },
   {
+    "key": "labs.ops_lab_enabled",
+    "value": true,
+    "description": "Show the Operationalizing AI Models in Production page. Off → its card disappears from /labs and /labs/operationalizing-ai-models redirects to /labs. Takes effect within about a minute (content cache)."
+  },
+  {
+    "key": "labs.ops_lab_title",
+    "value": "Operationalizing AI Models in Production",
+    "description": "Display name of /labs/operationalizing-ai-models — page heading, browser title, labs-index card and breadcrumb. The URL stays the same."
+  },
+  {
+    "key": "labs.ops_lab_access",
+    "value": "free",
+    "description": "Who can open this lab: free = everyone, full page · signin = any logged-in account, full page (plans ignored) · preview = free up to the section in <lab>_free_upto, the rest only for plan members · plan = header only, the body only for plan members. Plan members = users with an active subscription to a plan that ticks this lab (Admin → Plans → Labs). Prefer Admin → Labs for editing; it shows the choices."
+  },
+  {
+    "key": "labs.ops_lab_free_upto",
+    "value": "",
+    "description": "Preview mode only: id of the LAST section shown for free (everything after it is blurred + locked). One of: guardrail, dataops, mlops, devops, loop, people, legend. Empty = nothing free. Admin → Labs shows these as a dropdown with titles."
+  },
+  {
     "key": "chat.whatsapp_enabled",
     "value": false,
     "description": "Show the green WhatsApp chat bubble beside the AI assistant on every page (works for logged-out visitors too). Clicking opens a WhatsApp chat with chat.whatsapp_number in the visitor's own WhatsApp app/web — you see each sender as a normal WhatsApp contact. Requires chat.whatsapp_number to be set."

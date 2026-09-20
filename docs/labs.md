@@ -89,6 +89,18 @@ The mock → asset conversion for the current three pages is scripted in
 the session scratchpad (`sync_assets.py`); the markers it inserts are
 the ones listed above.
 
+## Zoom and fixed-size canvases
+
+The illustrated pages fit their drawing to the window **once at load**
+and then leave the size alone (`FITONCE` in the sync script; the Phase VI
+poster carries its own copy). With `width:100%` a drawing re-fits after
+every browser zoom, so Ctrl +/- and pinch never enlarged it. Now zoom
+enlarges the drawing and the document scrolls in both directions
+(`scrolling="auto"` on the frame); a genuine window resize
+(`devicePixelRatio` unchanged) still refits. A fixed-size canvas like the
+poster also sizes its height from the blocks present, so a preview cut
+ends cleanly after the last free block.
+
 ## Backlog
 
 - **"Try it live" stops in the Walkthrough** are rendered as disabled

@@ -199,6 +199,29 @@ LABS: tuple[LabDef, ...] = (
                  "Hyperparameter selection", "Data leakage between folds",
                  "Honest performance estimates", "Final model retraining"),
     ),
+    LabDef(
+        slug="operationalizing-ai-models", key="ops_lab", order=60,
+        title="Operationalizing AI Models in Production", group="walkthrough",
+        domain="D-VI · Model Operationalization", minutes=15,
+        blurb=("CPMAI Phase VI on one canvas: the Trustworthy-AI guard-rail, "
+               "the DataOps, MLOps and DevOps lanes after go-live, the "
+               "operations loop that repeats for the life of the model, and "
+               "people, hand-over and the next iteration."),
+        asset="operationalizing-ai-models.html",
+        sections=_secs(
+            ("guardrail", "Guard-rail · Trustworthy AI & model governance"),
+            ("dataops", "DataOps lane — keeping the data flowing"),
+            ("mlops", "MLOps lane — keeping the model correct"),
+            ("devops", "DevOps / DevSecOps lane — keeping the service running"),
+            ("loop", "The operations loop"),
+            ("people", "People & closure after go-live"),
+            ("legend", "Four AI technology environments & legend"),
+        ),
+        teaches=("CPMAI Phase VI Model Operationalization",
+                 "DataOps, MLOps and DevOps", "Model monitoring and drift",
+                 "Retraining and versioning", "Trustworthy AI in operation",
+                 "AI technology environments"),
+    ),
 )
 
 LAB_BY_SLUG: dict[str, LabDef] = {lab.slug: lab for lab in LABS}

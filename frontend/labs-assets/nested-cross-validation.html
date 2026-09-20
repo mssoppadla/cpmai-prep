@@ -328,6 +328,19 @@
 <section class="abbr"><h2>Abbreviations used on this page</h2><div class="g"><div><b>CV</b><span>cross-validation — measuring a design by training on some folds and scoring on the fold held out, rotating the held-out fold</span></div><div><b>nested CV</b><span>an inner cross-validation (to choose H) inside each outer fold (to judge the choice)</span></div><div><b>K / I / H</b><span>outer fold / inner fold / hyperparameter set</span></div><div><b>H*</b><span>the winning hyperparameter set of a round — best mean inner score</span></div><div><b>K1H2</b><span>the mean inner score of set H2 in round K1 (one cell of the grid)</span></div><div><b>outer_score_K</b><span>the judge-fold score of round K — the honest number for that round</span></div><div><b>e / b</b><span>epoch / batch</span></div><div><b>F1</b><span>the F1 score — harmonic mean of precision and recall; the metric fixed in Phase V</span></div><div><b>val</b><span>the validate rows of a run (inner: 800; judge: 2,000)</span></div><div><b>lr / bs / do / ep</b><span>learning rate / batch size / dropout / epochs — the four numbers in each H set</span></div><div><b>SMOTE</b><span>Synthetic Minority Over-sampling Technique — synthetic minority rows, training rows only</span></div><div><b>GPU</b><span>graphics processing unit — the hardware that makes runs expensive</span></div><div><b>ML</b><span>machine learning</span></div><div><b>Phase II–III</b><span>CPMAI Data Understanding and Data Preparation, the pages this one continues from</span></div></div></section>
 <!--LABSEC:END-->
 
+<style>html,body{overflow-x:auto}figure{overflow:visible}</style>
+<script>
+(() => {
+  const svg = document.querySelector("figure > svg"); if (!svg) return;
+  let dpr = window.devicePixelRatio;
+  // a frame can be laid out with no width yet (hidden tab, late layout):
+  // never lock a bogus size in — retry until the width is real
+  const fit = () => { const wd = svg.parentElement.clientWidth; if (wd < 100) { setTimeout(fit, 250); return; } svg.style.width = wd + "px"; svg.style.height = "auto"; };
+  fit();
+  window.addEventListener("resize", () => { if (window.devicePixelRatio !== dpr) { dpr = window.devicePixelRatio; return; } fit(); });
+})();
+</script>
+
 <script>
 (() => { // links to the site open in the parent page; "#section" links stay inside the frame
   const fix = () => document.querySelectorAll('a[href^="/"]:not([target])').forEach(a => { a.target = "_top"; });
