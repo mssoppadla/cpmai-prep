@@ -569,6 +569,19 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") box.style.display = "none"; });
 })();
 </script>
+<style>html,body{overflow-x:auto}figure{overflow:visible}</style>
+<script>
+(() => {
+  const svg = document.querySelector("figure > svg"); if (!svg) return;
+  let dpr = window.devicePixelRatio;
+  // a frame can be laid out with no width yet (hidden tab, late layout):
+  // never lock a bogus size in — retry until the width is real
+  const fit = () => { const wd = svg.parentElement.clientWidth; if (wd < 100) { setTimeout(fit, 250); return; } svg.style.width = wd + "px"; svg.style.height = "auto"; };
+  fit();
+  window.addEventListener("resize", () => { if (window.devicePixelRatio !== dpr) { dpr = window.devicePixelRatio; return; } fit(); });
+})();
+</script>
+
 <script>
 (() => { // links to the site open in the parent page; "#section" links stay inside the frame
   const fix = () => document.querySelectorAll('a[href^="/"]:not([target])').forEach(a => { a.target = "_top"; });

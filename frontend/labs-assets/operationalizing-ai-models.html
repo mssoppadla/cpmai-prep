@@ -1,0 +1,216 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Operationalizing AI Models in Production</title>
+<style>
+:root{--navy:#12294A;--blue:#1F5FA8;--green:#2F7D4F;--orange:#E69F00;--red:#A32B2B;--grey:#5A6472;--ink:#1A1A1A;--line:#C6CFDA;--bg:#F4F6FA;
+--blueL:#E9EFFC;--greenL:#E6F4EF;--orangeL:#FFF4DB;--redL:#FDECEC;--greyL:#EEF1F5}
+*{box-sizing:border-box}
+html,body{margin:0;background:#fff}
+.wrap{overflow:hidden;display:block}
+.page{width:2400px;height:1408px;font-family:Calibri,"Segoe UI",Arial,sans-serif;color:var(--ink);background:#fff;position:relative;transform-origin:top left}
+.title{position:absolute;left:0;top:0;width:2400px;height:78px;background:var(--navy);color:#fff;display:flex;align-items:center;padding:0 40px;gap:24px}
+.title .badge{background:#fff;color:var(--navy);font-weight:700;font-size:22px;border-radius:8px;padding:4px 14px}
+.title h1{font-family:Cambria,Georgia,serif;font-size:34px;margin:0;font-weight:700}
+.title .sub{margin-left:auto;font-size:18px;opacity:.85}
+.band{position:absolute;left:40px;width:2320px;border-radius:10px;padding:10px 14px 12px 14px;border:1.5px solid var(--line)}
+.band h2{margin:0 0 6px 0;font-size:19px;letter-spacing:.3px}
+.band h2 small{font-weight:400;font-size:14px;color:var(--grey);margin-left:10px}
+.cards{display:flex;gap:10px;align-items:stretch}
+.card{background:#fff;border:1.2px solid var(--line);border-radius:8px;padding:8px 10px;flex:1 1 0;min-width:0}
+.card h3{margin:0 0 5px 0;font-size:16px;line-height:1.15}
+.card ul{margin:0;padding-left:15px;font-size:13.6px;line-height:1.3}
+.lane.dev .card ul{font-size:12.6px;line-height:1.28}
+.lane.dev .card h3{font-size:15px}
+.card li{margin:0}
+.card .tag{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:4px;color:#fff;margin-bottom:4px}
+.kill{color:var(--red);text-decoration:line-through}
+.lane{position:absolute;left:40px;width:1880px;border-radius:10px;padding:10px 14px 12px 168px;border:1.5px solid var(--line)}
+.lane .label{position:absolute;left:0;top:0;bottom:0;width:150px;border-radius:9px 0 0 9px;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:8px}
+.lane .label b{font-size:22px}
+.lane .label span{font-size:11.5px;opacity:.95;margin-top:6px;line-height:1.25}
+.lane .cards{height:100%}
+.loop{position:absolute;left:1940px;top:316px;width:420px;height:784px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);padding:10px}
+.loop h2{margin:0 0 4px 0;font-size:19px;color:var(--navy)}
+.loop p{font-size:12.2px;line-height:1.3;margin:6px 0 0 0}
+.legend{position:absolute;left:40px;top:1304px;width:2320px;height:54px;border:1.5px solid var(--line);border-radius:8px;background:#fff;display:flex;align-items:center;gap:14px;padding:0 14px;font-size:13px}
+.legend b{color:var(--navy)} .legend{font-size:14px}
+.legend .env{flex:1;border-left:4px solid var(--navy);padding-left:8px;line-height:1.2}
+.foot{position:absolute;left:40px;top:1372px;width:2320px;font-size:15px;color:var(--grey);display:flex;justify-content:space-between}
+.foot i{color:var(--navy);font-weight:700;font-style:normal}
+.arrow{position:absolute;font-size:34px;color:var(--navy);font-weight:700}
+</style></head><body><div class="wrap"><div class="page">
+
+<div class="title"><span class="badge">VI</span><h1>Operationalizing AI Models in Production — CPMAI Phase VI</h1><span class="sub">From Model Evaluation to Real-World Impact · Sept 2026</span></div>
+
+<!--LABSEC id="guardrail" close="</div></div>"-->
+<!-- RED GUARD RAIL -->
+<div class="band" style="top:90px;height:214px;background:var(--redL);border-color:var(--red)">
+  <h2 style="color:var(--red)">GUARD-RAIL · Trustworthy AI &amp; Model Governance in operation <small>applies to all three lanes below — nothing ships or stays live without it</small></h2>
+  <div class="cards">
+    <div class="card"><span class="tag" style="background:var(--red)">GOVERN</span><h3>Who governs the live model — and what gets logged</h3><ul><li>Provenance &amp; auditing (train · test · deploy)</li><li>Logging of model &amp; data usage, iterations</li><li>Version usage · bias-measure monitoring</li><li>Protect model, training &amp; inference data</li><li>Controls on sharing / extension by others</li><li>Responsible groups + response mechanism</li></ul></div>
+    <div class="card"><span class="tag" style="background:var(--red)">SAFE</span><h3>Safety boundaries — and what happens when they are crossed</h3><ul><li>Acceptable boundaries defined at the outset</li><li>Fallback plan if it operates outside them</li><li>Must not endanger humans by neglect</li><li>Reliable throughout its life cycle</li></ul></div>
+    <div class="card"><span class="tag" style="background:var(--red)">SECURE</span><h3>Securing the model, its data and who can touch it</h3><ul><li>Access control: who · when · where · why · how much</li><li>Protect model + training data + settings</li><li>Vulnerability analysis · report changes</li><li>Sanitize inputs · anonymize data</li><li>Secure APIs · metadata · configs · backups</li></ul></div>
+    <div class="card"><span class="tag" style="background:var(--red)">THREATS</span><h3>Attacks to expect — and the guardrails against them</h3><ul><li>Adversarial inputs · data poisoning</li><li>Prompt injection · jailbreaks · deepfakes</li><li>Prompt filtering · output moderation</li><li>Model constraints · content scoring</li><li>Red teaming before &amp; after go-live</li></ul></div>
+    <div class="card"><span class="tag" style="background:var(--red)">HUMAN</span><h3>Where a human must stay in the loop · which laws apply</h3><ul><li>Runaway · inconsistent · ambiguous · probabilistic</li><li>Cyber &amp; physical threats need human intuition</li><li>Disclose “you are talking to an AI”</li><li>NIST AI RMF · GDPR / CCPA · EU AI Act audits</li></ul></div>
+  </div>
+</div>
+
+<!--LABSEC id="dataops" close="</div></div>"-->
+<!-- LANE 1 DATAOPS -->
+<div class="lane" style="top:316px;height:206px;background:var(--blueL);border-color:var(--blue)">
+  <div class="label" style="background:var(--blue)"><b>DataOps</b><span>keeping the data flowing, valid and traceable<br>(data-engineering environment)</span></div>
+  <div class="cards">
+    <div class="card"><h3>Managing the data life cycle after go-live</h3><ul><li>How data is generated, collected, stored</li><li>Continuous pipeline updates</li><li>Refresh &amp; change-data-capture</li><li>Retention, deletion, archival</li></ul></div>
+    <div class="card"><h3>Ingest → validate → align schema → track lineage</h3><ul><li>Validate at collection (checksums, reconciliation)</li><li>Schema alignment &amp; compatibility</li><li>Lineage: origin → transform → destination</li><li>Documented, version-controlled, re-executable</li></ul></div>
+    <div class="card"><h3>Three separate data pipelines: training · inference · retraining</h3><ul><li><b>Training</b> — batch, GPU, iterative</li><li><b>Inference</b> — real-time, lighter, may differ from training</li><li><b>Retraining</b> — fed by production feedback</li><li>Never reuse one pipeline for all three</li></ul></div>
+    <div class="card"><h3>Watching production data drift away from training data</h3><ul><li>Training vs production distribution</li><li>Histograms · PSI · Kolmogorov–Smirnov</li><li>Causes: data change · operational change · new expectations</li><li>Feeds the retraining trigger (MLOps)</li></ul></div>
+    <div class="card"><h3>Securing production data &amp; protecting privacy</h3><ul><li>Encryption · access controls · permissions</li><li>Anonymisation of PII in logs</li><li>Regular security &amp; compliance audits</li><li>GDPR / CCPA / HIPAA obligations</li></ul></div>
+  </div>
+</div>
+
+<!--LABSEC id="mlops" close="</div></div>"-->
+<!-- LANE 2 MLOPS -->
+<div class="lane" style="top:534px;height:248px;background:var(--greenL);border-color:var(--green)">
+  <div class="label" style="background:var(--green)"><b>MLOps</b><span>keeping the model correct, versioned and monitored<br>(DevOps for ML + model-specific Ops)</span></div>
+  <div class="cards">
+    <div class="card"><h3>A model has two phases: training vs inference (serving)</h3><ul><li><b>Training:</b> GPU-intensive, iterative, batch</li><li><b>Inference:</b> lighter compute, no GPU, optimise for impact</li><li>Two phases — not build/test/deploy of apps</li><li>Lives in app · server · cloud · desktop · browser · edge · embedded</li></ul></div>
+    <div class="card"><h3>Version every model, data set &amp; config — never overwrite the live model</h3><ul><li>Model registry; v1 kept while v2 deploys</li><li>Per version: training set · test/validation sets · outputs · confusion matrix · hyper-params · prompts · config</li><li>Any prediction traceable to model + data version</li><li><span class="kill">Hot-fix retrain over the prod file</span></li></ul></div>
+    <div class="card"><h3>When to retrain: on drift triggers, never on a calendar</h3><ul><li>Data drift · concept drift · label/target drift → model decay</li><li>Triggers: metric &lt; threshold · distribution shift · KPI moves · class-balance shift</li><li><span class="kill">Retrain every N months regardless</span></li><li>Evaluate → root-cause &amp; retrain → iterate pipeline → deploy &amp; monitor</li></ul></div>
+    <div class="card"><h3>Model scaffolding: the code around the model that makes it usable</h3><ul><li>Prompt chaining · agentic frameworks · orchestration</li><li>External memory · JSON-schema output validation</li><li>Handle outputs &amp; probabilities; format inputs</li><li>Needed even for third-party models</li><li>→ hands outputs to downstream consumers (DevOps lane)</li></ul></div>
+    <div class="card"><h3>Running GenAI / LLMs in production</h3><ul><li>Prompt optimisation · RAG (refreshed knowledge base) · fine-tuning</li><li><b>Self-hosted vs API-hosted:</b> control · quality · expertise · cost · moderation</li><li>Risks: rogue outputs · degradation · API versions/cost · adversarial prompts · less control</li><li>→ more humans in the loop, not fewer</li></ul></div>
+    <div class="card"><h3>Monitoring the live model — every alert needs an owner and a response</h3><ul><li>Latency · perf time · request volume · prediction errors · accuracy / recall / F1 · user feedback</li><li>Usage &amp; abuse alerts · usage matches intent</li><li>Tiered severity thresholds, each with a response</li><li><span class="kill">300 unread alerts</span> CloudWatch · Datadog · Grafana</li></ul></div>
+  </div>
+</div>
+
+<!--LABSEC id="devops" close="</div></div>"-->
+<!-- LANE 3 DEVOPS -->
+<div class="lane dev" style="top:794px;height:306px;background:var(--orangeL);border-color:var(--orange)">
+  <div class="label" style="background:var(--orange);color:#1A1A1A"><b>DevOps / DevSecOps</b><span>keeping the service running, integrated and secure<br>(operationalization environment)</span></div>
+  <div class="cards">
+    <div class="card"><h3>How often &amp; how fast are predictions needed? → serving mode</h3><ul><li>Weekly / nightly → <b>batch</b></li><li>Unbounded stream → <b>streaming / stream learning</b></li><li>Request-response in budget → <b>API / microservice</b></li><li>Offline / remote → <b>edge</b></li><li>Cold path = accuracy · hot path = speed</li></ul></div>
+    <div class="card"><h3>Where does the model run? on-prem · cloud · edge · device</h3><ul><li>☁ cloud · 🏢 on-premises · 📱 mobile · ⚙ edge (Jetson, Pi) · 🌐 browser · 🔩 embedded · MLaaS</li><li>Train in cloud / host on device · train local / host in cloud · both in cloud</li><li>Regulated + fast iteration → hybrid cloud + on-prem</li></ul></div>
+    <div class="card"><h3>One model, many sites: four architecture decisions</h3><ul><li>1 Store &amp; govern: centralized repo · decentralized</li><li>2 Train / adapt: site-specific tuning · federated</li><li>3 Inference: cloud-uniform · hybrid edge · hybrid on-prem · multi-cloud</li><li>4 Package: containers / Kubernetes</li></ul></div>
+    <div class="card"><h3>Releasing a new model version safely (CI/CD &amp; rollout)</h3><ul><li>Controlled promotion; integration tests with CRM / order systems via secure APIs</li><li>Load &amp; stress test · auto-scaling</li><li>Deploy alongside: blue-green · canary · shadow · A/B</li><li>Tested rollback path before traffic shifts</li></ul></div>
+    <div class="card"><h3>Who uses the predictions &amp; how systems connect</h3><ul><li>Who consumes predictions: apps · workflows · dashboards · agents · people</li><li>Connectors via secure APIs: CRM, order, ticketing, ERP; near-real-time sync</li><li>Non-AI work: application &amp; front-end development, UI, accessibility</li><li>Output handling: probability → decision · confidence threshold → escalation · disclosure</li><li>Batch outputs → reports; real-time → in-app response</li></ul></div>
+    <div class="card"><h3>Deployment plan — decided before go-live, not during</h3><ul><li>Strategy &amp; timeline · infra &amp; resources · IT coordination</li><li>Checklists with validation criteria</li><li>User-access provisioning · security config</li><li>Post-deployment verification &amp; testing</li></ul></div>
+    <div class="card"><h3>When the AI is down: fallback &amp; business continuity</h3><ul><li>Fallback: prior system · limited service · manual override + escalation · human in loop</li><li>Incident response · backup &amp; DR · business continuity</li><li>Test the contingency regularly</li><li><b>An outage is never an excuse to stop the business</b></li></ul></div>
+    <div class="card"><h3>DevSecOps: security built into every release</h3><ul><li>Same security &amp; compliance protocols as the rest of the stack</li><li>Continuous integration &amp; feedback loops</li><li>Automated documentation · audit trails &amp; logs</li><li>Traceability: input → decision</li></ul></div>
+  </div>
+</div>
+
+<!--LABSEC id="loop" close="</div></div>"-->
+<!-- LIFECYCLE LOOP -->
+<div class="loop">
+  <h2>The operations loop — repeats for the life of the model</h2>
+  <svg viewBox="0 0 400 660" width="400" height="660" role="img" aria-label="Circular lifecycle: iterate, revise, deploy new version, monitor, detect drift, retrain, redeploy, evaluate against KPIs, go/no-go, next iteration or iterate back">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#12294A"/></marker></defs>
+    <path d="M200,132 A118,118 0 1,1 199,132" fill="none" stroke="#12294A" stroke-width="5" marker-end="url(#ah)"/>
+    <g font-family="Calibri,Arial" font-size="15" font-weight="700" fill="#12294A">
+      <text x="200" y="112" text-anchor="middle">1 Iterate → Revise</text>
+      <text x="300" y="160" text-anchor="start">2 Deploy v+1</text>
+      <text x="326" y="256" text-anchor="start">3 Monitor</text>
+      <text x="300" y="356" text-anchor="start">4 Drift trigger</text>
+      <text x="200" y="404" text-anchor="middle">5 Retrain on fresh data</text>
+      <text x="100" y="356" text-anchor="end">6 Redeploy</text>
+      <text x="74" y="256" text-anchor="end">7 Evaluate</text>
+      <text x="100" y="160" text-anchor="end">8 Go / No-Go</text>
+    </g>
+    <g font-family="Calibri,Arial" font-size="13" fill="#1A1A1A" text-anchor="middle">
+      <text x="200" y="228" font-weight="700" fill="#2F7D4F">Business · Technology</text>
+      <text x="200" y="246" font-weight="700" fill="#2F7D4F">Model · Adoption KPIs</text>
+      <text x="200" y="272">never overwrite</text>
+      <text x="200" y="290">never on a calendar</text>
+      <text x="200" y="308">never without a fallback</text>
+    </g>
+    <g font-family="Calibri,Arial" font-size="13.5" fill="#1A1A1A">
+      <text x="6" y="480" font-weight="700" fill="#A32B2B">ITERATE BACK when</text>
+      <text x="6" y="500">→ V   more metrics, benchmarks, drift measures</text>
+      <text x="6" y="519">→ IV  rebuild, fine-tune or re-prompt</text>
+      <text x="6" y="538">→ III / II  inference data ≠ real data</text>
+      <text x="6" y="557">→ I   operational reality ≠ plan; trust issues</text>
+      <text x="6" y="586" font-weight="700" fill="#2F7D4F">NEXT ITERATION when every</text>
+      <text x="6" y="604" font-weight="700" fill="#2F7D4F">Phase VI checkpoint has an adequate answer</text>
+    </g>
+  </svg>
+</div>
+
+<!--LABSEC id="people" close="</div></div>"-->
+<!-- GREY STRIP -->
+<div class="band" style="top:1114px;height:176px;background:var(--greyL);border-color:var(--grey)">
+  <h2 style="color:var(--grey)">PEOPLE &amp; CLOSURE <small>after go-live: users, hand-over and the next iteration — the project is not done when the model ships, it is done when operations can run it without you</small></h2>
+  <div class="cards">
+    <div class="card"><h3>Why AI projects fail after launch</h3><ul><li>Maintenance time &amp; budget not planned (retrain, clean, label)</li><li>Consequences of drift not accounted for</li><li><span class="kill">Build, test, deploy and walk away</span></li><li>COVID-19 broke seasonality-tuned e-commerce models</li></ul></div>
+    <div class="card"><h3>Getting people to actually use it — adoption plan</h3><ul><li>Pilot group → phased rollout, each phase validated</li><li>User training &amp; communication: what it does / does not do</li><li>Feedback loop into the next iteration</li><li>Adoption tracked as a KPI · <span class="kill">big-bang rollout</span></li></ul></div>
+    <div class="card"><h3>Closing the iteration: final report &amp; lessons learned</h3><ul><li>Outcomes vs Phase I criteria · realised ROI / KPIs</li><li>What worked, what to improve, best practices</li><li>Present to stakeholders &amp; leadership</li></ul></div>
+    <div class="card"><h3>Handover to the operations team</h3><ul><li>Runbooks · knowledge transfer to support teams</li><li>Maintenance &amp; support procedures</li><li>Roles &amp; responsibilities for operations</li><li>Handover documentation &amp; training</li></ul></div>
+    <div class="card"><h3>Planning the next iteration</h3><ul><li>Model improvement &amp; expansion (multilingual, new features)</li><li>Integration &amp; deployment enhancements</li><li>User-experience optimisation · escalation</li><li>Compliance &amp; fairness audits · HITL refinements</li></ul></div>
+  </div>
+</div>
+
+<!--LABSEC id="legend" close="</div></div>"-->
+<div class="legend"><b>FOUR AI TECHNOLOGY ENVIRONMENTS — no single platform rules them all</b>
+  <div class="env"><b>Model development &amp; training</b><br>data scientists · notebooks · GPUs</div>
+  <div class="env" style="border-color:var(--blue)"><b>Big data / data engineering</b><br>data engineers · pipelines · lineage</div>
+  <div class="env" style="border-color:var(--green)"><b>Model scaffolding</b><br>app developers · prompts · agents · I/O</div>
+  <div class="env" style="border-color:var(--orange)"><b>Model operationalization</b><br>IT / ops · uptime · access · scale · versions</div>
+</div>
+
+<div class="foot"><span><i>“From Model Evaluation to Real-World Impact — Operationalizing AI with DataOps, MLOps, DevOps and Trustworthy-AI Governance (Sept 2026)”</i></span><span>https://CPMAIexamPrep.com</span></div>
+</div></div><!--LABSEC:END-->
+<script>
+// Fit the 2400px canvas to the window ONCE at load. Browser zoom (Ctrl +/-,
+// pinch) then enlarges it normally and the page scrolls in both directions;
+// a real window resize (devicePixelRatio unchanged) refits. The canvas
+// height follows the blocks actually present, so a free-preview cut ends
+// cleanly after the last free block.
+(() => {
+  const p = document.querySelector(".page"), w = document.querySelector(".wrap"), W = 2400;
+  let H = 0;
+  for (const el of p.children) { const t = parseFloat(el.style.top) || el.offsetTop || 0; H = Math.max(H, t + el.offsetHeight); }
+  H = Math.ceil(H + 20); p.style.height = H + "px";
+  let dpr = window.devicePixelRatio;
+  // a frame can be laid out with no width yet (hidden tab, late layout):
+  // never lock a bogus scale in — retry until the width is real
+  const fit = () => { const iw = window.innerWidth; if (iw < 100) { setTimeout(fit, 250); return; } const sc = Math.min(1, (iw - 16) / W); p.style.transform = "scale(" + sc + ")"; w.style.width = Math.ceil(W * sc) + "px"; w.style.height = Math.ceil(H * sc) + "px"; };
+  fit();
+  window.addEventListener("resize", () => { if (window.devicePixelRatio !== dpr) { dpr = window.devicePixelRatio; return; } fit(); });
+})();
+</script>
+<script>
+(() => { // links to the site open in the parent page; "#section" links stay inside the frame
+  const fix = () => document.querySelectorAll('a[href^="/"]:not([target])').forEach(a => { a.target = "_top"; });
+  fix(); document.addEventListener("DOMContentLoaded", fix);
+})();
+</script>
+
+<script>
+(() => { // report content height to the embedding page (/labs/<slug>)
+  // Observe the BODY: inside an iframe the <html> box is the frame's own
+  // viewport and never resizes, so a ResizeObserver on it fires once and
+  // goes quiet (expand/collapse then left the frame at the old height).
+  // (setTimeout, not requestAnimationFrame: rAF is paused in hidden tabs
+  // and the frame would come back stale when the tab is shown again)
+  let t = 0;
+  // measure the CONTENT (bottom edge of the body's in-flow children):
+  // documentElement.scrollHeight and body.scrollHeight never drop below
+  // the frame's own height inside an iframe, so the frame would grow on
+  // expand but never shrink back after a collapse
+  const height = () => {
+    let m = 0;
+    for (const el of document.body.children) {
+      const cs = getComputedStyle(el);
+      if (el.tagName === "SCRIPT" || cs.position === "fixed" || cs.position === "absolute" || cs.display === "none") continue;
+      m = Math.max(m, el.getBoundingClientRect().bottom + window.scrollY + (parseFloat(cs.marginBottom) || 0));
+    }
+    return Math.ceil(m + (parseFloat(getComputedStyle(document.body).paddingBottom) || 0) + 8);
+  };
+  const post = () => { t = 0; try { parent.postMessage({ type: "lab-height", h: height() }, window.location.origin); } catch (e) {} };
+  const queue = () => { if (!t) t = setTimeout(post, 16); };
+  new ResizeObserver(queue).observe(document.body);
+  new MutationObserver(queue).observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ["class", "hidden", "open", "style"] });
+  document.addEventListener("transitionend", queue, true);
+  window.addEventListener("load", post); setTimeout(post, 400);
+})();
+</script>
+</body></html>

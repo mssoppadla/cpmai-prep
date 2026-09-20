@@ -152,7 +152,10 @@ export function LabEmbedClient({
           title={title}
           onLoad={onLoad}
           style={{ height }}
-          scrolling={viewport ? "yes" : "no"}
+          // "auto" (not "no") in content mode too: after a browser zoom the
+          // fit-once documents are wider than the frame and must scroll
+          // sideways; the tracked height keeps a vertical bar from appearing
+          scrolling={viewport ? "yes" : "auto"}
           className="w-full border border-slate-200 rounded-2xl bg-white"
         />
       ) : (
