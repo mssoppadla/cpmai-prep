@@ -335,7 +335,9 @@
   let dpr = window.devicePixelRatio;
   // a frame can be laid out with no width yet (hidden tab, late layout):
   // never lock a bogus size in — retry until the width is real
-  const fit = () => { const wd = svg.parentElement.clientWidth; if (wd < 100) { setTimeout(fit, 250); return; } svg.style.width = wd + "px"; svg.style.height = "auto"; };
+  // content width of the figure (clientWidth includes its padding; sizing
+  // to that overhung by the padding and forced a horizontal scrollbar)
+  const fit = () => { const fig = svg.parentElement, cs = getComputedStyle(fig); const wd = fig.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0); if (wd < 100) { setTimeout(fit, 250); return; } svg.style.width = wd + "px"; svg.style.height = "auto"; };
   fit();
   window.addEventListener("resize", () => { if (window.devicePixelRatio !== dpr) { dpr = window.devicePixelRatio; return; } fit(); });
 })();
