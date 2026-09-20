@@ -87,6 +87,13 @@ export default function LessonPlayerPage({
   const [detail, setDetail] = useState<CourseDetailPublicOut | null>(null);
   const [progress, setProgress] = useState<Record<number, LessonProgressOut>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Phones and tablets: start with the contents closed so the player fills
+  // the width. The sidebar is a fixed 320px column; on a 400px screen it
+  // pushed the lesson pane off to the right (candidate report 2026-09-20).
+  // Below lg the open sidebar becomes an overlay drawer instead of a column.
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 1023px)").matches) setSidebarOpen(false);
+  }, [lessonId]);
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState<"description" | "discussion">("description");
 
@@ -207,8 +214,15 @@ export default function LessonPlayerPage({
     <>
       <SiteHeader />
       <div className="flex min-h-screen bg-slate-50">
+        {/* Backdrop for the mobile drawer — tap to close */}
+        {sidebarOpen && (
+          <div className="lg:hidden fixed inset-0 z-20 bg-slate-900/40"
+               onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+        )}
         {/* ============ Left sidebar: contents ============ */}
-        <aside className={`${sidebarOpen ? "w-80" : "w-12"} shrink-0 bg-white border-r border-slate-200 transition-all`}>
+        <aside className={`${sidebarOpen
+            ? "w-80 max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-30 max-lg:shadow-2xl max-lg:overflow-y-auto"
+            : "w-12"} shrink-0 bg-white border-r border-slate-200 transition-all`}>
           <div className="sticky top-0 z-10 px-4 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between">
             {sidebarOpen && <span className="font-semibold text-slate-900 text-sm tracking-tight">Course content</span>}
             <button onClick={() => setSidebarOpen((o) => !o)}
@@ -268,6 +282,11 @@ export default function LessonPlayerPage({
                             <li key={l.id}>
                               {canOpen ? (
                                 <Link href={`/courses/${params.slug}/lessons/${l.id}`}
+                                      onClick={() => {
+                                        // phones/tablets: the drawer closes on any lesson tap,
+                                        // including a tap on the lesson already open
+                                        if (window.matchMedia("(max-width: 1023px)").matches) setSidebarOpen(false);
+                                      }}
                                       className={`group relative flex items-center gap-2.5 rounded-lg pl-3 pr-2 py-2 text-sm transition-colors ${
                                         active ? "bg-indigo-50" : "hover:bg-slate-100/70"
                                       }`}>
