@@ -755,14 +755,30 @@ def grant_enrollment(
     target = db.get(User, payload.user_id)
     if not target:
         raise NotFoundError("User not found")
-    # Block double-active enrollment
+    # One live row per (user, course). A DERIVED row (plan bundle or
+    # program) is upgraded in place to an outright grant — the learner
+    # keeps progress/notes and the grant now survives the plan lapsing
+    # or the program being revoked. A row that is already an outright
+    # grant/purchase is a true duplicate → 409.
     existing = db.query(Enrollment).filter(
         Enrollment.user_id == target.id,
         Enrollment.course_id == c.id,
         Enrollment.revoked_at.is_(None),
     ).first()
     if existing:
-        raise ConflictError("User is already enrolled in this course.")
+        if existing.source not in ("subscription", "program"):
+            raise ConflictError("User is already enrolled in this course.")
+        prior = existing.source
+        existing.source = "admin_grant"
+        existing.subscription_id = None
+        existing.granted_by_id = admin.id
+        existing.grant_reason = payload.grant_reason
+        existing.expires_at = payload.expires_at
+        db.commit(); db.refresh(existing)
+        audit_log(db, admin.id, "enrollment.granted",
+                  {"id": existing.id, "target_user_id": target.id, "course_id": c.id,
+                   "reason": payload.grant_reason[:200], "upgraded_from": prior})
+        return existing
     e = Enrollment(
         tenant_id=get_current_tenant_id(),
         user_id=target.id,

@@ -51,3 +51,4 @@ backend/tests/unit/geoip/fixtures/test-City.mmdb
 # volume; local dev creates the dir on first upload.
 backend/uploads/
 .deploy-marker
+backend/local_uploads/

@@ -290,3 +290,56 @@ def test_dead_row_does_not_block_subscription_access(client, db, admin, user, pr
     assert [m["course_id"] for m in _my(client, user)] == [c1.id]
     db.refresh(dead)
     assert dead.source == "subscription"
+
+
+def test_admin_grant_upgrades_derived_row_instead_of_409(
+        client, db, admin, user, program_setup):
+    """Operator grants a child course outright to a learner who already
+    reaches it through the program: no 409, the derived row becomes an
+    admin grant that survives revoking the program. A second grant on
+    an outright row is still a duplicate."""
+    prog, c1, c2, other = program_setup
+    _set_children(client, admin, prog.id, [c1.id])
+    prog_enr = _grant(client, admin, prog.id, user.id)
+    assert _detail(client, user, c1.slug).json()["is_enrolled"] is True
+    rows = db.query(Enrollment).filter(Enrollment.user_id == user.id,
+                                       Enrollment.course_id == c1.id).all()
+    assert len(rows) == 1 and rows[0].source == "program"
+
+    upgraded = _grant(client, admin, c1.id, user.id)
+    assert upgraded["id"] == rows[0].id and upgraded["source"] == "admin_grant"
+    r = client.post(f"{COURSES}/{c1.id}/enrollments",
+                    headers=auth_header(client, admin.email),
+                    json={"user_id": user.id, "grant_reason": "dup"})
+    assert r.status_code == 409
+
+    client.delete(f"/api/v1/admin/enrollments/{prog_enr['id']}",
+                  headers=auth_header(client, admin.email))
+    assert _detail(client, user, c1.slug).json()["is_enrolled"] is True
+    assert [m["course_id"] for m in _my(client, user)] == [c1.id]
+
+
+def test_plan_and_program_both_covering_a_course_shows_it_once(
+        client, db, admin, user, program_setup):
+    """Overlap: a plan bundles c1 directly AND the program (which includes
+    c1). Dashboard must load, show the program card once with c1 nested,
+    and never 409/500 on the duplicate entitlement."""
+    prog, c1, c2, other = program_setup
+    _set_children(client, admin, prog.id, [c1.id, c2.id])
+    r = client.post(PLANS, headers=auth_header(client, admin.email),
+                    json={"name": "Overlap", "slug": "overlap", "bundle_type": "course_bundle",
+                          "base_price_paise": 1000, "duration_days": 365,
+                          "course_ids": [c1.id, prog.id]})
+    assert r.status_code == 201, r.text
+    db.add(Subscription(user_id=user.id, plan_id=r.json()["id"], plan="pro",
+                        status="active",
+                        expires_at=datetime.now(timezone.utc) + timedelta(days=30)))
+    db.commit()
+    for _ in range(2):   # idempotent across loads
+        mine = _my(client, user)
+        assert [m["course_id"] for m in mine] == [prog.id]
+        assert [k["course_id"] for k in mine[0]["program_children"]] == [c1.id, c2.id]
+    assert _detail(client, user, c1.slug).json()["is_enrolled"] is True
+    rows = db.query(Enrollment).filter(Enrollment.user_id == user.id,
+                                       Enrollment.revoked_at.is_(None)).all()
+    assert len(rows) == 3   # prog + c1 + c2, one row each
