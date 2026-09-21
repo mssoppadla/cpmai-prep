@@ -34,6 +34,7 @@ from app.models.lms import (
     CourseCategoryLink, CourseReview,
     Enrollment, Lesson, LessonFile, LessonNote, LessonProgress,
     LmsQuiz, LmsQuizAttempt, LmsQuizQuestion, LmsQuizQuestionOption,
+    ProgramCourse,
 )
 from app.models.plan import PlanCourse
 from app.models.subscription import Subscription
@@ -43,8 +44,8 @@ from app.schemas.lms import (
     CourseAnnouncementOut, CoursePublicOut, CourseReviewOut,
     CourseReviewUpsertIn, EnrollmentOut, LessonFileOut, LessonNoteOut,
     LessonNoteUpsertIn, LessonProgressOut, LessonProgressUpdateIn,
-    LessonPublicOut, PodcastPointerIn, QuizAttemptOut, QuizAttemptSubmitIn,
-    QuizQuestionOut,
+    LessonPublicOut, PodcastPointerIn, ProgramChildOut, QuizAttemptOut,
+    QuizAttemptSubmitIn, QuizQuestionOut,
 )
 from app.schemas.zoom import (
     SignedRecordingPlaybackOut, ZoomSDKTokenOut, ZoomSessionPublicOut,
@@ -120,7 +121,42 @@ def _has_active_subscription_bundle(
     ).order_by(Subscription.id.desc()).first()
 
 
-def _enrollment_grants_access(db: Session, e: Enrollment) -> bool:
+def _program_links_for_course(db: Session, course_id: int) -> list[ProgramCourse]:
+    """Program links that include ``course_id`` whose program is live
+    (not deleted). Published-ness is NOT required: an internal program
+    behaves like an internal course — reachable only by its enrollees."""
+    return list(
+        db.query(ProgramCourse)
+          .join(Course, Course.id == ProgramCourse.program_id)
+          .filter(ProgramCourse.course_id == course_id,
+                  ProgramCourse.tenant_id == get_current_tenant_id(),
+                  Course.is_deleted.is_(False),
+                  Course.is_program.is_(True))
+          .all()
+    )
+
+
+def _active_program_enrollment(
+    db: Session, user: User | None, course_id: int, _depth: int = 0,
+) -> Enrollment | None:
+    """The learner's LIVE enrollment on a Program that includes this
+    course, if any. Programs nest one level only (enforced by the admin
+    API); ``_depth`` is a belt-and-braces recursion stop for legacy or
+    hand-edited data.
+
+    Goes through ``_active_enrollment`` for the parent so a plan that
+    bundles the PROGRAM still works (the parent row is materialised
+    from the subscription on the way)."""
+    if user is None or _depth > 1:
+        return None
+    for link in _program_links_for_course(db, course_id):
+        parent = _active_enrollment(db, user, link.program_id, _depth=_depth + 1)
+        if parent is not None:
+            return parent
+    return None
+
+
+def _enrollment_grants_access(db: Session, e: Enrollment, _depth: int = 0) -> bool:
     """Does this enrollment row open content RIGHT NOW?
 
     An enrollment is a cache of an entitlement, not the entitlement
@@ -148,6 +184,16 @@ def _enrollment_grants_access(db: Session, e: Enrollment) -> bool:
         # kept for cascade + audit, not consulted for access.
         return _has_active_subscription_bundle(
             db, e.user_id, e.course_id) is not None
+    if e.source == "program":
+        # Program-derived rows live exactly as long as the learner holds
+        # a live enrollment on SOME program that still includes the
+        # course. Removing the course from the program, revoking the
+        # program enrollment, or the program's plan lapsing all drop it
+        # on the next read. A separately bought/granted copy of the
+        # course is a different row (different source) and unaffected.
+        user = db.get(User, e.user_id)
+        return _active_program_enrollment(
+            db, user, e.course_id, _depth=_depth) is not None
     now = datetime.now(timezone.utc)
     if e.expires_at is not None and _as_aware(e.expires_at) <= now:
         return False
@@ -166,7 +212,8 @@ def _refresh_from_sub(db: Session, e: Enrollment, sub: Subscription) -> None:
     db.commit()
 
 
-def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enrollment | None:
+def _active_enrollment(db: Session, user: User | None, course_id: int,
+                       _depth: int = 0) -> Enrollment | None:
     """Return the user's enrollment for the course IF it currently grants
     access, creating one implicitly if a live subscription bundle covers
     the course.
@@ -185,7 +232,7 @@ def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enroll
         Enrollment.tenant_id == get_current_tenant_id(),
     ).first()
     if enrollment is not None:
-        if _enrollment_grants_access(db, enrollment):
+        if _enrollment_grants_access(db, enrollment, _depth=_depth):
             # Keep subscription rows anchored on whichever live sub backs
             # them now (renewal may have replaced the original).
             if enrollment.source == "subscription":
@@ -194,12 +241,54 @@ def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enroll
                                         or enrollment.expires_at != sub.expires_at):
                     _refresh_from_sub(db, enrollment, sub)
             return enrollment
-        return None  # stale cache: revoked/lapsed entitlement behind it
+        # Stale cache: the entitlement behind this row lapsed (expired
+        # grant, revoked/lapsed sub, course dropped from its program).
+        # The (user, course) uniqueness means this dead row would BLOCK
+        # a fresh implicit row — the "duplicate allotment locks the
+        # learner out" incident class. So re-point the row at whatever
+        # live entitlement covers the course now, if any.
+        sub = _has_active_subscription_bundle(db, user.id, course_id)
+        if sub is not None:
+            enrollment.source = "subscription"
+            enrollment.grant_reason = (
+                f"Re-anchored on subscription #{sub.id} (plan {sub.plan_id})")
+            _refresh_from_sub(db, enrollment, sub)
+            return enrollment
+        parent = _active_program_enrollment(db, user, course_id, _depth=_depth)
+        if parent is not None:
+            enrollment.source = "program"
+            enrollment.subscription_id = None
+            enrollment.expires_at = None
+            enrollment.grant_reason = f"Auto-enrolled via program #{parent.course_id}"
+            db.commit()
+            return enrollment
+        return None
 
     # No enrollment row — check if a subscription bundle covers this course
     sub = _has_active_subscription_bundle(db, user.id, course_id)
     if sub is None:
-        return None
+        # ... or a Program the learner is enrolled in includes it.
+        parent = _active_program_enrollment(db, user, course_id, _depth=_depth)
+        if parent is None:
+            return None
+        enrollment = Enrollment(
+            tenant_id=get_current_tenant_id(),
+            user_id=user.id,
+            course_id=course_id,
+            source="program",
+            grant_reason=f"Auto-enrolled via program #{parent.course_id}",
+        )
+        db.add(enrollment)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()   # concurrent request won the race
+            return _active_enrollment(db, user, course_id, _depth=_depth)
+        db.refresh(enrollment)
+        audit_log(db, user.id, "enrollment.auto_program",
+                  {"id": enrollment.id, "course_id": course_id,
+                   "program_id": parent.course_id})
+        return enrollment
 
     # Implicit enrollment auto-create, anchored on the backing sub.
     enrollment = Enrollment(
@@ -219,6 +308,27 @@ def _active_enrollment(db: Session, user: User | None, course_id: int) -> Enroll
               {"id": enrollment.id, "course_id": course_id,
                "subscription_id": sub.id, "plan_id": sub.plan_id})
     return enrollment
+
+
+def _program_children(db: Session, program: Course) -> list[tuple[ProgramCourse, Course]]:
+    """Included courses of a program, in position order, deleted ones
+    dropped (an unpublished child stays — enrollees reach it through
+    the program exactly like an internal course)."""
+    rows = (db.query(ProgramCourse, Course)
+              .join(Course, Course.id == ProgramCourse.course_id)
+              .filter(ProgramCourse.program_id == program.id,
+                      ProgramCourse.tenant_id == get_current_tenant_id(),
+                      Course.is_deleted.is_(False))
+              .order_by(ProgramCourse.position, ProgramCourse.id)
+              .all())
+    return [(link, c) for link, c in rows]
+
+
+def _program_progress(children: list[ProgramChildOut]) -> dict:
+    total = sum(ch.lessons_total for ch in children)
+    done = sum(ch.lessons_completed for ch in children)
+    return {"lessons_completed": done, "lessons_total": total,
+            "percent": round(done / total * 100) if total else 0}
 
 
 def _sign_block_media(blocks: list | None, viewer_id: int) -> list:
@@ -371,6 +481,17 @@ def list_public_courses(
         return {"preview_lesson_id": lid,
                 "preview_video_url": protected_media_url(url, 0)}
 
+    # Programs: how many courses each wraps (catalog card badge).
+    program_ids = [c.id for c in courses if c.is_program]
+    child_count: dict[int, int] = {}
+    if program_ids:
+        for pid, n in (db.query(ProgramCourse.program_id, func.count(ProgramCourse.id))
+                         .join(Course, Course.id == ProgramCourse.course_id)
+                         .filter(ProgramCourse.program_id.in_(program_ids),
+                                 Course.is_deleted.is_(False))
+                         .group_by(ProgramCourse.program_id).all()):
+            child_count[pid] = int(n)
+
     return [
         {
             **CoursePublicOut.model_validate(c).model_dump(mode="json"),
@@ -379,6 +500,7 @@ def list_public_courses(
                 for cc in cat_map.get(c.id, [])
             ],
             **_preview(c.id),
+            "program_course_count": child_count.get(c.id, 0) if c.is_program else None,
         }
         for c in courses
     ]
@@ -401,6 +523,36 @@ def get_public_course(
         raise NotFoundError("Course not found")
     enrolled = _active_enrollment(db, user, c.id) is not None
     viewer_id = user.id if user else 0
+
+    # Program: the included courses, each with the viewer's progress when
+    # enrolled. Unpublished children are listed only for enrollees (they
+    # are reachable for them; hidden from everyone else like any
+    # internal course).
+    program_courses: list[dict] = []
+    if c.is_program:
+        for link, child in _program_children(db, c):
+            if not child.is_published and not enrolled:
+                continue
+            item = {
+                "course": CoursePublicOut.model_validate(child).model_dump(),
+                "position": link.position,
+                "is_mandatory": link.is_mandatory,
+                "is_enrolled": False,
+                "lessons_completed": 0, "lessons_total": 0,
+                "progress_percent": 0, "completed_at": None,
+            }
+            if user is not None:
+                ce = _active_enrollment(db, user, child.id)
+                if ce is not None:
+                    prog = course_progress(db, ce)
+                    item.update({
+                        "is_enrolled": True,
+                        "lessons_completed": prog["lessons_completed"],
+                        "lessons_total": prog["lessons_total"],
+                        "progress_percent": prog["percent"],
+                        "completed_at": ce.completed_at,
+                    })
+            program_courses.append(item)
 
     # Social-proof signal for the course detail hero: how many active
     # enrollments are on this course. We count rows from the canonical
@@ -437,6 +589,7 @@ def get_public_course(
         "course": CoursePublicOut.model_validate(c).model_dump(),
         "is_enrolled": enrolled,
         "enrollment_count": enrollment_count,
+        "program_courses": program_courses,
         "chapters": [
             {
                 "id": ch.id,
@@ -545,7 +698,10 @@ def list_my_enrollments(
     # Access-lifecycle gate: only rows whose entitlement is still live
     # reach the dashboard — a revoked/lapsed subscription's implicit
     # enrollments (and any past-expiry admin grant) drop out here.
-    enrollments = [e for e in enrollments if _enrollment_grants_access(db, e)]
+    # Goes through _active_enrollment so a dead row that a live plan or
+    # program now covers is re-pointed rather than silently dropped.
+    enrollments = [e for e in enrollments
+                   if _active_enrollment(db, user, e.course_id) is not None]
 
     # Course title/slug for the dashboard cards — one query, no N+1.
     course_ids = {e.course_id for e in enrollments}
@@ -553,10 +709,46 @@ def list_my_enrollments(
         {c.id: c for c in db.query(Course).filter(Course.id.in_(course_ids)).all()}
         if course_ids else {}
     )
+
+    # 2. Programs: every included course of a live program enrollment
+    #    gets its derived row now (so it is a real enrollment with
+    #    progress/notes/quizzes), and is then NESTED under the program
+    #    card rather than repeated as a card of its own — even when the
+    #    learner also bought it separately (that row stays; only the
+    #    display is folded).
+    nested_ids: set[int] = set()
+    children_by_program: dict[int, list[ProgramChildOut]] = {}
+    for e in list(enrollments):
+        prog_course = courses.get(e.course_id)
+        if not prog_course or not prog_course.is_program:
+            continue
+        kids: list[ProgramChildOut] = []
+        for link, child in _program_children(db, prog_course):
+            ce = _active_enrollment(db, user, child.id)   # materialises source='program'
+            if ce is None:
+                continue
+            prog = course_progress(db, ce)
+            kids.append(ProgramChildOut(
+                course_id=child.id, title=child.title, slug=child.slug,
+                is_mandatory=link.is_mandatory, position=link.position,
+                lessons_completed=prog["lessons_completed"],
+                lessons_total=prog["lessons_total"],
+                progress_percent=prog["percent"],
+                completed_at=ce.completed_at,
+            ))
+            nested_ids.add(child.id)
+        children_by_program[e.course_id] = kids
+
     out: list[dict] = []
     for e in enrollments:
-        prog = course_progress(db, e)
+        if e.course_id in nested_ids:
+            continue   # shown once, inside its program card
         c = courses.get(e.course_id)
+        kids = children_by_program.get(e.course_id)
+        if kids is not None:
+            prog = _program_progress(kids)
+        else:
+            prog = course_progress(db, e)
         out.append({
             **EnrollmentOut.model_validate(e).model_dump(),
             "course_title": c.title if c else None,
@@ -564,6 +756,8 @@ def list_my_enrollments(
             "lessons_completed": prog["lessons_completed"],
             "lessons_total": prog["lessons_total"],
             "progress_percent": prog["percent"],
+            "is_program": bool(c and c.is_program),
+            "program_children": [k.model_dump() for k in kids] if kids is not None else None,
         })
     return out
 

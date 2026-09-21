@@ -39,7 +39,7 @@ from app.services.assistant.rag.ingest import reindex_quietly
 from app.models.lms import (
     Chapter, Course, CourseAnnouncement, CourseCategory,
     CourseCategoryLink, Enrollment, Lesson, LessonFile,
-    LmsQuiz, LmsQuizQuestion, LmsQuizQuestionOption,
+    LmsQuiz, LmsQuizQuestion, LmsQuizQuestionOption, ProgramCourse,
 )
 from app.models.user import User
 from app.schemas.lms import (
@@ -49,7 +49,7 @@ from app.schemas.lms import (
     CourseCreateIn, CourseOut, CourseUpdateIn,
     EnrollmentAdminOut, EnrollmentGrantIn, EnrollmentOut,
     LessonCreateIn, LessonFileCreateIn, LessonFileOut, LessonOut,
-    LessonUpdateIn,
+    LessonUpdateIn, ProgramCourseOut, ProgramCoursesSetIn,
     QuizConfigUpsertIn, QuizOptionCreateIn, QuizOptionOut,
     QuizOptionUpdateIn, QuizOut, QuizQuestionCreateIn, QuizQuestionOut,
     QuizQuestionUpdateIn,
@@ -303,6 +303,11 @@ def update_course(
     if new_slug and new_slug != c.slug:
         if _course_slug_taken(db, new_slug, exclude_id=c.id):
             raise ConflictError(f"A course with slug '{new_slug}' already exists.")
+    if updates.get("is_program") is True and not c.is_program:
+        if _is_program_child(db, c.id):
+            raise ValidationError(
+                "This course is included in a program; programs nest one "
+                "level only. Remove it from that program first.")
     for k, v in updates.items():
         setattr(c, k, v)
     db.commit(); db.refresh(c)
@@ -327,6 +332,125 @@ def delete_course(
     db.commit()
     audit_log(db, admin.id, "course.deleted", {"id": c.id, "slug": c.slug})
     reindex_quietly(db, "course", c.id)   # clears the chunks
+
+
+# ============================================================ PROGRAMS
+
+def _is_program_child(db: Session, course_id: int) -> bool:
+    return db.query(ProgramCourse.id).filter(
+        ProgramCourse.course_id == course_id,
+        ProgramCourse.tenant_id == get_current_tenant_id(),
+    ).first() is not None
+
+
+def _program_or_404(db: Session, course_id: int) -> Course:
+    c = _course_scope(db).filter(Course.id == course_id).first()
+    if not c:
+        raise NotFoundError("Course not found")
+    if not c.is_program:
+        raise ValidationError("This course is not a program.")
+    return c
+
+
+def _program_rows(db: Session, program_id: int) -> list[ProgramCourseOut]:
+    rows = (db.query(ProgramCourse, Course)
+              .join(Course, Course.id == ProgramCourse.course_id)
+              .filter(ProgramCourse.program_id == program_id,
+                      ProgramCourse.tenant_id == get_current_tenant_id())
+              .order_by(ProgramCourse.position, ProgramCourse.id)
+              .all())
+    return [
+        ProgramCourseOut(course_id=link.course_id, position=link.position,
+                         is_mandatory=link.is_mandatory, title=c.title,
+                         slug=c.slug, is_published=c.is_published)
+        for link, c in rows
+    ]
+
+
+@router.get("/courses/{course_id}/program-courses",
+            response_model=list[ProgramCourseOut])
+def list_program_courses(course_id: int, db: Session = Depends(get_db),
+                         admin: User = Depends(get_admin_user)):
+    """Included courses of a program, in order (deleted ones included so
+    the operator sees what a learner would lose — flagged by title)."""
+    _program_or_404(db, course_id)
+    return _program_rows(db, course_id)
+
+
+@router.put("/courses/{course_id}/program-courses",
+            response_model=list[ProgramCourseOut])
+def set_program_courses(
+    course_id: int,
+    payload: ProgramCoursesSetIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+):
+    """Replace the program's included-course list (order = position).
+
+    Rules (one level deep): a program can't include itself or another
+    program; a course can't be listed twice. Access follows the list at
+    read time — a learner enrolled in the program gains the added courses
+    on their next page load and loses removed ones the same way, while
+    any course they bought or were granted separately is untouched.
+    """
+    program = _program_or_404(db, course_id)
+    seen: set[int] = set()
+    children: list[Course] = []
+    for item in payload.courses:
+        if item.course_id == program.id:
+            raise ValidationError("A program can't include itself.")
+        if item.course_id in seen:
+            raise ValidationError(f"Course {item.course_id} is listed twice.")
+        seen.add(item.course_id)
+        child = _course_scope(db).filter(Course.id == item.course_id).first()
+        if not child:
+            raise ValidationError(f"Course {item.course_id} not found.")
+        if child.is_program:
+            raise ValidationError(
+                f"'{child.title}' is a program — programs nest one level only.")
+        children.append(child)
+
+    existing = {
+        link.course_id: link for link in db.query(ProgramCourse).filter(
+            ProgramCourse.program_id == program.id,
+            ProgramCourse.tenant_id == get_current_tenant_id(),
+        ).all()
+    }
+    for cid, link in existing.items():
+        if cid not in seen:
+            db.delete(link)
+    for pos, item in enumerate(payload.courses):
+        link = existing.get(item.course_id)
+        if link is None:
+            db.add(ProgramCourse(
+                tenant_id=get_current_tenant_id(), program_id=program.id,
+                course_id=item.course_id, position=pos,
+                is_mandatory=item.is_mandatory, added_by=admin.id,
+            ))
+        else:
+            link.position = pos
+            link.is_mandatory = item.is_mandatory
+    db.commit()
+    audit_log(db, admin.id, "program.courses_set",
+              {"program_id": program.id,
+               "course_ids": [i.course_id for i in payload.courses],
+               "removed": sorted(set(existing) - seen)})
+    return _program_rows(db, program.id)
+
+
+@router.get("/courses/{course_id}/programs", response_model=list[CourseOut])
+def list_parent_programs(course_id: int, db: Session = Depends(get_db),
+                         admin: User = Depends(get_admin_user)):
+    """Programs that include this course (shown in the course editor so
+    the operator knows where access to it is derived from)."""
+    c = _course_scope(db).filter(Course.id == course_id).first()
+    if not c:
+        raise NotFoundError("Course not found")
+    return (db.query(Course)
+              .join(ProgramCourse, ProgramCourse.program_id == Course.id)
+              .filter(ProgramCourse.course_id == c.id,
+                      Course.is_deleted.is_(False))
+              .order_by(Course.title).all())
 
 
 # ============================================================ CHAPTERS
