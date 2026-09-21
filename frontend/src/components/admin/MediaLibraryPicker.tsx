@@ -64,7 +64,7 @@ export function MediaLibraryPicker({
     const needle = q.trim().toLowerCase();
     return items
       .filter((f) => f.status !== "system" && f.status !== "candidate")
-      .filter((f) => !excludePath || f.path !== excludePath)
+      .filter((f) => !excludePath || f.path !== excludePath.split("?")[0])
       .filter((f) => !unusedOnly || f.links.length === 0)
       .filter((f) => !needle
         || f.name.toLowerCase().includes(needle)
