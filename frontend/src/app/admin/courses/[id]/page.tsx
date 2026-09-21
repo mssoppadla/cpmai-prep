@@ -772,7 +772,9 @@ export default function CourseEditorPage({
                     {" · "}
                     {enrollments.filter((e) => e.source === "subscription").length} via plan
                     {" · "}
-                    {enrollments.filter((e) => e.source !== "subscription").length} direct
+                    {enrollments.filter((e) => e.source === "program").length} via program
+                    {" · "}
+                    {enrollments.filter((e) => e.source !== "subscription" && e.source !== "program").length} direct
                   </>
                 )}
               </p>
@@ -827,6 +829,7 @@ export default function CourseEditorPage({
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 text-slate-500">
                   <span>{e.source === "subscription" ? "via plan"
+                         : e.source === "program" ? "via program"
                          : e.source === "admin_grant" ? "direct" : e.source}</span>
                   {e.source === "subscription" && e.backing_subscription_status && (
                     <span className={
