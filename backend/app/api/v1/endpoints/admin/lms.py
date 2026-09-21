@@ -659,14 +659,26 @@ def delete_lesson_file(
     # than unlinked outright — disk is only freed by empty-trash.
     file_url, filename, lesson_id = f.file_url, f.filename, f.lesson_id
     db.delete(f)
-    from app.api.v1.endpoints.admin.storage import move_url_to_trash
-    move_url_to_trash(db, file_url, admin.id, link_summary=[{
-        "kind": "lesson_file", "entity_id": lesson_id,
-        "label": f"Lesson file · {filename}",
-        "admin_href": f"/admin/lessons/{lesson_id}",
-    }])
+    db.flush()
+    # SHARED files ("choose from library"): the same upload may back other
+    # lessons' attachments or videos. Only retire the bytes when nothing
+    # else references the path any more — detaching here must never
+    # break the other lessons.
+    from app.api.v1.endpoints.admin.storage import move_url_to_trash, scan_links
+    still_used = [r for r in scan_links(db).links_for(file_url.split("?", 1)[0])
+                  if r.kind not in ("candidate", "candidate_parent")]
+    trashed = False
+    if not still_used:
+        move_url_to_trash(db, file_url, admin.id, link_summary=[{
+            "kind": "lesson_file", "entity_id": lesson_id,
+            "label": f"Lesson file · {filename}",
+            "admin_href": f"/admin/lessons/{lesson_id}",
+        }])
+        trashed = True
     db.commit()
-    audit_log(db, admin.id, "lesson_file.deleted", {"id": file_id, "url": file_url})
+    audit_log(db, admin.id, "lesson_file.deleted",
+              {"id": file_id, "url": file_url, "trashed": trashed,
+               "still_used_by": len(still_used)})
 
 
 # ============================================================ ENROLLMENTS

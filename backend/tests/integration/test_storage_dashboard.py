@@ -357,3 +357,69 @@ def test_visitor_gets_only_preview_clip(client, db, admin, upload_root,
     lessons = r.json()["chapters"][0]["lessons"]
     assert "preview-90s.webm" in (lessons[0]["video_url"] or "")
     assert lessons[0]["free_preview_seconds"] == 90
+
+
+# ------------------------------------------------- shared files ("choose from library")
+
+def test_shared_lesson_file_delete_keeps_bytes_while_other_lesson_uses_it(
+        client, db, admin, upload_root, course_tree):
+    """Two lessons attach the SAME upload (library picker → no copy).
+    Detaching it from one lesson must not trash the file the other
+    still serves; detaching the last reference does."""
+    _, ch, lsn = course_tree
+    other = Lesson(tenant_id=1, chapter_id=ch.id, lesson_type="text",
+                   title="Other lesson", position=1)
+    db.add(other); db.commit(); db.refresh(other)
+    url = _mk_file(upload_root, "1/2026/09/shared-deck.pdf", size=512)
+    a = LessonFile(tenant_id=1, lesson_id=lsn.id, filename="deck.pdf", file_url=url)
+    b = LessonFile(tenant_id=1, lesson_id=other.id, filename="deck.pdf", file_url=url)
+    db.add_all([a, b]); db.commit(); db.refresh(a); db.refresh(b)
+
+    r = client.delete(f"/api/v1/admin/lesson-files/{a.id}",
+                      headers=auth_header(client, admin.email))
+    assert r.status_code == 204, r.text
+    assert (upload_root / "1/2026/09/shared-deck.pdf").exists()
+    assert client.get(TRASH_ITEMS, headers=auth_header(client, admin.email)).json() == []
+    # still listed as linked to the other lesson
+    assert _rows(client, admin)[url]["status"] == "linked"
+
+    r = client.delete(f"/api/v1/admin/lesson-files/{b.id}",
+                      headers=auth_header(client, admin.email))
+    assert r.status_code == 204, r.text
+    assert not (upload_root / "1/2026/09/shared-deck.pdf").exists()
+    items = client.get(TRASH_ITEMS, headers=auth_header(client, admin.email)).json()
+    assert [t["original_path"] for t in items] == [url]
+
+
+def test_shared_video_delete_of_attachment_keeps_video(
+        client, db, admin, upload_root, course_tree):
+    """A file used as one lesson's VIDEO and another's attachment: removing
+    the attachment row leaves the video intact."""
+    _, ch, lsn = course_tree
+    url = _mk_file(upload_root, "1/2026/09/lecture.mp4", size=4096)
+    lsn.video_url = url; lsn.video_provider = "r2"
+    other = Lesson(tenant_id=1, chapter_id=ch.id, lesson_type="text",
+                   title="Notes", position=1)
+    db.add(other); db.commit(); db.refresh(other)
+    lf = LessonFile(tenant_id=1, lesson_id=other.id, filename="lecture.mp4", file_url=url)
+    db.add(lf); db.commit(); db.refresh(lf)
+    r = client.delete(f"/api/v1/admin/lesson-files/{lf.id}",
+                      headers=auth_header(client, admin.email))
+    assert r.status_code == 204, r.text
+    assert (upload_root / "1/2026/09/lecture.mp4").exists()
+
+
+def test_files_kind_filter(client, db, admin, upload_root):
+    """The library picker asks for videos only."""
+    v = _mk_file(upload_root, "1/2026/09/k-clip.mp4")
+    p = _mk_file(upload_root, "1/2026/09/k-deck.pdf")
+    i = _mk_file(upload_root, "1/2026/09/k-cover.png")
+    def kinds(kind):
+        r = client.get(FILES, params={"kind": kind},
+                       headers=auth_header(client, admin.email))
+        assert r.status_code == 200, r.text
+        return {row["path"] for row in r.json()}
+    assert kinds("video") == {v}
+    assert kinds("image") == {i}
+    assert kinds("document") == {p}
+    assert {v, p, i} <= kinds("")

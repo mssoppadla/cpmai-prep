@@ -1513,7 +1513,7 @@ export const admin = {
         `/admin/storage/overview`, { authed: true });
       return data;
     },
-    async files(p?: { status?: string; q?: string }) {
+    async files(p?: { status?: string; q?: string; kind?: "video" | "image" | "document" }) {
       const { data } = await request<StorageFileOut[]>(
         `/admin/storage/files${qs(p)}`, { authed: true });
       return data;
