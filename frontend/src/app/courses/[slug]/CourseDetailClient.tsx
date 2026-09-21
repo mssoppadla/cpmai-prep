@@ -257,7 +257,86 @@ export function CourseDetailClient({
           </section>
         )}
 
-        {/* Curriculum */}
+        {/* Program: the included courses */}
+        {c.is_program && (
+          <section className="mb-8">
+            <h2 className="text-xl font-bold text-slate-900 mb-1">Courses in this program</h2>
+            <p className="text-sm text-slate-600 mb-4">
+              {detail.is_enrolled
+                ? "You're enrolled in every course below — open any of them in any order."
+                : `Enrolling in the program gives you access to all ${detail.program_courses.length} courses.`}
+            </p>
+            {detail.program_courses.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-xl p-6 text-sm text-slate-500">
+                Courses are being added to this program.
+              </div>
+            ) : (
+              <ol className="space-y-3">
+                {detail.program_courses.map((pc, i) => {
+                  const child = pc.course;
+                  const done = pc.completed_at != null;
+                  const inner = (
+                    <>
+                      {child.cover_image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={child.cover_image_url} alt=""
+                             className="w-24 aspect-video object-cover rounded-md shrink-0 max-sm:hidden" />
+                      ) : (
+                        <div className="w-24 aspect-video rounded-md shrink-0 bg-gradient-to-br from-indigo-100 to-purple-100 grid place-items-center text-indigo-300 max-sm:hidden">
+                          <GraduationCap size={22} />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-slate-500 font-mono text-xs">{i + 1}</span>
+                          <h3 className="font-semibold text-slate-900">{child.title}</h3>
+                          {pc.is_mandatory && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase bg-indigo-100 text-indigo-700 rounded">
+                              Mandatory
+                            </span>
+                          )}
+                          {done && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-100 text-emerald-700 rounded">
+                              Completed
+                            </span>
+                          )}
+                        </div>
+                        {child.subtitle && <p className="text-xs text-slate-600 mt-0.5">{child.subtitle}</p>}
+                        {pc.is_enrolled && (
+                          <div className="mt-2 flex items-center gap-3">
+                            <div className="h-1.5 flex-1 rounded-full bg-slate-100 overflow-hidden">
+                              <div className={`h-full rounded-full ${done ? "bg-emerald-500" : "bg-indigo-600"}`}
+                                   style={{ width: `${pc.progress_percent}%` }} />
+                            </div>
+                            <span className="text-xs text-slate-500 tabular-nums shrink-0">
+                              {pc.lessons_completed}/{pc.lessons_total} lessons · {pc.progress_percent}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-slate-400 text-sm shrink-0">{pc.is_enrolled ? "Open →" : "🔒"}</span>
+                    </>
+                  );
+                  const cls = "flex items-center gap-4 bg-white border border-slate-200 rounded-xl p-4";
+                  return (
+                    <li key={child.id}>
+                      {pc.is_enrolled ? (
+                        <Link href={`/courses/${child.slug}`} className={`${cls} hover:border-indigo-300 hover:shadow-sm transition`}>
+                          {inner}
+                        </Link>
+                      ) : (
+                        <div className={cls}>{inner}</div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </section>
+        )}
+
+        {/* Curriculum (a program may carry its own intro chapters; hide when empty) */}
+        {(detail.chapters.length > 0 || !c.is_program) && (
         <section className="mb-8">
           <h2 className="text-xl font-bold text-slate-900 mb-4">Curriculum</h2>
           <div className="space-y-3">
@@ -324,6 +403,7 @@ export function CourseDetailClient({
             ))}
           </div>
         </section>
+        )}
 
         {/* Reviews */}
         {reviews.length > 0 && (

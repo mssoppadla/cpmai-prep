@@ -18,6 +18,7 @@ import type {
   CmsFillBlockIn, CmsFillBlockOut,
   CmsImproveBlockIn, CmsImproveBlockOut,
   CourseOut, CourseCreateIn, CourseUpdateIn, CoursePublicOut,
+  ProgramCourseOut, ProgramCoursesSetIn,
   CourseDetailPublicOut,
   ChapterOut, ChapterCreateIn, ChapterUpdateIn,
   LessonOut, LessonCreateIn, LessonUpdateIn,
@@ -1305,6 +1306,25 @@ export const admin = {
     },
     async deleteCourse(id: number) {
       await request(`/admin/courses/${id}`, { method: "DELETE", authed: true });
+    },
+    // ------------- Programs (a course that wraps other courses)
+    async listProgramCourses(programId: number) {
+      const { data } = await request<ProgramCourseOut[]>(
+        `/admin/courses/${programId}/program-courses`, { authed: true });
+      return data;
+    },
+    /** Replaces the included list; array order = position. */
+    async setProgramCourses(programId: number, p: ProgramCoursesSetIn) {
+      const { data } = await request<ProgramCourseOut[]>(
+        `/admin/courses/${programId}/program-courses`,
+        { method: "PUT", json: p, authed: true });
+      return data;
+    },
+    /** Programs that include this course. */
+    async listParentPrograms(courseId: number) {
+      const { data } = await request<CourseOut[]>(
+        `/admin/courses/${courseId}/programs`, { authed: true });
+      return data;
     },
     // ------------- Chapters
     async createChapter(courseId: number, p: ChapterCreateIn) {
