@@ -17,6 +17,7 @@ import { admin, errMsg, absoluteUploadUrl } from "@/lib/api";
 import type {
   ChapterOut, CourseOut, CourseUpdateIn, LessonOut, LessonType,
   EnrollmentAdminOut, CourseAnnouncementOut, CourseCategoryOut,
+  ProgramCourseOut,
 } from "@/types/api";
 
 
@@ -80,10 +81,56 @@ export default function CourseEditorPage({
         completion_threshold_percent: course.completion_threshold_percent,
         discussion_url: course.discussion_url,
         cover_image_url: course.cover_image_url,
+        is_program: course.is_program,
         is_published: course.is_published,
       });
     }
   }, [course, meta]);
+
+  // ----------------------------------------------------- program (included courses)
+
+  const [programCourses, setProgramCourses] = useState<ProgramCourseOut[] | null>(null);
+  const [parentPrograms, setParentPrograms] = useState<CourseOut[]>([]);
+  const [allCourses, setAllCourses] = useState<CourseOut[]>([]);
+  const [programBusy, setProgramBusy] = useState(false);
+  const [addCourseId, setAddCourseId] = useState<number | "">("");
+
+  const reloadProgram = useCallback(async () => {
+    if (!course) return;
+    try {
+      if (course.is_program) {
+        const [rows, all] = await Promise.all([
+          admin.lms.listProgramCourses(course.id),
+          admin.lms.listCourses(true),
+        ]);
+        setProgramCourses(rows);
+        setAllCourses(all);
+      } else {
+        setProgramCourses(null);
+        setParentPrograms(await admin.lms.listParentPrograms(course.id));
+      }
+    } catch (e) { console.error("[course editor] program", e); }
+  }, [course]);
+  useEffect(() => { void reloadProgram(); }, [reloadProgram]);
+
+  async function saveProgramCourses(next: ProgramCourseOut[]) {
+    if (!course) return;
+    setProgramBusy(true); setErr(null);
+    try {
+      setProgramCourses(await admin.lms.setProgramCourses(course.id, {
+        courses: next.map((r) => ({ course_id: r.course_id, is_mandatory: r.is_mandatory })),
+      }));
+    } catch (e) { setErr(errMsg(e)); await reloadProgram(); }
+    finally { setProgramBusy(false); }
+  }
+  function moveProgramCourse(idx: number, dir: -1 | 1) {
+    if (!programCourses) return;
+    const next = [...programCourses];
+    const j = idx + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[idx], next[j]] = [next[j], next[idx]];
+    void saveProgramCourses(next);
+  }
 
   // ----------------------------------------------------- save metadata (debounced)
 
@@ -477,8 +524,104 @@ export default function CourseEditorPage({
                 it from their dashboard. Publish only when it should be publicly
                 discoverable.
               </p>
+              <label className="sm:col-span-2 flex items-center gap-2 mt-1">
+                <input type="checkbox" checked={meta.is_program ?? false}
+                       disabled={parentPrograms.length > 0}
+                       onChange={(e) => onMeta({ is_program: e.target.checked })} />
+                <span className="text-sm font-medium">Program (wraps other courses)</span>
+              </label>
+              <p className="sm:col-span-2 text-xs text-slate-500 -mt-1">
+                A program is sold and enrolled like any course (free, paid, or via a
+                plan) and gives its learners every included course automatically —
+                now and whenever you add one later. Courses a learner bought
+                separately are never affected.
+                {parentPrograms.length > 0 && (
+                  <> This course is included in{" "}
+                    {parentPrograms.map((p, i) => (
+                      <span key={p.id}>{i > 0 && ", "}
+                        <Link href={`/admin/courses/${p.id}`} className="text-indigo-600 hover:underline">{p.title}</Link>
+                      </span>
+                    ))}
+                    {" "}— access to it is derived from there; it can&apos;t become a program itself.
+                  </>
+                )}
+              </p>
             </div>
           </section>
+
+          {/* Program: included courses */}
+          {course.is_program && (
+            <section className="bg-white border border-amber-200 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-1 gap-3">
+                <h2 className="font-semibold text-slate-900">Included courses</h2>
+                <span className="text-xs text-slate-500">{programBusy ? "Saving…" : `${programCourses?.length ?? 0} in program`}</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Learners see them in this order. Changes apply to everyone enrolled
+                on their next page load.
+              </p>
+              {programCourses === null ? (
+                <p className="text-sm text-slate-500">Loading…</p>
+              ) : programCourses.length === 0 ? (
+                <p className="text-sm text-slate-500 mb-3">No courses yet — add the first one below.</p>
+              ) : (
+                <ol className="divide-y divide-slate-100 border border-slate-200 rounded-lg mb-3">
+                  {programCourses.map((r, i) => (
+                    <li key={r.course_id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                      <span className="w-5 text-xs font-mono text-slate-400">{i + 1}</span>
+                      <Link href={`/admin/courses/${r.course_id}`}
+                            className="min-w-0 flex-1 font-medium text-slate-900 hover:text-indigo-700 hover:underline truncate">
+                        {r.title ?? `Course #${r.course_id}`}
+                        {r.is_published === false && (
+                          <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold uppercase bg-slate-100 text-slate-600 rounded">internal</span>
+                        )}
+                      </Link>
+                      <label className="flex items-center gap-1 text-xs text-slate-600">
+                        <input type="checkbox" checked={r.is_mandatory} disabled={programBusy}
+                               onChange={(e) => void saveProgramCourses(
+                                 programCourses.map((x) => x.course_id === r.course_id ? { ...x, is_mandatory: e.target.checked } : x))} />
+                        Mandatory
+                      </label>
+                      <button type="button" disabled={programBusy || i === 0} onClick={() => moveProgramCourse(i, -1)}
+                              aria-label="Move up" className="px-1.5 text-slate-500 hover:text-indigo-600 disabled:opacity-30">↑</button>
+                      <button type="button" disabled={programBusy || i === programCourses.length - 1} onClick={() => moveProgramCourse(i, 1)}
+                              aria-label="Move down" className="px-1.5 text-slate-500 hover:text-indigo-600 disabled:opacity-30">↓</button>
+                      <button type="button" disabled={programBusy}
+                              onClick={() => { if (confirm(`Remove "${r.title}" from this program? Learners keep any separately bought copy.`)) void saveProgramCourses(programCourses.filter((x) => x.course_id !== r.course_id)); }}
+                              className="text-xs text-rose-600 hover:underline">Remove</button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <div className="flex items-center gap-2">
+                <select value={addCourseId}
+                        onChange={(e) => setAddCourseId(e.target.value ? Number(e.target.value) : "")}
+                        aria-label="Course to add"
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                  <option value="">Add a course…</option>
+                  {allCourses
+                    .filter((c) => c.id !== course.id && !c.is_program
+                                && !(programCourses ?? []).some((r) => r.course_id === c.id))
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>{c.title}{c.is_published ? "" : " (internal)"}</option>
+                    ))}
+                </select>
+                <button type="button" disabled={programBusy || addCourseId === ""}
+                        onClick={() => {
+                          const c = allCourses.find((x) => x.id === addCourseId);
+                          if (!c || !programCourses) return;
+                          setAddCourseId("");
+                          void saveProgramCourses([...programCourses, {
+                            course_id: c.id, position: programCourses.length, is_mandatory: true,
+                            title: c.title, slug: c.slug, is_published: c.is_published,
+                          }]);
+                        }}
+                        className="px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                  + Add
+                </button>
+              </div>
+            </section>
+          )}
 
           {/* Categories — chip selector */}
           <section className="bg-white border border-slate-200 rounded-xl p-5">
@@ -629,7 +772,9 @@ export default function CourseEditorPage({
                     {" · "}
                     {enrollments.filter((e) => e.source === "subscription").length} via plan
                     {" · "}
-                    {enrollments.filter((e) => e.source !== "subscription").length} direct
+                    {enrollments.filter((e) => e.source === "program").length} via program
+                    {" · "}
+                    {enrollments.filter((e) => e.source !== "subscription" && e.source !== "program").length} direct
                   </>
                 )}
               </p>
@@ -684,6 +829,7 @@ export default function CourseEditorPage({
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 text-slate-500">
                   <span>{e.source === "subscription" ? "via plan"
+                         : e.source === "program" ? "via program"
                          : e.source === "admin_grant" ? "direct" : e.source}</span>
                   {e.source === "subscription" && e.backing_subscription_status && (
                     <span className={

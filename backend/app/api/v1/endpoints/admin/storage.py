@@ -229,6 +229,9 @@ def storage_overview(db: Session = Depends(get_db),
 def storage_files(
     status: str = Query("all"),
     q: str = Query(""),
+    kind: str = Query("", description=(
+        "video | image | document | '' — coarse mime filter used by the "
+        "lesson editor's 'choose from library' picker")),
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
 ):
@@ -240,6 +243,17 @@ def storage_files(
     if status != "all":
         want = {"unlinked": {"unlinked", "held"}}.get(status, {status})
         rows = [r for r in rows if r["status"] in want]
+    if kind:
+        def _is_kind(r: dict) -> bool:
+            m = r["mime"] or ""
+            if kind == "video":
+                return m.startswith("video/")
+            if kind == "image":
+                return m.startswith("image/")
+            if kind == "document":
+                return not (m.startswith("video/") or m.startswith("image/"))
+            return True
+        rows = [r for r in rows if _is_kind(r)]
     if q:
         needle = q.lower()
         rows = [r for r in rows

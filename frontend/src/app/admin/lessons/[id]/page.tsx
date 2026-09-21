@@ -16,11 +16,12 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { admin, errMsg, absoluteUploadUrl } from "@/lib/api";
 import VideoCompressDialog from "@/components/lms/VideoCompressDialog";
+import { MediaLibraryPicker } from "@/components/admin/MediaLibraryPicker";
 import type {
   MediaTrashOut,
   LessonOut, LessonUpdateIn, LessonFileOut, LessonFileCreateIn,
   QuizOut, QuizQuestionOut, QuizOptionOut, QuizQuestionType,
-  VideoProvider, FileCategory,
+  VideoProvider, FileCategory, StorageFileOut,
 } from "@/types/api";
 import type { Block, PartialBlock } from "@blocknote/core";
 
@@ -149,6 +150,25 @@ export default function LessonEditorPage({
     finally { setUploading(false); }
   }
 
+  /** "Choose from library": attach an already-uploaded file. Shares the
+   *  same server path — no copy; the storage scan links it here too. */
+  async function addExistingFile(picked: StorageFileOut, category: FileCategory) {
+    setErr(null);
+    if (files.some((f) => f.file_url === picked.path)) {
+      setErr("That file is already attached to this lesson."); return;
+    }
+    try {
+      const f = await admin.lms.addFile(lessonId, {
+        filename: picked.name,
+        file_url: picked.path,
+        file_size_bytes: picked.size_bytes,
+        mime_type: picked.mime,
+        file_category: category,
+      });
+      setFiles((prev) => [...prev, f]);
+    } catch (e) { setErr(errMsg(e)); }
+  }
+
   async function deleteFile(id: number) {
     if (!confirm("Remove this file?")) return;
     try {
@@ -270,6 +290,7 @@ export default function LessonEditorPage({
           <FileAttachmentsSection files={files}
                                   uploading={uploading}
                                   onUpload={addFile}
+                                  onPickExisting={addExistingFile}
                                   onDelete={deleteFile} />
         </main>
 
@@ -505,6 +526,7 @@ function VideoUploadField({
   // through the same admin.uploads.file path.
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const isR2 = videoProvider === "r2" && videoUrl?.startsWith("/uploads/");
 
   async function actuallyUpload(file: File) {
@@ -591,12 +613,24 @@ function VideoUploadField({
           )}
         </div>
       </label>
-      <div className="mt-1 text-right">
+      <div className="mt-1 flex items-center justify-between gap-3">
+        <button type="button" onClick={() => setLibraryOpen(true)}
+                className="text-xs font-medium text-indigo-600 hover:underline">
+          Choose from library… <span className="font-normal text-slate-500">(reuse a video already uploaded to another lesson)</span>
+        </button>
         <button onClick={() => setTrashOpen(true)}
                 className="text-xs text-slate-500 hover:text-indigo-600 hover:underline">
           Reuse a file from trash…
         </button>
       </div>
+      {libraryOpen && (
+        <MediaLibraryPicker
+          kind="video"
+          excludePath={videoUrl}
+          onPick={(f) => { setLibraryOpen(false); onUploaded(f.path); }}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
       {trashOpen && (
         <TrashReusePicker
           onPick={(restoredPath) => { setTrashOpen(false); onUploaded(restoredPath); }}
@@ -690,15 +724,17 @@ function TrashReusePicker({
 // ============================================================ File attachments section
 
 function FileAttachmentsSection({
-  files, uploading, onUpload, onDelete,
+  files, uploading, onUpload, onPickExisting, onDelete,
 }: {
   files: LessonFileOut[];
   uploading: boolean;
   onUpload: (file: File, category: FileCategory) => Promise<void>;
+  onPickExisting: (file: StorageFileOut, category: FileCategory) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
 }) {
   const [category, setCategory] = useState<FileCategory>("reference");
   const [dragging, setDragging] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   // Pull the server-side cap so the picker hint stays accurate even
   // if MAX_UPLOAD_MB is bumped on the VPS. One fetch on mount; fall
   // back to the conservative 100 MB display if the config endpoint
@@ -764,6 +800,20 @@ function FileAttachmentsSection({
           )}
         </div>
       </label>
+      <div className="mt-1">
+        <button type="button" onClick={() => setLibraryOpen(true)}
+                className="text-xs font-medium text-indigo-600 hover:underline">
+          Choose from library… <span className="font-normal text-slate-500">(attach a file already uploaded elsewhere — no copy)</span>
+        </button>
+      </div>
+      {libraryOpen && (
+        <MediaLibraryPicker
+          kind="any"
+          title={`Attach an existing file as ${category.replace("_", " ")}`}
+          onPick={(f) => { setLibraryOpen(false); void onPickExisting(f, category); }}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
 
       {files.length > 0 && (
         <ul className="divide-y divide-slate-100 mt-3">

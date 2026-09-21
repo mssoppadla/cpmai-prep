@@ -516,7 +516,7 @@ export type CourseDifficulty = "beginner" | "intermediate" | "advanced";
 export type LessonType       = "video" | "text" | "quiz" | "checklist" | "live" | "assignment";
 export type VideoProvider    = "r2" | "youtube" | "vimeo" | "stream";
 export type FileCategory     = "assignment" | "reference" | "starter_code" | "solution";
-export type EnrollmentSource = "purchased" | "admin_grant" | "subscription" | "free";
+export type EnrollmentSource = "purchased" | "admin_grant" | "subscription" | "free" | "program";
 export type QuizQuestionType = "single_choice" | "multi_choice" | "true_false" | "short_answer";
 
 export interface CourseOut {
@@ -541,6 +541,8 @@ export interface CourseOut {
   lead_instructor_id: number | null;
   discussion_url: string | null;
   display_order: number;
+  /** A Program wraps other courses; enrolling derives access to them. */
+  is_program: boolean;
   is_published: boolean;
   is_deleted: boolean;
   deleted_at: string | null;
@@ -569,10 +571,13 @@ export interface CoursePublicOut {
   lead_instructor_id: number | null;
   discussion_url: string | null;
   display_order: number;
+  is_program: boolean;
   // Catalog-only: first free-preview video lesson (signed URL), for the
   // "play preview" button on course cards. Null when no free preview.
   preview_video_url?: string | null;
   preview_lesson_id?: number | null;
+  /** Catalog-only: number of courses a program wraps (null for courses). */
+  program_course_count?: number | null;
 }
 export interface CourseCreateIn {
   slug: string;
@@ -594,9 +599,35 @@ export interface CourseCreateIn {
   lead_instructor_id?: number | null;
   discussion_url?: string | null;
   display_order?: number;
+  is_program?: boolean;
   is_published?: boolean;
 }
 export type CourseUpdateIn = Partial<CourseCreateIn>;
+
+/** One included course of a Program (admin editor listing). */
+export interface ProgramCourseOut {
+  course_id: number;
+  position: number;
+  is_mandatory: boolean;
+  title: string | null;
+  slug: string | null;
+  is_published: boolean | null;
+}
+export interface ProgramCoursesSetIn {
+  courses: Array<{ course_id: number; is_mandatory?: boolean }>;
+}
+/** A program's included course with the viewer's progress (dashboard). */
+export interface ProgramChildOut {
+  course_id: number;
+  title: string;
+  slug: string;
+  is_mandatory: boolean;
+  position: number;
+  lessons_completed: number;
+  lessons_total: number;
+  progress_percent: number;
+  completed_at: string | null;
+}
 
 export interface ChapterOut {
   id: number;
@@ -726,6 +757,9 @@ export interface EnrollmentOut {
   lessons_completed?: number | null;
   lessons_total?: number | null;
   progress_percent?: number | null;
+  /** Program card: children nested here are NOT repeated as own cards. */
+  is_program?: boolean;
+  program_children?: ProgramChildOut[] | null;
   // "Listen as podcast" resume pointer.
   podcast_lesson_id?: number | null;
   podcast_position_seconds?: number | null;
@@ -891,6 +925,17 @@ export interface CourseDetailPublicOut {
   /** Live count of active+historical enrollments on this course.
    *  Used by the public course detail page as social proof. */
   enrollment_count: number;
+  /** Program only: included courses (unpublished ones only for enrollees). */
+  program_courses: Array<{
+    course: CoursePublicOut;
+    position: number;
+    is_mandatory: boolean;
+    is_enrolled: boolean;
+    lessons_completed: number;
+    lessons_total: number;
+    progress_percent: number;
+    completed_at: string | null;
+  }>;
   chapters: Array<{
     id: number;
     title: string;

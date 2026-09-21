@@ -404,6 +404,68 @@ function MyCoursesSection() {
           const pct = c.progress_percent ?? 0;
           const done = c.completed_at != null;
           const href = c.course_slug ? `/courses/${c.course_slug}` : "/courses";
+          const kids = c.is_program ? (c.program_children ?? []) : null;
+          if (kids) {
+            // Program card: spans the row, lists every included course once
+            // (a course you also own separately still appears only here).
+            const allDone = kids.length > 0 && kids.every((k) => k.completed_at != null);
+            return (
+              <div key={c.id}
+                   className="sm:col-span-2 bg-white rounded-xl border border-amber-200 p-5">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="min-w-0">
+                    <span className="inline-block mb-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                      Program · {kids.length} {kids.length === 1 ? "course" : "courses"}
+                    </span>
+                    <Link href={href} className="block font-semibold text-slate-900 hover:text-indigo-700 hover:underline">
+                      {c.course_title ?? "Program"}
+                    </Link>
+                  </div>
+                  {allDone && (
+                    <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Completed
+                    </span>
+                  )}
+                </div>
+                <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                  <div className={`h-full rounded-full ${allDone ? "bg-emerald-500" : "bg-amber-500"}`}
+                       style={{ width: `${pct}%` }} role="progressbar"
+                       aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} />
+                </div>
+                <div className="mt-1.5 mb-3 flex items-center justify-between text-xs text-slate-500">
+                  <span>{c.lessons_completed ?? 0} / {c.lessons_total ?? 0} lessons across the program</span>
+                  <span className="font-medium text-amber-700 tabular-nums">{pct}%</span>
+                </div>
+                {kids.length === 0 ? (
+                  <p className="text-sm text-slate-500">Courses are being added to this program.</p>
+                ) : (
+                  <ul className="grid sm:grid-cols-2 gap-2">
+                    {kids.map((k, i) => {
+                      const kdone = k.completed_at != null;
+                      return (
+                        <li key={k.course_id}>
+                          <Link href={`/courses/${k.slug}`}
+                                className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 hover:border-indigo-300 hover:bg-indigo-50/40 transition">
+                            <span className="text-xs font-mono text-slate-400 w-4 shrink-0">{i + 1}</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-medium text-slate-900 truncate">{k.title}</span>
+                              <span className="mt-1 block h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                                <span className={`block h-full rounded-full ${kdone ? "bg-emerald-500" : "bg-indigo-600"}`}
+                                      style={{ width: `${k.progress_percent}%` }} />
+                              </span>
+                            </span>
+                            <span className={`text-xs tabular-nums shrink-0 ${kdone ? "text-emerald-700" : "text-slate-500"}`}>
+                              {kdone ? "Done" : `${k.progress_percent}%`}
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          }
           return (
             <Link
               key={c.id}

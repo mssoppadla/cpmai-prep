@@ -22,7 +22,7 @@ Difficulty     = Literal["beginner", "intermediate", "advanced"]
 LessonType     = Literal["video", "text", "quiz", "checklist", "live", "assignment"]
 VideoProvider  = Literal["r2", "youtube", "vimeo", "stream"]
 FileCategory   = Literal["assignment", "reference", "starter_code", "solution"]
-EnrollmentSource = Literal["purchased", "admin_grant", "subscription", "free"]
+EnrollmentSource = Literal["purchased", "admin_grant", "subscription", "free", "program"]
 QuestionType   = Literal["single_choice", "multi_choice", "true_false", "short_answer"]
 
 SLUG_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
@@ -53,6 +53,7 @@ class CourseOut(BaseModel):
     lead_instructor_id: Optional[int]
     discussion_url: Optional[str] = None
     display_order: int
+    is_program: bool = False
     is_published: bool
     is_deleted: bool
     deleted_at: Optional[datetime]
@@ -84,6 +85,7 @@ class CoursePublicOut(BaseModel):
     lead_instructor_id: Optional[int]
     discussion_url: Optional[str] = None
     display_order: int
+    is_program: bool = False
 
 
 class CourseCreateIn(BaseModel):
@@ -106,6 +108,7 @@ class CourseCreateIn(BaseModel):
     lead_instructor_id: Optional[int] = None
     discussion_url: Optional[str] = None
     display_order: int = Field(default=100, ge=0, le=10000)
+    is_program: bool = False
     is_published: bool = False
 
 
@@ -129,7 +132,31 @@ class CourseUpdateIn(BaseModel):
     lead_instructor_id: Optional[int] = None
     discussion_url: Optional[str] = None
     display_order: Optional[int] = Field(default=None, ge=0, le=10000)
+    is_program: Optional[bool] = None
     is_published: Optional[bool] = None
+
+
+# ============================================================ Program
+
+class ProgramCourseOut(BaseModel):
+    """One included course of a Program, as the admin editor lists it."""
+    model_config = ConfigDict(from_attributes=True)
+    course_id: int
+    position: int
+    is_mandatory: bool
+    title: Optional[str] = None
+    slug: Optional[str] = None
+    is_published: Optional[bool] = None
+
+
+class ProgramCourseIn(BaseModel):
+    course_id: int
+    is_mandatory: bool = True
+
+
+class ProgramCoursesSetIn(BaseModel):
+    """Replaces the program's included-course list; order = position."""
+    courses: list[ProgramCourseIn] = Field(default_factory=list, max_length=200)
 
 
 # ============================================================ Chapter
@@ -332,9 +359,26 @@ class EnrollmentOut(BaseModel):
     lessons_completed: Optional[int] = None
     lessons_total: Optional[int] = None
     progress_percent: Optional[int] = None
+    # Program cards: the enrolled course is a Program and these are its
+    # included courses (each with the learner's progress). Courses that
+    # appear here are NOT repeated as their own cards.
+    is_program: bool = False
+    program_children: Optional[list["ProgramChildOut"]] = None
     # "Listen as podcast" resume pointer.
     podcast_lesson_id: Optional[int] = None
     podcast_position_seconds: Optional[int] = None
+
+
+class ProgramChildOut(BaseModel):
+    course_id: int
+    title: str
+    slug: str
+    is_mandatory: bool
+    position: int
+    lessons_completed: int = 0
+    lessons_total: int = 0
+    progress_percent: int = 0
+    completed_at: Optional[datetime] = None
 
 
 class PodcastPointerIn(BaseModel):

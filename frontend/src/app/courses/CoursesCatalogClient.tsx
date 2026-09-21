@@ -190,6 +190,11 @@ export function CoursesCatalogClient({ initialCourses, initialCategories }: {
                 {/* Body links to the course */}
                 <Link href={`/courses/${c.slug}`} className="block p-4 flex-1">
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    {c.is_program && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                        Program · {c.program_course_count ?? 0} {c.program_course_count === 1 ? "course" : "courses"}
+                      </span>
+                    )}
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${difficultyBadge(c.difficulty)}`}>
                       {c.difficulty}
                     </span>

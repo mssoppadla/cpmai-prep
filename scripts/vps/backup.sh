@@ -132,9 +132,34 @@ ok "env + system-config snapshot stored"
 # empty archive — restore.sh handles that case as a no-op.
 say "Archiving uploads volume → ${UPLOADS_FILE}"
 if $DC exec -T backend sh -c 'test -d /app/uploads' 2>/dev/null; then
-  $DC exec -T backend tar -czf - -C /app/uploads . > "${UPLOADS_FILE}.partial" \
-    && mv "${UPLOADS_FILE}.partial" "$UPLOADS_FILE" \
-    || { rm -f "${UPLOADS_FILE}.partial"; warn "uploads tar failed (continuing)"; }
+  # Skip the (multi-GB) tar when nothing under /app/uploads changed since
+  # the newest archive we still hold. The manifest is path+size+mtime of
+  # every file, hashed; it is written next to each archive as
+  # <archive>.manifest.sha. Five releases in four days × 6.8 GB filled
+  # the disk on 2026-09-21 with byte-identical copies. An archive is
+  # only skipped when a full-size previous archive actually exists.
+  MANIFEST_SHA=$($DC exec -T backend sh -c \
+    "cd /app/uploads && find . -type f -printf '%p %s %T@\n' | LC_ALL=C sort | sha256sum | cut -d' ' -f1" \
+    2>/dev/null || true)
+  PREV_MANIFEST=$(ls -1t "$BACKUP_DIR"/*.uploads.tar.gz.manifest.sha 2>/dev/null | head -n 1 || true)
+  PREV_ARCHIVE="${PREV_MANIFEST%.manifest.sha}"
+  PREV_SHA=""
+  if [ -n "$PREV_MANIFEST" ] && [ -f "$PREV_ARCHIVE" ]; then
+    PREV_SHA=$(cat "$PREV_MANIFEST" 2>/dev/null || true)
+    PREV_BYTES=$(stat -c %s "$PREV_ARCHIVE" 2>/dev/null || stat -f %z "$PREV_ARCHIVE" 2>/dev/null || echo 0)
+    [ "${PREV_BYTES:-0}" -lt 1024 ] && PREV_SHA=""   # never trust an empty archive
+  fi
+  if [ -n "$MANIFEST_SHA" ] && [ -n "$PREV_SHA" ] && [ "$MANIFEST_SHA" = "$PREV_SHA" ]; then
+    ok "uploads unchanged since $(basename "$PREV_ARCHIVE") — tar skipped"
+    UPLOADS_FILE="$PREV_ARCHIVE"
+  else
+    $DC exec -T backend tar -czf - -C /app/uploads . > "${UPLOADS_FILE}.partial" \
+      && mv "${UPLOADS_FILE}.partial" "$UPLOADS_FILE" \
+      || { rm -f "${UPLOADS_FILE}.partial"; warn "uploads tar failed (continuing)"; }
+    if [ -f "$UPLOADS_FILE" ] && [ -n "$MANIFEST_SHA" ]; then
+      printf '%s\n' "$MANIFEST_SHA" > "${UPLOADS_FILE}.manifest.sha"
+    fi
+  fi
   if [ -f "$UPLOADS_FILE" ]; then
     # Uploads can include signed PDFs / screenshots with personal data —
     # match the env tar's 0600 so /var/backups is read-protected even
@@ -174,17 +199,17 @@ say "Pruning old backups..."
 # can fail noisily without aborting the surrounding deploy.
 (
   set +e
-  # Daily — keep 30 most recent sql/env (small), but only 7 uploads
-  # tarballs: at ~2 GB each, 30 of them is ~60 GB of near-identical
-  # archives — THE disk eater found on 2026-08-07 (76/96 GB used while
-  # the app itself needs ~2 GB). Uploads change rarely; a week of
-  # dailies plus the pre-deploy copies below is ample coverage.
+  # Daily — keep 30 most recent sql/env (small), but only 2 uploads
+  # tarballs: at ~7 GB each, even 7 of them is ~50 GB of near-identical
+  # archives — THE disk eater found on 2026-08-07 and again on
+  # 2026-09-21 (98% full). Uploads change rarely and unchanged snapshots
+  # are skipped above, so two verified copies is the safety margin.
   ls -1t "$BACKUP_DIR"/*__daily.sql.gz 2>/dev/null \
     | tail -n +31 | xargs -r rm -f
   ls -1t "$BACKUP_DIR"/*__daily.env.tar.gz 2>/dev/null \
     | tail -n +31 | xargs -r rm -f
   ls -1t "$BACKUP_DIR"/*__daily.uploads.tar.gz 2>/dev/null \
-    | tail -n +8 | xargs -r rm -f
+    | tail -n +3 | xargs -r rm -f
   # Custom-format dumps + manifests follow the daily-sql retention (30)
   ls -1t "$BACKUP_DIR"/*__daily.dump 2>/dev/null \
     | tail -n +31 | xargs -r rm -f
@@ -193,18 +218,24 @@ say "Pruning old backups..."
   # Pre-deploy older than 14 days
   find "$BACKUP_DIR" -maxdepth 1 -name '*__pre-deploy-*' -mtime +14 -print -delete 2>/dev/null \
     | sed 's/^/  pruned /'
-  # Pre-deploy UPLOADS tarballs additionally capped at the 5 most recent
-  # regardless of age: at ~2 GB each, a burst of deploys can eat the disk
-  # inside the 14-day window (2026-08-07: 67% → 81% in one day). The
-  # matching .sql.gz files stay the full 14 days — they're small and
-  # they're the actual rollback target; uploads rarely change per-deploy.
+  # Pre-deploy UPLOADS tarballs additionally capped at the 2 most recent
+  # regardless of age: at ~7 GB each, a burst of deploys can eat the disk
+  # inside the 14-day window (2026-08-07: 67% → 81% in one day;
+  # 2026-09-21: 98%). The matching .sql.gz files stay the full 14 days —
+  # they're small and they're the actual rollback target.
   ls -1t "$BACKUP_DIR"/*__pre-deploy-*.uploads.tar.gz 2>/dev/null \
-    | tail -n +6 | xargs -r rm -f
+    | tail -n +3 | xargs -r rm -f
+  # Manifests whose archive is gone are useless — drop them so the
+  # "unchanged" check above never compares against a pruned archive.
+  for m in "$BACKUP_DIR"/*.uploads.tar.gz.manifest.sha; do
+    [ -f "$m" ] && [ ! -f "${m%.manifest.sha}" ] && rm -f "$m"
+  done
   # Manual / arbitrary tags older than 30 days — ALL three suffixes.
   # (Was .sql.gz only, which stranded 2 GB uploads tarballs forever.)
   find "$BACKUP_DIR" -maxdepth 1 \
     ! -name '*__daily*' ! -name '*__pre-deploy-*' \
     \( -name '*.sql.gz' -o -name '*.env.tar.gz' -o -name '*.uploads.tar.gz' \
+       -o -name '*.uploads.tar.gz.manifest.sha' \
        -o -name '*.dump' -o -name '*.counts.txt' \) \
     -mtime +30 -print -delete 2>/dev/null \
     | sed 's/^/  pruned /'

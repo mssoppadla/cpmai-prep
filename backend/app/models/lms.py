@@ -32,7 +32,7 @@ COURSE_DIFFICULTIES     = ("beginner", "intermediate", "advanced")
 LESSON_TYPES            = ("video", "text", "quiz", "checklist", "live", "assignment")
 LESSON_VIDEO_PROVIDERS  = ("r2", "youtube", "vimeo", "stream")
 LESSON_FILE_CATEGORIES  = ("assignment", "reference", "starter_code", "solution")
-ENROLLMENT_SOURCES      = ("purchased", "admin_grant", "subscription", "free")
+ENROLLMENT_SOURCES      = ("purchased", "admin_grant", "subscription", "free", "program")
 QUIZ_QUESTION_TYPES     = ("single_choice", "multi_choice", "true_false", "short_answer")
 
 
@@ -72,6 +72,9 @@ class Course(Base):
     # ``lms_public.get_public_course``.
     discussion_url     = Column(Text, nullable=True)
     display_order      = Column(Integer, nullable=False, default=100)
+    # A Program wraps other courses (see ProgramCourse). Enrolling in the
+    # program derives access to every included course at read time.
+    is_program         = Column(Boolean, nullable=False, default=False)
 
     is_published = Column(Boolean, nullable=False, default=False)
     is_deleted   = Column(Boolean, nullable=False, default=False, index=True)
@@ -84,6 +87,30 @@ class Course(Base):
     updated_at = Column(DateTime(timezone=True),
                         server_default=func.now(), onupdate=func.now(),
                         nullable=False)
+
+
+class ProgramCourse(Base):
+    """Ordered link Program → included Course (migration 0054). One level
+    deep: the API refuses a program as a child and refuses turning a
+    child into a program. Access derived from these links is
+    ``Enrollment.source == "program"`` — see lms_public."""
+    __tablename__ = "program_courses"
+    __table_args__ = (
+        UniqueConstraint("program_id", "course_id",
+                         name="uq_program_courses_program_course"),
+    )
+
+    id         = Column(Integer, primary_key=True)
+    tenant_id  = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"),
+                        nullable=False, default=1)
+    program_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    course_id  = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    position   = Column(Integer, nullable=False, default=0)
+    is_mandatory = Column(Boolean, nullable=False, default=True)
+    added_at   = Column(DateTime(timezone=True), server_default=func.now())
+    added_by   = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
 
 # ===================================================================
