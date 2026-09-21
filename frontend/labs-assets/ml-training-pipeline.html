@@ -1,4 +1,5 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 
 <title>ML Training Pipeline, Illustrated</title>
@@ -40,6 +41,7 @@
   .hv:focus{text-decoration-style:solid}
   #gloss{position:fixed;z-index:50;display:none;max-width:360px;background:#182033;color:#f1f3f9;border-radius:12px;padding:12px 16px;font-size:14px;line-height:1.5;box-shadow:0 14px 40px rgba(10,15,35,.4)}
   #gloss b{display:block;color:#f0b98a;margin-bottom:3px;font-family:Manrope,sans-serif}
+@media(max-width:700px){header,figure,.legend,.abbr{padding-left:12px;padding-right:12px}}
 </style>
 
 <header>
@@ -578,7 +580,8 @@
   // never lock a bogus size in — retry until the width is real
   // content width of the figure (clientWidth includes its padding; sizing
   // to that overhung by the padding and forced a horizontal scrollbar)
-  const fit = () => { const fig = svg.parentElement, cs = getComputedStyle(fig); const wd = fig.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0); if (wd < 100) { setTimeout(fit, 250); return; } svg.style.width = wd + "px"; svg.style.height = "auto"; };
+  const fit = () => { const fig = svg.parentElement, cs = getComputedStyle(fig); const wd = fig.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0); if (wd < 100) { setTimeout(fit, 250); return; } svg.style.width = Math.round(wd * (window.__labZoom || 1)) + "px"; svg.style.height = "auto"; };
+  window.__labFit = fit;
   fit();
   window.addEventListener("resize", () => { if (window.devicePixelRatio !== dpr) { dpr = window.devicePixelRatio; return; } fit(); });
 })();
@@ -618,5 +621,44 @@
   new MutationObserver(queue).observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ["class", "hidden", "open", "style"] });
   document.addEventListener("transitionend", queue, true);
   window.addEventListener("load", post); setTimeout(post, 400);
+})();
+</script>
+
+<!-- lab zoom toolbar: 100% = fit to width. Phones start zoomed in so the
+     drawing is legible and pan sideways; -/Fit/+ and pinch work everywhere. -->
+<style>
+.labzoom{position:fixed;right:10px;bottom:10px;z-index:70;display:flex;gap:2px;align-items:center;background:rgba(24,32,51,.92);color:#fff;border-radius:999px;padding:4px 6px;font:600 13px/1 "Source Sans 3","Segoe UI",system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.labzoom button{border:0;background:transparent;color:#fff;font:inherit;font-size:17px;width:34px;height:34px;border-radius:50%;cursor:pointer;padding:0}
+.labzoom button.fit{width:auto;padding:0 10px;font-size:12px;letter-spacing:.04em}
+.labzoom button:hover,.labzoom button:focus-visible{background:rgba(255,255,255,.18);outline:none}
+.labzoom .pct{min-width:42px;text-align:center;font-variant-numeric:tabular-nums;font-size:12px}
+.labzoom .hint{position:absolute;right:0;bottom:46px;white-space:nowrap;background:rgba(24,32,51,.88);padding:5px 9px;border-radius:7px;font-size:11.5px;font-weight:400;display:none}
+.labzoom.hinting .hint{display:block}
+html,body{overflow-x:auto;touch-action:pan-x pan-y pinch-zoom}
+</style>
+<script>
+(() => {
+  const NARROW = window.innerWidth < 700;
+  const bar = document.createElement("div");
+  bar.className = "labzoom"; bar.setAttribute("role", "group"); bar.setAttribute("aria-label", "Zoom");
+  bar.innerHTML = '<span class="hint">Swipe sideways to pan · pinch to zoom</span>'
+    + '<button type="button" class="out" aria-label="Zoom out">−</button>'
+    + '<span class="pct" aria-live="polite">100%</span>'
+    + '<button type="button" class="in" aria-label="Zoom in">+</button>'
+    + '<button type="button" class="fit" aria-label="Fit to width">FIT</button>';
+  document.body.appendChild(bar);
+  const pct = bar.querySelector(".pct");
+  let z = 1;
+  const apply = () => { window.__labZoom = z; if (window.__labFit) window.__labFit(); pct.textContent = Math.round(z * 100) + "%"; };
+  const set = (v) => { z = Math.max(1, Math.min(6, v)); apply(); };
+  bar.querySelector(".in").addEventListener("click", () => set(z * 1.25));
+  bar.querySelector(".out").addEventListener("click", () => set(z / 1.25));
+  bar.querySelector(".fit").addEventListener("click", () => { set(1); window.scrollTo({ left: 0 }); });
+  if (NARROW) {
+    // a poster fitted to a phone is unreadable: start at a width where the
+    // small labels are ~8px and let the reader pan / pinch from there
+    set(Math.min(4, 1150 / Math.max(240, window.innerWidth)));
+    bar.classList.add("hinting"); setTimeout(() => bar.classList.remove("hinting"), 7000);
+  } else { apply(); }
 })();
 </script>
