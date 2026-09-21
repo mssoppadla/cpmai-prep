@@ -1,4 +1,5 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 
 <title>Data Understanding and Data Preparation</title>
@@ -23,7 +24,6 @@
   .layout{display:grid;grid-template-columns:290px minmax(0,1fr);gap:18px;max-width:1180px;margin:14px auto 0;padding:0 24px}
   .layout>main{min-width:0}
   @media(max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
-
   /* rail */
   .rail{position:sticky;top:12px;align-self:start;max-height:92vh;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}
   .rail .ph{font-family:Manrope,"Segoe UI",system-ui,sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin:10px 6px 6px;display:flex;align-items:center;gap:6px}
@@ -35,6 +35,35 @@
   .rail a.active{background:var(--p2soft);color:var(--p2);font-weight:700}
   .rail a.active .n{color:var(--p2)}
   .rail .cxpin{background:var(--crosssoft);border:1px dashed #d5c3f5;border-radius:10px;padding:8px 10px;margin:8px 4px;font-size:12px;color:var(--cross)}
+
+  /* phones & small tablets: the rail stops being a sticky sidebar (it
+     covered the whole screen — 2026-09-21) and becomes a collapsible
+     "Contents" panel above the stages; tap a link and it closes. */
+  .rail .railtoggle{display:none}
+  @media(max-width:900px){
+    header.hero{padding:18px 14px 10px}
+    .layout,.kept,.metrowrap{padding:0 12px}
+    .viewbar{flex-wrap:wrap;justify-content:flex-start;padding:8px 12px 0;gap:6px}
+    .viewbar .search{width:100%;margin-right:0}
+    .viewbar input{flex:1;width:auto;min-width:0}
+    .viewbar .count{min-width:0}
+    .rail{position:static;max-height:none;padding:6px 8px;margin-bottom:12px}
+    .rail .railtoggle{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;border:0;background:transparent;color:var(--ink);font:700 14px/1.3 Manrope,"Segoe UI",system-ui,sans-serif;padding:8px 6px;cursor:pointer;text-align:left}
+    .rail .railtoggle .cur{font:500 12.5px/1.3 "Source Sans 3","Segoe UI",system-ui,sans-serif;color:var(--ink2);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .rail .railtoggle .chev{flex:none;transition:transform .2s}
+    .rail.open .railtoggle .chev{transform:rotate(180deg)}
+    .rail .raillinks{display:none;padding-top:4px}
+    .rail.open .raillinks{display:block}
+    .stage>header{padding:12px 14px;gap:8px}
+    .stage>header h2{font-size:15.5px}
+    .stage .body{padding:12px 14px 14px;overflow-x:auto}
+    .srow{grid-template-columns:1fr 64px}
+    .srow .lbl{grid-column:1/-1;margin-bottom:-4px}
+    td.annc{width:auto}
+    svg.ann.photo{width:160px}
+    .abbr .g div{grid-template-columns:110px 1fr}
+    #gloss{max-width:calc(100vw - 20px);left:10px!important;right:10px}
+  }
 
   /* stage cards */
   .stage{background:var(--panel);border:1px solid var(--line);border-radius:16px;margin-bottom:22px;overflow:hidden;scroll-margin-top:14px}
@@ -200,6 +229,8 @@
 <div class="viewbar"><div class="search"><input id="q" type="search" placeholder="Search the page — e.g. RAG, leakage, PSI" aria-label="Search the page"><span class="count" id="qcount"></span><button id="qprev" title="Previous hit">↑</button><button id="qnext" title="Next hit">↓</button></div><span>Every section starts collapsed — click a heading to open it.</span><button id="expandall">Expand all</button><button id="collapseall">Collapse all</button></div>
 <div class="layout">
   <nav class="rail">
+    <button type="button" class="railtoggle" aria-expanded="false" aria-controls="raillinks"><span>Contents</span><span class="cur" id="railcur"></span><span class="chev" aria-hidden="true">▾</span></button>
+    <div class="raillinks" id="raillinks">
     <div class="ph p2">◆ Phase II · Data Understanding</div>
     <a href="#s1"><span class="n">01</span>Identify data SMEs</a>
     <a href="#s2"><span class="n">02</span>Define required data</a>
@@ -223,6 +254,7 @@
     <a href="#s20" class="gate"><span class="n">⛔</span>GATE 3 · Validate &amp; gate</a>
     <a href="#abbr"><span class="n">Aa</span>Abbreviations</a>
     <a href="#s21"><span class="n">→VI</span>Preview · Operate (Phase VI)</a>
+    </div>
   </nav>
 
   <main>
@@ -1619,5 +1651,18 @@
   new MutationObserver(queue).observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ["class", "hidden", "open", "style"] });
   document.addEventListener("transitionend", queue, true);
   window.addEventListener("load", post); setTimeout(post, 400);
+})();
+</script>
+
+<script>
+(() => { // mobile contents panel: toggle, close on pick, show the active section
+  const rail = document.querySelector(".rail"), btn = rail && rail.querySelector(".railtoggle"), cur = document.getElementById("railcur");
+  if (!rail || !btn) return;
+  const setOpen = (o) => { rail.classList.toggle("open", o); btn.setAttribute("aria-expanded", String(o)); };
+  btn.addEventListener("click", () => setOpen(!rail.classList.contains("open")));
+  rail.querySelectorAll(".raillinks a").forEach(a => a.addEventListener("click", () => { if (window.innerWidth <= 900) setOpen(false); }));
+  const sync = () => { const a = rail.querySelector("a.active"); if (!cur) return; if (!a) { cur.textContent = ""; return; } const n = a.querySelector(".n"); cur.textContent = (n ? a.textContent.replace(n.textContent, "") : a.textContent).trim(); };
+  new MutationObserver(sync).observe(rail, { attributes: true, subtree: true, attributeFilter: ["class"] });
+  sync();
 })();
 </script>
