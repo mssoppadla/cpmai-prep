@@ -1,7 +1,8 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { admin, content as contentApi, errMsg } from "@/lib/api";
+import { QuestionEditorForm, type QuestionEditorHandle } from "@/components/admin/QuestionEditorForm";
 import type { DomainOut, QuestionAdminOut } from "@/types/api";
 
 // One page of questions. The list endpoint is offset/limit paged; we fetch
@@ -24,6 +25,52 @@ export default function QuestionsListPage() {
   // selection was made against a different result set).
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
+
+  // Side-panel editor. Editing happens next to the list so the filters
+  // and page stay exactly as they are (previously every edit bounced to
+  // /admin/questions/[id] and back, losing the filter each time).
+  const [openId, setOpenId] = useState<number | "new" | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const editorRef = useRef<QuestionEditorHandle>(null);
+  // Pending navigation blocked by unsaved edits: what to open next.
+  const [pending, setPending] = useState<number | "new" | null | undefined>(undefined);
+
+  /** Open a question (or close with null); asks first when there are
+   *  unsaved edits. */
+  function requestOpen(next: number | "new" | null) {
+    if (next === openId) return;
+    if (dirty) { setPending(next); return; }
+    setOpenId(next);
+  }
+  async function resolvePending(action: "save" | "discard" | "stay") {
+    const next = pending;
+    setPending(undefined);
+    if (action === "stay" || next === undefined) return;
+    if (action === "save") {
+      const ok = await editorRef.current?.save();
+      if (!ok) return;            // invalid / failed: stay on the question
+    }
+    setDirty(false);
+    setOpenId(next);
+  }
+  // Tab close / hard navigation with edits.
+  useEffect(() => {
+    if (!dirty) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [dirty]);
+
+  /** A save landed: refresh that row in place (keeps position + filter). */
+  function onSaved(row: QuestionAdminOut, wasNew: boolean) {
+    if (wasNew) {
+      setOpenId(row.id);
+      void load(page);
+      return;
+    }
+    setRows(prev => prev ? prev.map(r => r.id === row.id
+      ? { ...row, in_sets: row.in_sets?.length ? row.in_sets : r.in_sets } : r) : prev);
+  }
 
   const load = useCallback(async (p: number) => {
     try {
@@ -68,6 +115,7 @@ export default function QuestionsListPage() {
     if (!confirm("Delete this question? It will also be removed from any exam set it belongs to. Already-submitted attempts keep their frozen review.")) return;
     try {
       await admin.questions.delete(id);
+      if (openId === id) { setDirty(false); setOpenId(null); }
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
       await load(page);
     }
@@ -149,13 +197,39 @@ export default function QuestionsListPage() {
                            text-sm font-medium rounded-lg hover:bg-slate-50">
             ↥ Bulk upload
           </Link>
-          <Link href="/admin/questions/new"
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
-                           rounded-lg hover:bg-indigo-700">
+          <button type="button" onClick={() => requestOpen("new")}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium
+                             rounded-lg hover:bg-indigo-700">
             + New Question
-          </Link>
+          </button>
         </div>
       </header>
+
+      {/* Unsaved-changes prompt when switching questions */}
+      {pending !== undefined && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="unsaved-title">
+          <div className="absolute inset-0 bg-slate-900/50" onClick={() => void resolvePending("stay")} />
+          <div className="relative w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+            <h2 id="unsaved-title" className="font-semibold text-slate-900">Unsaved changes</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              The question you are editing has unsaved edits. They will be lost if you
+              {pending === null ? " close the editor" : " move to another question"} without saving.
+            </p>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => void resolvePending("stay")}
+                      className="px-3 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">Stay here</button>
+              <button type="button" onClick={() => void resolvePending("discard")}
+                      className="px-3 py-2 text-sm border border-rose-300 text-rose-700 rounded-lg hover:bg-rose-50">
+                Discard &amp; {pending === null ? "close" : "move"}
+              </button>
+              <button type="button" onClick={() => void resolvePending("save")}
+                      className="px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                Save &amp; {pending === null ? "close" : "move"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex gap-2 flex-wrap">
         <input value={filter.q}
@@ -207,12 +281,14 @@ export default function QuestionsListPage() {
 
       {err && <div className="bg-rose-50 border border-rose-200 text-rose-700
                               p-3 rounded-lg mb-4 text-sm">{err}</div>}
+      <div className={openId !== null ? "grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,44%)] items-start" : ""}>
+      <div className="min-w-0">
       {!rows ? <div className="text-slate-500">Loading…</div>
        : rows.length === 0 ? (
          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center
                          text-slate-500">
-           No questions match. <Link href="/admin/questions/new" className="text-indigo-600">
-           Create the first one</Link>.
+           No questions match. <button type="button" onClick={() => requestOpen("new")} className="text-indigo-600 hover:underline">
+           Create the first one</button>.
          </div>
        ) : (
         <>
@@ -250,17 +326,22 @@ export default function QuestionsListPage() {
                          onChange={togglePage} />
                 </th>
                 <th className="px-4 py-3">Stem</th>
-                <th className="px-4 py-3">Domain</th>
+                <th className={`px-4 py-3 ${openId !== null ? "hidden 2xl:table-cell" : ""}`}>Domain</th>
                 <th className="px-4 py-3">Phase</th>
-                <th className="px-4 py-3">Difficulty</th>
+                <th className={`px-4 py-3 ${openId !== null ? "hidden 2xl:table-cell" : ""}`}>Difficulty</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map(q => (
-                <tr key={q.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3">
+                <tr key={q.id}
+                    onClick={() => requestOpen(q.id)}
+                    aria-selected={openId === q.id}
+                    className={`cursor-pointer ${openId === q.id
+                      ? "bg-indigo-50/70 ring-1 ring-inset ring-indigo-200"
+                      : "hover:bg-slate-50"}`}>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox"
                            aria-label={`Select question ${q.id}`}
                            checked={selected.has(q.id)}
@@ -285,7 +366,7 @@ export default function QuestionsListPage() {
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm text-slate-600 max-w-[16rem]">
+                  <td className={`px-4 py-3 text-sm text-slate-600 max-w-[16rem] ${openId !== null ? "hidden 2xl:table-cell" : ""}`}>
                     {q.domain
                       ? <span className="line-clamp-2">{q.domain}</span>
                       : <span className="text-slate-400 italic">Unassigned</span>}
@@ -293,7 +374,7 @@ export default function QuestionsListPage() {
                   <td className="px-4 py-3 text-sm text-slate-600">
                     {topicCode(q.topic_id)}
                   </td>
-                  <td className="px-4 py-3 text-sm text-slate-600 capitalize">
+                  <td className={`px-4 py-3 text-sm text-slate-600 capitalize ${openId !== null ? "hidden 2xl:table-cell" : ""}`}>
                     {q.difficulty}
                   </td>
                   <td className="px-4 py-3">
@@ -305,11 +386,11 @@ export default function QuestionsListPage() {
                       {q.is_active ? "active" : "draft"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <Link href={`/admin/questions/${q.id}`}
-                          className="text-xs text-indigo-600 hover:underline mr-3">
-                      Edit
-                    </Link>
+                  <td className="px-4 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" onClick={() => requestOpen(q.id)}
+                            className="text-xs text-indigo-600 hover:underline mr-3">
+                      {openId === q.id ? "Editing" : "Edit"}
+                    </button>
                     <button onClick={() => remove(q.id)}
                             className="text-xs text-rose-600 hover:underline">
                       Delete
@@ -344,6 +425,42 @@ export default function QuestionsListPage() {
         </div>
         </>
       )}
+      </div>
+
+      {/* Right-hand editor panel (full-screen sheet below xl). */}
+      {openId !== null && (
+        <aside className="max-xl:fixed max-xl:inset-0 max-xl:z-40 max-xl:overflow-y-auto max-xl:bg-slate-900/40 max-xl:p-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto"
+               aria-label="Question editor">
+          <div className="max-xl:bg-slate-50 max-xl:rounded-xl max-xl:p-3 max-xl:min-h-full">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-semibold text-slate-900">
+                {openId === "new" ? "New question" : `Edit question #${openId}`}
+                {dirty && <span className="ml-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">unsaved</span>}
+              </h2>
+              <div className="flex items-center gap-3 text-xs">
+                {openId !== "new" && (
+                  <Link href={`/admin/questions/${openId}`} className="text-slate-500 hover:text-indigo-600"
+                        onClick={(e) => { if (dirty) { e.preventDefault(); } }}>
+                    Open full page ↗
+                  </Link>
+                )}
+                <button type="button" onClick={() => requestOpen(null)}
+                        className="text-slate-500 hover:text-slate-900" aria-label="Close editor">✕ Close</button>
+              </div>
+            </div>
+            <QuestionEditorForm
+              ref={editorRef}
+              key={String(openId)}
+              questionId={openId}
+              compact
+              onDirtyChange={setDirty}
+              onSaved={onSaved}
+              onCancel={() => requestOpen(null)}
+            />
+          </div>
+        </aside>
+      )}
+      </div>
     </div>
   );
 }

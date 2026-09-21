@@ -1,386 +1,48 @@
 "use client";
+/**
+ * Standalone question editor (deep links from exam-set pages, and
+ * "new"). Day-to-day editing happens in the side panel on
+ * /admin/questions, which keeps the list's filters in place; this page
+ * reuses the same form so both stay identical.
+ */
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { admin, content as contentApi, ApiError, errMsg } from "@/lib/api";
-import { RichTextEditor } from "@/components/RichText";
-import type {
-  Difficulty, DomainOut, QuestionAdminIn, QuestionOptionIn, QuestionType,
-} from "@/types/api";
-
-const LETTERS = ["A", "B", "C", "D", "E", "F"];
-const blankOption = (i: number): QuestionOptionIn => ({
-  option_letter: LETTERS[i], text: "", is_correct: false, reasoning: "",
-});
+import { QuestionEditorForm } from "@/components/admin/QuestionEditorForm";
 
 export default function QuestionEditorPage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
   const isNew = id === "new";
+  const [dirty, setDirty] = useState(false);
 
-  const [topics, setTopics] = useState<Array<{id:number;code:string;name:string}>>([]);
-  const [domains, setDomains] = useState<DomainOut[]>([]);
-  const [form, setForm] = useState<QuestionAdminIn>({
-    stem: "", topic_id: 0,
-    domain: "", task: "", enablers: [], remarks: "",
-    difficulty: "medium",
-    question_type: "single_choice",
-    explanation: "",
-    options: [blankOption(0), blankOption(1), blankOption(2), blankOption(3)],
-    is_active: true,
-  });
-  const [enablersText, setEnablersText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
+  // Browser-level guard: closing the tab / hard navigation with edits.
   useEffect(() => {
-    contentApi.topics().then(t => {
-      setTopics(t);
-      if (isNew && t.length > 0) setForm(f => ({ ...f, topic_id: t[0].id }));
-    });
-    contentApi.domains().then(setDomains).catch(() => {});
-    if (!isNew) {
-      admin.questions.get(Number(id))
-        .then(q => {
-          setForm({
-            stem: q.stem, topic_id: q.topic_id,
-            domain: q.domain ?? "", task: q.task ?? "",
-            enablers: q.enablers ?? [],
-            remarks: q.remarks ?? "",
-            difficulty: q.difficulty ?? "medium",
-            question_type: q.question_type ?? "single_choice",
-            explanation: q.explanation ?? "",
-            options: q.options.map(o => ({
-              option_letter: o.option_letter, text: o.text,
-              is_correct: o.is_correct ?? false, reasoning: o.reasoning ?? "",
-            })),
-            is_active: q.is_active ?? true,
-          });
-          setEnablersText((q.enablers ?? []).join(", "));
-        })
-        .catch((e) => setErr(errMsg(e)));
-    }
-  }, [id, isNew]);
-
-  function setOption(i: number, patch: Partial<QuestionOptionIn>) {
-    setForm(f => ({
-      ...f, options: f.options.map((o, j) => j === i ? { ...o, ...patch } : o),
-    }));
-  }
-  function setCorrect(i: number) {
-    // Single-choice: radio behavior — picking one un-picks the rest.
-    setForm(f => ({
-      ...f, options: f.options.map((o, j) => ({ ...o, is_correct: j === i })),
-    }));
-  }
-  function toggleCorrect(i: number) {
-    // Multi-choice: checkbox behavior — flips one option independently.
-    setForm(f => ({
-      ...f, options: f.options.map((o, j) =>
-        j === i ? { ...o, is_correct: !o.is_correct } : o),
-    }));
-  }
-  function setQuestionType(qt: QuestionType) {
-    setForm(f => {
-      // When switching TO single_choice, demote all-correct down to
-      // the first checked one (or the first option) so the form is
-      // immediately valid. When switching TO multi_choice, leave the
-      // existing correctness flags untouched — admin will adjust.
-      if (qt === "single_choice") {
-        let firstChecked = f.options.findIndex(o => o.is_correct);
-        if (firstChecked === -1) firstChecked = 0;
-        return {
-          ...f, question_type: qt,
-          options: f.options.map((o, j) => ({ ...o, is_correct: j === firstChecked })),
-        };
-      }
-      return { ...f, question_type: qt };
-    });
-  }
-  function addOption() {
-    if (form.options.length >= 6) return;
-    setForm(f => ({
-      ...f, options: [...f.options, blankOption(f.options.length)],
-    }));
-  }
-  function removeOption(i: number) {
-    if (form.options.length <= 2) return;
-    setForm(f => ({
-      ...f, options: f.options.filter((_, j) => j !== i)
-        .map((o, j) => ({ ...o, option_letter: LETTERS[j] })),
-    }));
-  }
-
-  async function save() {
-    setBusy(true); setErr(null);
-    const payload: QuestionAdminIn = {
-      ...form,
-      enablers: enablersText.split(",").map(s => s.trim()).filter(Boolean),
-      domain: form.domain || null,
-      task: form.task || null,
-      remarks: form.remarks || null,
-      explanation: form.explanation || null,
-    };
-    try {
-      if (isNew) {
-        const created = await admin.questions.create(payload);
-        router.push(`/admin/questions/${created.id}`);
-      } else {
-        await admin.questions.update(Number(id), payload);
-      }
-    } catch (e) {
-      console.error("[admin/questions] save failed", e);
-      setErr(errMsg(e));
-    } finally { setBusy(false); }
-  }
-
-  // The domain a phase usually maps to (D-II..D-V), offered as a one-click
-  // suggestion. Trustworthy (D-I) is cross-cutting and never auto-suggested.
-  const selectedTopicCode = topics.find(t => t.id === form.topic_id)?.code;
-  const suggestedDomain = selectedTopicCode
-    ? domains.find(d => d.phase_codes.includes(selectedTopicCode))
-    : undefined;
-
-  const correctCount = form.options.filter(o => o.is_correct).length;
-  const isMulti = form.question_type === "multi_choice";
-  // Validation mirrors the backend rules so the Save button reflects
-  // server-side acceptance.
-  //   single: exactly 1 correct
-  //   multi:  >= 2 correct AND >= 1 incorrect
-  const correctnessOk = isMulti
-    ? (correctCount >= 2 && correctCount < form.options.length)
-    : (correctCount === 1);
-  const validOptions = correctnessOk
-    && form.options.every(o => o.text.trim().length > 0)
-    && new Set(form.options.map(o => o.option_letter)).size === form.options.length;
-  const canSave = form.stem.length >= 10 && form.topic_id > 0 && validOptions;
+    if (!dirty) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [dirty]);
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 sm:p-8 max-w-4xl">
       <Link href="/admin/questions"
+            onClick={(e) => { if (dirty && !confirm("You have unsaved changes. Leave and discard them?")) e.preventDefault(); }}
             className="text-sm text-slate-500 hover:text-indigo-600">
         ← All questions
       </Link>
       <h1 className="text-2xl font-bold text-slate-900 mt-2 mb-6">
         {isNew ? "New question" : `Edit question #${id}`}
       </h1>
-
-      {err && <div className="bg-rose-50 border border-rose-200 text-rose-700
-                              p-3 rounded-lg mb-4 text-sm">{err}</div>}
-
-      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Question stem
-          </label>
-          <textarea value={form.stem} rows={3}
-                    onChange={(e) => setForm({ ...form, stem: e.target.value })}
-                    placeholder="In CPMAI Phase 2, …"
-                    className={input + " font-medium"} />
-          <div className="text-xs text-slate-500 mt-1">
-            {form.stem.length} / 4000 chars · min 10
-          </div>
-        </div>
-
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              CPMAI phase
-            </label>
-            <select value={form.topic_id || ""}
-                    onChange={(e) => setForm({ ...form, topic_id: Number(e.target.value) })}
-                    className={input}>
-              <option value="">— select —</option>
-              {topics.map(t => (
-                <option key={t.id} value={t.id}>{t.code} — {t.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Difficulty
-            </label>
-            <select value={form.difficulty}
-                    onChange={(e) => setForm({ ...form, difficulty: e.target.value as Difficulty })}
-                    className={input}>
-              <option value="easy">easy</option>
-              <option value="medium">medium</option>
-              <option value="hard">hard</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Question type
-            </label>
-            <select value={form.question_type ?? "single_choice"}
-                    onChange={(e) => setQuestionType(e.target.value as QuestionType)}
-                    className={input}>
-              <option value="single_choice">Single choice (one correct, radio)</option>
-              <option value="multi_choice">Multi choice (≥2 correct, checkboxes)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              ECO domain
-            </label>
-            <select value={form.domain ?? ""}
-                    onChange={(e) => setForm({ ...form, domain: e.target.value })}
-                    className={input}>
-              <option value="">— unassigned —</option>
-              {domains.map(d => (
-                <option key={d.code} value={d.code}>{d.code} — {d.name}</option>
-              ))}
-              {/* A stored value the registry can't resolve (legacy free-
-                  text) still needs to be visible — otherwise the select
-                  renders blank and saving silently drops the old value. */}
-              {form.domain && !domains.some(d => d.code === form.domain) && (
-                <option value={form.domain}>{form.domain} (legacy — please re-pick)</option>
-              )}
-            </select>
-            {suggestedDomain && form.domain !== suggestedDomain.code && (
-              <button type="button"
-                      onClick={() => setForm({ ...form, domain: suggestedDomain.code })}
-                      className="text-xs text-indigo-600 hover:underline mt-1">
-                This phase usually maps to {suggestedDomain.code} — {suggestedDomain.name}. Use it?
-              </button>
-            )}
-            <p className="text-xs text-slate-500 mt-1">
-              Results &amp; focused practice are grouped by domain. Pick{" "}
-              <strong>Trustworthy AI</strong> for cross-cutting questions.
-            </p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Task (optional)
-            </label>
-            <input value={form.task ?? ""}
-                   onChange={(e) => setForm({ ...form, task: e.target.value })}
-                   placeholder="Identify and document gaps"
-                   className={input} />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Enablers (comma-separated)
-          </label>
-          <input value={enablersText}
-                 onChange={(e) => setEnablersText(e.target.value)}
-                 placeholder="Data profiling, Quality metrics"
-                 className={input} />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Remarks (admin-only note)
-          </label>
-          <input value={form.remarks ?? ""}
-                 onChange={(e) => setForm({ ...form, remarks: e.target.value })}
-                 placeholder="Tests Phase 2 vs Phase 3 separation."
-                 className={input} />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            General explanation (shown after submit)
-          </label>
-          <RichTextEditor value={form.explanation ?? ""} minRows={3}
-                          placeholder="Explain the concept — formatting, emoji and pasted images supported."
-                          onChange={(html) => setForm({ ...form, explanation: html })} />
-        </div>
-
-        {/* Options */}
-        <div className="border-t border-slate-200 pt-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Options</label>
-              <p className="text-xs text-slate-500">
-                {isMulti
-                  ? "Mark every correct option. ≥2 must be correct AND ≥1 must be wrong. Learners pick all that apply (checkboxes); scoring is exact-set match."
-                  : "Mark exactly one as correct. Reasoning is shown after submit (correct → why, incorrect → why wrong)."}
-              </p>
-            </div>
-            <button onClick={addOption} disabled={form.options.length >= 6}
-                    className="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200
-                               rounded disabled:opacity-50">
-              + Add option
-            </button>
-          </div>
-          {!correctnessOk && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-800
-                            text-xs p-2 rounded mb-3">
-              {isMulti
-                ? `Multi-choice needs ≥2 correct AND ≥1 wrong (currently ${correctCount} correct of ${form.options.length}).`
-                : `Exactly one option must be marked correct (currently: ${correctCount}).`}
-            </div>
-          )}
-          <div className="space-y-3">
-            {form.options.map((opt, i) => (
-              <div key={i} className={`border rounded-lg p-3 ${
-                opt.is_correct ? "border-emerald-300 bg-emerald-50/40"
-                               : "border-slate-200 bg-white"
-              }`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-7 h-7 rounded-full border-2 border-slate-300
-                                   flex items-center justify-center font-bold text-xs">
-                    {opt.option_letter}
-                  </span>
-                  <label className="flex items-center gap-1 text-xs text-slate-700">
-                    {isMulti ? (
-                      <input type="checkbox"
-                             checked={opt.is_correct ?? false}
-                             onChange={() => toggleCorrect(i)} />
-                    ) : (
-                      <input type="radio" name="correct"
-                             checked={opt.is_correct ?? false}
-                             onChange={() => setCorrect(i)} />
-                    )}
-                    Correct
-                  </label>
-                  <div className="flex-1" />
-                  {form.options.length > 2 && (
-                    <button onClick={() => removeOption(i)}
-                            className="text-xs text-rose-600 hover:underline">
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <input value={opt.text}
-                       onChange={(e) => setOption(i, { text: e.target.value })}
-                       placeholder="Option text"
-                       className={input + " mb-2"} />
-                <RichTextEditor value={opt.reasoning ?? ""} minRows={2}
-                                placeholder={opt.is_correct
-                                  ? "Why this option is correct…"
-                                  : "Why this option is wrong…"}
-                                onChange={(html) => setOption(i, { reasoning: html })} />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="border-t border-slate-200 pt-5 flex items-center justify-between">
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" checked={form.is_active ?? true}
-                   onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-            Active (available to learners)
-          </label>
-          <div className="flex items-center gap-2">
-            <Link href="/admin/questions"
-                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-white
-                             border border-slate-300 rounded-lg hover:bg-slate-50">
-              Cancel
-            </Link>
-            <button onClick={save} disabled={!canSave || busy}
-                    className="px-5 py-2 text-sm font-medium text-white bg-indigo-600
-                               rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-              {busy ? "Saving…" : (isNew ? "Create question" : "Save changes")}
-            </button>
-          </div>
-        </div>
-      </div>
+      <QuestionEditorForm
+        questionId={isNew ? "new" : Number(id)}
+        onDirtyChange={setDirty}
+        onSaved={(row, wasNew) => { if (wasNew) router.push(`/admin/questions/${row.id}`); }}
+        onCancel={() => {
+          if (dirty && !confirm("Discard your unsaved changes?")) return;
+          router.push("/admin/questions");
+        }}
+      />
     </div>
   );
 }
-
-const input = "w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none";
