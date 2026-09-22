@@ -44,6 +44,7 @@ from app.core.audit import audit_log
 from app.core.deps import get_admin_user, get_db
 from app.core.exceptions import ValidationError
 from app.core.tenant import get_current_tenant_id
+from app.services.mp4_faststart import faststart, is_video_path
 from app.models.user import User
 
 
@@ -196,16 +197,27 @@ async def upload_file(
                 )
             out.write(chunk)
 
+    # MP4s: put the index (moov) in front of the media so playback starts
+    # after the first few hundred KB instead of after the whole download
+    # (see services/mp4_faststart). Best effort — a file we can't parse
+    # is left exactly as uploaded.
+    faststart_status = None
+    if is_video_path(final_name):
+        faststart_status = faststart(abs_path)
+        size = abs_path.stat().st_size
+
     url = _public_url(rel_path)
     audit_log(db, admin.id, "file.uploaded", {
         "filename": sanitised,
         "size_bytes": size,
         "mime_type": file.content_type,
         "url": url,
+        "faststart": faststart_status,
     })
     return {
         "url": url,
         "filename": sanitised,
         "mime_type": file.content_type,
         "size_bytes": size,
+        "faststart": faststart_status,
     }

@@ -236,6 +236,8 @@ export default function AdminStoragePage() {
         </div>
       )}
 
+      <FaststartPanel />
+
       <div className="border-b border-slate-200">
         <nav className="-mb-px flex gap-1">
           {TABS.map((t) => (
@@ -546,5 +548,110 @@ export default function AdminStoragePage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+
+/**
+ * Video streaming panel — MP4s whose index (moov) sits at the END make
+ * the player download the whole file before the first frame ("video
+ * takes forever to load", 2026-09-22). New uploads are fixed on the way
+ * in; this rewrites the ones already on disk, one file per request so
+ * a multi-GB lecture shows progress instead of timing out.
+ */
+function FaststartPanel() {
+  const [rows, setRows] = useState<Array<{ path: string; name: string; size_bytes: number; status: string }> | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+  const [log, setLog] = useState<string[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+
+  const scan = async () => {
+    setScanning(true); setErr(null);
+    try { setRows(await admin.storage.faststartScan()); }
+    catch (e) { setErr(errMsg(e)); }
+    finally { setScanning(false); }
+  };
+  const needs = (rows ?? []).filter((r) => r.status === "needs");
+
+  const optimize = async () => {
+    if (needs.length === 0) return;
+    if (!confirm(`Rewrite ${needs.length} video(s) so they start playing immediately? Each file is staged, verified, then swapped in — lessons keep the same URL.`)) return;
+    setRunning(true); setErr(null); setLog([]);
+    let done = 0;
+    for (const r of needs) {
+      setProgress({ done, total: needs.length, current: r.name });
+      try {
+        const res = await admin.storage.faststart(r.path);
+        setLog((l) => [...l, `${r.name}: ${res.status}`]);
+      } catch (e) {
+        setLog((l) => [...l, `${r.name}: failed — ${errMsg(e)}`]);
+      }
+      done += 1;
+      setProgress({ done, total: needs.length, current: r.name });
+    }
+    setRunning(false);
+    await scan();
+  };
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-slate-900">Video streaming</div>
+          <p className="text-xs text-slate-500">
+            MP4s with their index at the end make the player download the whole file
+            before the first frame. New uploads are fixed automatically; scan to find
+            older ones and rewrite them in place.
+          </p>
+        </div>
+        <button onClick={() => void scan()} disabled={scanning || running}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50">
+          {scanning ? "Scanning…" : rows ? "Rescan" : "Scan videos"}
+        </button>
+        {rows && needs.length > 0 && (
+          <button onClick={() => void optimize()} disabled={running}
+            className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+            {running ? "Optimizing…" : `Optimize ${needs.length} video${needs.length === 1 ? "" : "s"}`}
+          </button>
+        )}
+      </div>
+      {err && <p className="mt-2 text-xs text-rose-600">{err}</p>}
+      {rows && (
+        <p className="mt-2 text-xs text-slate-600">
+          {rows.length} video file(s): <b className="text-emerald-700">{rows.filter((r) => r.status === "faststart").length} ready</b>,{" "}
+          <b className={needs.length ? "text-amber-700" : ""}>{needs.length} slow to start</b>
+          {rows.some((r) => r.status.startsWith("skipped")) && (
+            <>, {rows.filter((r) => r.status.startsWith("skipped")).length} not parseable as MP4 (e.g. WebM from the compressor)</>
+          )}
+        </p>
+      )}
+      {progress && (
+        <div className="mt-2">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-indigo-600 transition-all"
+                 style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }} />
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {progress.done} / {progress.total}{running ? ` · ${progress.current}` : " · done"}
+          </div>
+        </div>
+      )}
+      {log.length > 0 && (
+        <ul className="mt-2 max-h-32 overflow-y-auto text-xs text-slate-600 space-y-0.5">
+          {log.map((l, i) => <li key={i}>{l}</li>)}
+        </ul>
+      )}
+      {rows && needs.length > 0 && !running && (
+        <ul className="mt-2 text-xs text-slate-500 space-y-0.5">
+          {needs.slice(0, 8).map((r) => (
+            <li key={r.path}>{r.name} · {fmtBytes(r.size_bytes)}</li>
+          ))}
+          {needs.length > 8 && <li>… and {needs.length - 8} more</li>}
+        </ul>
+      )}
+    </section>
   );
 }

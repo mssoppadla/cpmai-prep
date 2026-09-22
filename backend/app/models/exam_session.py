@@ -75,6 +75,10 @@ class ExamAttemptAnswer(Base):
     selected_letters = Column(JSON)
     is_correct = Column(Boolean)
     marked_for_review = Column(Boolean, default=False, nullable=False)
+    # Highlight / strike marks made during the attempt, keyed by target
+    # ("stem", "option-A", …) → [{start, end, kind}]. Kept after submit so
+    # the results review shows the question as the learner left it.
+    annotations = Column(JSON)
     answered_at = Column(DateTime(timezone=True))
 
     session = relationship("ExamSession", back_populates="answers")
