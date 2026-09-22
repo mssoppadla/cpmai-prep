@@ -124,6 +124,24 @@ def _build_phase_breakdown(db: Session,
     return rows
 
 
+_MAX_RANGES_PER_TARGET = 200
+
+
+def _clean_annotations(ann) -> dict:
+    """Normalise the wire shape to plain JSON: drop empty targets, cap
+    the range count, and keep only well-formed (start < end) ranges."""
+    out: dict[str, list[dict]] = {}
+    for target, ranges in (ann or {}).items():
+        keep = []
+        for r in list(ranges)[:_MAX_RANGES_PER_TARGET]:
+            d = r.model_dump() if hasattr(r, "model_dump") else dict(r)
+            if d.get("end", 0) > d.get("start", 0) and d.get("kind") in ("highlight", "strike"):
+                keep.append({"start": int(d["start"]), "end": int(d["end"]), "kind": d["kind"]})
+        if keep:
+            out[str(target)[:32]] = keep
+    return out
+
+
 class ExamService:
     def __init__(self, db: Session):
         self.db = db
@@ -583,6 +601,8 @@ class ExamService:
             ans.selected_letter = payload.selected_letter
             ans.selected_letters = None
         ans.marked_for_review = payload.marked_for_review
+        if payload.annotations is not None:
+            ans.annotations = _clean_annotations(payload.annotations)
         ans.answered_at = datetime.now(timezone.utc)
         self.db.commit()
 
@@ -679,6 +699,7 @@ class ExamService:
                 explanation=q.explanation,
                 is_user_correct=is_correct,
                 marked_for_review=bool(ans.marked_for_review),
+                annotations=ans.annotations or None,
                 options=[
                     QuestionOptionResultOut(
                         option_letter=o.option_letter, text=o.text,
@@ -715,7 +736,10 @@ class ExamService:
         # the set) must not rewrite what this candidate actually saw.
         # get_result serves this snapshot; live reconstruction remains
         # only for attempts submitted before the column existed.
-        session.result_snapshot = [r.model_dump(mode="json") for r in results]
+        # Frozen at the 0044 shape: marks (annotations) and the review flag
+        # live on the answer rows and are overlaid at read time.
+        session.result_snapshot = [r.model_dump(mode="json", exclude={"annotations"})
+                                   for r in results]
         self.db.commit()
 
         by_phase = _build_phase_breakdown(self.db, phase_counts)
@@ -941,6 +965,8 @@ class ExamService:
             started_at=session.started_at, expires_at=session.expires_at,
             status=session.status, questions=questions,
             user_answers=user_answers,
+            user_annotations={a.question_id: a.annotations
+                              for a in session.answers if a.annotations},
         )
 
     # ---------------------------------------------------------------- result
@@ -1007,6 +1033,7 @@ class ExamService:
                 explanation=q.explanation,
                 is_user_correct=bool(ans.is_correct),
                 marked_for_review=bool(ans.marked_for_review),
+                annotations=ans.annotations or None,
                 options=[
                     QuestionOptionResultOut(
                         option_letter=o.option_letter, text=o.text,
@@ -1046,9 +1073,12 @@ class ExamService:
         # (e.g. when the question itself was removed).
         marked = {a.question_id: bool(a.marked_for_review)
                   for a in session.answers}
+        notes = {a.question_id: a.annotations for a in session.answers}
         for r in results:
             if r.id in marked:
                 r.marked_for_review = marked[r.id]
+            if notes.get(r.id):
+                r.annotations = notes[r.id]
 
         correct = 0; incorrect = 0; unanswered = 0
         phase_counts: dict[int, dict] = {}

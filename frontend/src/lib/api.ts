@@ -1536,6 +1536,21 @@ export const admin = {
         `/admin/storage/trash-items`, { authed: true });
       return data;
     },
+    /** Every MP4 upload with whether its index is in front ("faststart"),
+     *  at the end ("needs" — slow to start), or unparseable ("skipped:…"). */
+    async faststartScan() {
+      const { data } = await request<Array<{
+        path: string; name: string; size_bytes: number; status: string;
+      }>>(`/admin/storage/faststart-scan`, { authed: true });
+      return data;
+    },
+    /** Rewrite one MP4 with the index in front (staged, verified, swapped). */
+    async faststart(path: string) {
+      const { data } = await request<{
+        path: string; status: string; size_before: number; size_after: number;
+      }>(`/admin/storage/faststart`, { method: "POST", json: { path }, authed: true });
+      return data;
+    },
     async restore(trashId: number, revertLesson = false) {
       const { data } = await request<{
         restored_path: string; reverted_lesson: boolean;

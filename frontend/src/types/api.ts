@@ -179,6 +179,8 @@ export interface QuestionResultView {
   explanation: string | null;
   options: QuestionOptionResultOut[];
   is_user_correct: boolean;
+  /** The learner's highlight / strike marks from the attempt. */
+  annotations?: ExamAnnotations | null;
   /** Candidate flagged this question with "Mark for review" during the
    *  sitting. Optional: absent on results served by older backends. */
   marked_for_review?: boolean;
@@ -267,6 +269,15 @@ export interface ExamSetAdminIn {
 export interface AddQuestionsIn { question_ids: number[] }
 export interface ReorderIn { items: Array<{ question_id: number; position: number }> }
 
+/** One highlight / strike over a text target (character offsets). */
+export interface ExamTextRange {
+  start: number;
+  end: number;
+  kind: "highlight" | "strike";
+}
+/** Per-question marks keyed by target: "stem", "option-A", … */
+export type ExamAnnotations = Record<string, ExamTextRange[]>;
+
 export interface ExamAttemptOut {
   id: number;
   exam_set: ExamSetSummaryOut;
@@ -275,6 +286,8 @@ export interface ExamAttemptOut {
   status: AttemptStatus;
   questions: QuestionAttemptView[];
   user_answers: Record<number, string | null>;
+  /** Marks saved so far, keyed by question id (server copy). */
+  user_annotations?: Record<number, ExamAnnotations>;
 }
 export interface AnswerIn {
   question_id: number;
@@ -283,6 +296,8 @@ export interface AnswerIn {
   /** Multi-choice questions: list of letters. Empty list = unanswered. */
   selected_letters?: string[] | null;
   marked_for_review?: boolean;
+  /** Omit to leave stored marks alone; {} clears them. */
+  annotations?: ExamAnnotations | null;
 }
 export interface PhaseBreakdown {
   topic_code: string;

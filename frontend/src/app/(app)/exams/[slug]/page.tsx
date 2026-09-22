@@ -60,6 +60,11 @@ export default function ExamAttemptPage() {
   const [submitIssue, setSubmitIssue] = useState<string | null>(null);
   const [marked, setMarked] = useState<Record<number, boolean>>({});
   const [annotations, setAnnotations] = useState<AnnotationsByQ>({});
+  // Mirror so payload builders always read the latest marks without
+  // re-creating every callback on each drag.
+  const annotationsRef = useRef<AnnotationsByQ>({});
+  useEffect(() => { annotationsRef.current = annotations; }, [annotations]);
+  const annTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tool, setTool] = useState<Tool>("none");
   const [reviewMode, setReviewMode] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -233,7 +238,9 @@ export default function ExamAttemptPage() {
         setSecondsLeft(secs);
         try {
           const ann = JSON.parse(localStorage.getItem(annKey(a.id)) ?? "{}");
-          setAnnotations(ann);
+          // Server copy first (new device / cleared storage), then the
+          // local copy on top — it may hold marks not yet confirmed.
+          setAnnotations({ ...(a.user_annotations ?? {}), ...ann });
           const mk = JSON.parse(localStorage.getItem(markKey(a.id)) ?? "{}");
           setMarked((m) => ({ ...mk, ...m }));
         } catch { /* ignore */ }
@@ -360,9 +367,11 @@ export default function ExamAttemptPage() {
     const payload =
       q.question_type === "multi_choice"
         ? { question_id: q.id, selected_letters: letters,
-            marked_for_review: marked[q.id] ?? false }
+            marked_for_review: marked[q.id] ?? false,
+            annotations: annotationsRef.current[q.id] ?? {} }
         : { question_id: q.id, selected_letter: letters[0] ?? null,
-            marked_for_review: marked[q.id] ?? false };
+            marked_for_review: marked[q.id] ?? false,
+            annotations: annotationsRef.current[q.id] ?? {} };
     await queueSave(attempt.id, payload);
   }, [attempt, index, marked, queueSave]);
 
@@ -375,15 +384,40 @@ export default function ExamAttemptPage() {
     const payload =
       q.question_type === "multi_choice"
         ? { question_id: q.id, selected_letters: arr,
-            marked_for_review: next[q.id] }
+            marked_for_review: next[q.id],
+            annotations: annotationsRef.current[q.id] ?? {} }
         : { question_id: q.id, selected_letter: arr[0] ?? null,
-            marked_for_review: next[q.id] };
+            marked_for_review: next[q.id],
+            annotations: annotationsRef.current[q.id] ?? {} };
     await queueSave(attempt.id, payload);
   }, [attempt, index, marked, queueSave]);
 
+  /** Push the current marks for one question to the server (same
+   *  queued/retried path as answers, so they survive a flaky network
+   *  and are there for the results review after submit). */
+  const saveAnnotations = useCallback((q_id: number) => {
+    if (!attempt) return;
+    const q = attempt.questions.find((x) => x.id === q_id);
+    if (!q) return;
+    const arr = wireToArr(attempt.user_answers[q_id]);
+    const payload: AnswerIn =
+      q.question_type === "multi_choice"
+        ? { question_id: q_id, selected_letters: arr,
+            marked_for_review: marked[q_id] ?? false,
+            annotations: annotationsRef.current[q_id] ?? {} }
+        : { question_id: q_id, selected_letter: arr[0] ?? null,
+            marked_for_review: marked[q_id] ?? false,
+            annotations: annotationsRef.current[q_id] ?? {} };
+    void queueSave(attempt.id, payload);
+  }, [attempt, marked, queueSave]);
+
   const handleRangesChange = useCallback((q_id: number, next: QuestionRanges) => {
     setAnnotations((all) => ({ ...all, [q_id]: next }));
-  }, []);
+    annotationsRef.current = { ...annotationsRef.current, [q_id]: next };
+    // Debounce: a drag-select fires once per stroke; batch a burst.
+    if (annTimerRef.current) clearTimeout(annTimerRef.current);
+    annTimerRef.current = setTimeout(() => { annTimerRef.current = null; saveAnnotations(q_id); }, 1200);
+  }, [saveAnnotations]);
 
   // `auto` = the countdown hit zero (clock-driven) — the server labels
   // the result "Auto-submitted — time expired".
@@ -397,6 +431,12 @@ export default function ExamAttemptPage() {
       // network. Submit proceeds even if some remain queued — the server
       // scores what it has, and a voided sitting is worse than a scored
       // one missing a flaky answer.
+      if (annTimerRef.current) {
+        // A mark made in the last second: send it now, not never.
+        clearTimeout(annTimerRef.current); annTimerRef.current = null;
+        const cur = attempt.questions[index];
+        if (cur) saveAnnotations(cur.id);
+      }
       await flushPending(attempt.id);
       // Submit with in-place retries. QUIC stalls / connection drops
       // surface as TypeError ("Failed to fetch"), not ApiError — those

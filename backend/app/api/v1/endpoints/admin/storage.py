@@ -46,6 +46,7 @@ from app.core.tenant import get_current_tenant_id
 from app.models.lms import Lesson
 from app.models.media import MediaCandidate, MediaTrash
 from app.models.user import User
+from app.services.mp4_faststart import faststart as _faststart, inspect as _fs_inspect, is_video_path
 from app.services.storage_scan import (
     TRASH_DIRNAME, is_system_path, links_for_paths, scan_links,
 )
@@ -368,6 +369,53 @@ def move_url_to_trash(db: Session, url: str, admin_id: int,
     db.add(row)
     db.flush()
     return row
+
+
+# ============================================================ faststart
+
+@router.get("/faststart-scan")
+def faststart_scan(db: Session = Depends(get_db),
+                   admin: User = Depends(get_admin_user)):
+    """Every MP4-family upload with whether its index sits in front
+    ('faststart'), at the end ('needs' — slow to start playing), or
+    can't be judged ('skipped:…'). Read-only."""
+    tid = get_current_tenant_id()
+    out = []
+    for f in _walk_uploads(tid):
+        if not is_video_path(f["name"]):
+            continue
+        abs_path = _safe_abs(f["path"])
+        if not abs_path or not abs_path.is_file():
+            continue
+        out.append({"path": f["path"], "name": f["name"],
+                    "size_bytes": f["size_bytes"], "status": _fs_inspect(abs_path)})
+    out.sort(key=lambda r: (r["status"] != "needs", -r["size_bytes"]))
+    return out
+
+
+class FaststartIn(BaseModel):
+    path: str
+
+
+@router.post("/faststart")
+def faststart_one(payload: FaststartIn, db: Session = Depends(get_db),
+                  admin: User = Depends(get_admin_user)):
+    """Rewrite ONE upload with moov first (staged next to it, verified,
+    then swapped in). One file per call so the admin UI can show
+    progress and a slow multi-GB lecture can't time out the batch."""
+    abs_path = _safe_abs(payload.path.split("?", 1)[0])
+    if not abs_path or not abs_path.is_file():
+        raise NotFoundError("File not found")
+    if not is_video_path(abs_path.name):
+        raise ValidationError("Not an MP4-family file.")
+    before = abs_path.stat().st_size
+    status = _faststart(abs_path)
+    after = abs_path.stat().st_size
+    audit_log(db, admin.id, "storage.faststart",
+              {"path": payload.path, "status": status,
+               "size_before": before, "size_after": after})
+    return {"path": payload.path, "status": status,
+            "size_before": before, "size_after": after}
 
 
 @router.get("/trash-items")

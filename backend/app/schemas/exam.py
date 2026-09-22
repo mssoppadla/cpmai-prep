@@ -1,7 +1,7 @@
 """Exam attempt schemas — answers strictly hidden during attempt."""
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.schemas.exam_set import ExamSetSummaryOut
 from app.schemas.question import QuestionAttemptView, QuestionResultView
 
@@ -29,6 +29,22 @@ class ExamAttemptOut(BaseModel):
     # doesn't break — the multi-choice page renders by splitting on ','.
     # Empty list / no selection → None.
     user_answers: dict[int, str | None]
+    # Highlight / strike marks saved so far, keyed by question_id
+    # (same shape as AnswerIn.annotations). Lets a reload / new device
+    # restore the marks from the server, not only from localStorage.
+    user_annotations: dict[int, dict[str, list["TextRangeIn"]]] = {}
+
+
+class TextRangeIn(BaseModel):
+    """One highlight / strike over a text target (character offsets)."""
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    kind: Literal["highlight", "strike"]
+
+
+# Per-question marks: target ("stem", "option-A", …) → ranges. Bounded so
+# a runaway client can't stuff megabytes into the answer row.
+Annotations = dict[str, list[TextRangeIn]]
 
 
 class AnswerIn(BaseModel):
@@ -43,6 +59,9 @@ class AnswerIn(BaseModel):
     selected_letter: str | None = None
     selected_letters: list[str] | None = None
     marked_for_review: bool = False
+    # None = leave the stored marks alone (a plain answer save); {} = the
+    # learner cleared every mark; otherwise the full current set.
+    annotations: Annotations | None = None
 
 
 class PhaseBreakdown(BaseModel):

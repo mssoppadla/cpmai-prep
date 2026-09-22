@@ -355,11 +355,20 @@ def _serve_file_with_range(path: _Path, request: _Request):
                 "Content-Range": f"bytes {start}-{end}/{file_size}",
                 "Accept-Ranges": "bytes",
                 "Content-Length": str(length),
+                "Cache-Control": _UPLOAD_CACHE_CONTROL,
             },
         )
 
     return _FileResponse(path, media_type=content_type,
-                         headers={"Accept-Ranges": "bytes"})
+                         headers={"Accept-Ranges": "bytes",
+                                  "Cache-Control": _UPLOAD_CACHE_CONTROL})
+
+
+# Media is immutable once uploaded (a replacement gets a new uuid name) and
+# the signed token in the URL already scopes it to the viewer, so let the
+# browser keep byte ranges it fetched: seeking back or re-watching a
+# lecture must not re-download it. ``private`` keeps shared caches out.
+_UPLOAD_CACHE_CONTROL = "private, max-age=86400"
 
 
 @app.get("/health")

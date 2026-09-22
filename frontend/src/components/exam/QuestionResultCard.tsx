@@ -1,12 +1,19 @@
 "use client";
 import type { QuestionResultView } from "@/types/api";
 import { RichTextView } from "@/components/RichText";
+import { AnnotatableText } from "./AnnotatableText";
+
+const noop = () => {};
 
 export function QuestionResultCard({
   result, index,
 }: { result: QuestionResultView; index: number }) {
   const correctOption = result.options.find(o => o.is_correct);
   const userOption = result.options.find(o => o.selected_by_user);
+  // The learner's own highlight / strike marks from the attempt, shown
+  // read-only exactly where they made them.
+  const marks = result.annotations ?? {};
+  const hasMarks = Object.values(marks).some((r) => r && r.length > 0);
 
   return (
     <div className={`bg-white rounded-xl border p-6 ${
@@ -35,8 +42,14 @@ export function QuestionResultCard({
       </div>
 
       <h3 className="text-base font-semibold text-slate-900 mb-2 leading-relaxed">
-        {result.stem}
+        <AnnotatableText text={result.stem} ranges={marks["stem"] ?? []} tool="none" onChange={noop} />
       </h3>
+      {hasMarks && (
+        <p className="text-[11px] text-slate-500 mb-2">
+          <span className="inline-block w-3 h-3 rounded bg-yellow-200 mr-1 align-middle" />highlight ·{" "}
+          <span className="inline-block w-3 h-0.5 bg-slate-500 mr-1 align-middle" />strikethrough — your marks from the exam
+        </p>
+      )}
 
       {(result.domain || result.task) && (
         <div className="flex flex-wrap gap-2 mb-4 text-xs">
@@ -78,7 +91,10 @@ export function QuestionResultCard({
                   {opt.option_letter}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm text-slate-900">{opt.text}</div>
+                  <div className="text-sm text-slate-900">
+                    <AnnotatableText text={opt.text} ranges={marks[`option-${opt.option_letter}`] ?? []}
+                                     tool="none" onChange={noop} />
+                  </div>
                   <div className="flex items-center gap-2 mt-1.5">
                     {isCorrect && (
                       <span className="text-xs font-semibold text-emerald-700">
